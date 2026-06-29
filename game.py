@@ -146,9 +146,14 @@ class State(Enum):
     STOP = 6  # Internal State
 
 
+# Number of plain number cards (ONE..NINE); only these may end the game.
+NUMBER_TYPE_VALUES = frozenset(range(Type.ONE.value, Type.NINE.value + 1))
+# Extra scalar features appended to the observation (see Game.observation):
+#   turn direction, next player's hand size, minimum opponent hand size.
+EXTRA_FEATURES = 3
 # observation() = hand(62) + discard(62) + state one-hot(len(State)) + draw_num(1)
-#                 + open-TAKI-color one-hot(4) + shown_card(62)
-OBSERVATION_SIZE = CARD_VECTOR_SIZE * 3 + len(State) + 1 + NUM_PLAY_COLORS
+#                 + open-TAKI-color one-hot(4) + shown_card(62) + extra features(3)
+OBSERVATION_SIZE = CARD_VECTOR_SIZE * 3 + len(State) + 1 + NUM_PLAY_COLORS + EXTRA_FEATURES
 
 
 def action_to_scalar(action, card):
@@ -280,6 +285,13 @@ class Game:
                 self.deck.extend([Card(t)] * 2)
         self.random.shuffle(self.deck)
         self.discard.append(self.deck.pop())
+        # Standard Taki: the game must open on a plain number card. Re-draw the
+        # starting card (returning it to the deck) until that holds, so no action
+        # card's effect is silently dropped at the start of the round.
+        while self.discard[-1].type.value not in NUMBER_TYPE_VALUES:
+            self.deck.append(self.discard.pop())
+            self.random.shuffle(self.deck)
+            self.discard.append(self.deck.pop())
         self.hands = []
         for i in range(len(self.agents)):
             a = []
@@ -318,6 +330,11 @@ class Game:
         """
         for i in range(amount):
             if len(self.deck) == 0:
+                # Recycle the discard pile (except the shown card) back into the deck.
+                if len(self.discard) <= 1:
+                    # Nothing left to recycle (all cards are in players' hands); the
+                    # deck is genuinely exhausted, so stop drawing rather than crash.
+                    return
                 self.deck.extend(self.discard[:-1])
                 self.random.shuffle(self.deck)
                 for card in self.deck:
@@ -461,7 +478,17 @@ class Game:
             print(f"It's player {self.curr+1}'s turn.")
         action, card = agent.play(self)
         self.process_action(action, card, self.curr)
-        if len(self.hands[self.curr]) == 0:
+        finished = len(self.hands[self.curr]) == 0
+        if finished and action is Action.PLAY_CARD \
+                and card.type.value not in NUMBER_TYPE_VALUES:
+            # Standard Taki: you may not end the game on an action card. Draw a
+            # penalty card and keep playing (the card's own effect still applies).
+            self.draw_card(self.curr, 1)
+            # Only truly finished if the deck was exhausted and no card could be drawn.
+            finished = len(self.hands[self.curr]) == 0
+            if self.debug and not finished:
+                print(f"Player {self.curr+1} can't finish on an action card; drew a penalty.")
+        if finished:
             self.state = State.FINISHED
             if self.debug:
                 print(f"Player {self.curr+1} won!")
@@ -486,9 +513,14 @@ class Game:
         :param agent: the agent to see the observation with.
         :return: the observation vector.
         """
-        # hand + discard + state(one-hot) + draw_num + open-TAKI-color(one-hot) + card shown
+        # hand + discard + state(one-hot) + draw_num + open-TAKI-color(one-hot)
+        #      + card shown + [direction, next player's hand size, min opponent hand size]
         if agent is None:
             agent = self.curr
+        next_player = (agent + self.dir) % len(self.agents)
+        other_hand_sizes = [len(h) for i, h in enumerate(self.hands) if i != agent]
+        min_other = min(other_hand_sizes) if other_hand_sizes else 0
+        extra = np.array([self.dir, len(self.hands[next_player]), min_other])
         return np.concatenate(
             (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0
              else np.zeros(CARD_VECTOR_SIZE, dtype=int),
@@ -496,4 +528,5 @@ class Game:
              state_to_vector(self.state),
              np.array([self.draw_num]),
              color_to_vector(self.taki_color),
-             card_to_vector(self.shown_card())))
+             card_to_vector(self.shown_card()),
+             extra))

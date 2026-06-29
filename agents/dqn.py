@@ -48,8 +48,10 @@ class AIAgent:
                       optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate))
         return model
 
-    def remember(self, state, action, reward, new_state, done):
-        self.memory.append([state, action, reward, new_state, done])
+    def remember(self, state, action, reward, new_state, done, next_valid=None):
+        # next_valid: the action scalars that are legal in new_state, used to mask the
+        # bootstrap target so it never relies on the Q-value of an illegal action.
+        self.memory.append([state, action, reward, new_state, done, next_valid])
 
     def replay(self):
         if len(self.memory) < self.batch_size:
@@ -59,11 +61,14 @@ class AIAgent:
         next_states = np.array([s[3] for s in samples])     # (batch, OBSERVATION_SIZE)
         targets = self.model.predict(states)                # (batch, ACTION_SIZE)
         next_q = self.target_model.predict(next_states)     # (batch, ACTION_SIZE)
-        for i, (_, action, reward, _, done) in enumerate(samples):
+        for i, (_, action, reward, _, done, next_valid) in enumerate(samples):
             if done:
                 targets[i][action] = reward
             else:
-                targets[i][action] = reward + self.gamma * np.max(next_q[i])
+                # Bootstrap only from actions that are legal in the next state; the
+                # network is never trained on illegal actions, so their Q-values are junk.
+                best_next = np.max(next_q[i][next_valid]) if next_valid else np.max(next_q[i])
+                targets[i][action] = reward + self.gamma * best_next
         self.model.fit(states, targets, epochs=1, verbose=0, batch_size=self.batch_size)
 
     def target_train(self):
