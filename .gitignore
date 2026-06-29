@@ -4,3 +4,8 @@ __pycache__/
 
 # Editor / IDE
 .vscode/
+
+# Training outputs (regenerable: checkpoints, per-run snapshots, plots).
+# Keep models/.gitkeep so the directory stays in the tree.
+/models/*
+!/models/.gitkeep
