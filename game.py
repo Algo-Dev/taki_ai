@@ -3,6 +3,18 @@ from enum import Enum
 
 import numpy as np
 
+# Size of a single card / deck vector (see card_to_vector / card_to_scalar):
+#   indices 0-59  -> the 60 colored card slots
+#   index   60    -> colorless Change Color
+#   index   61    -> Super TAKI
+CARD_VECTOR_SIZE = 62
+# Number of real play colors (RED, YELLOW, GREEN, BLUE); Color.NONE is encoded as all-zero.
+NUM_PLAY_COLORS = 4
+# Action scalar space (see action_to_scalar / scalar_to_action):
+#   0-59 colored plays, 60 colorless Change Color, 61 Super TAKI, 62 DRAW, 63 CLOSE_TAKI
+ACTION_SIZE = 64
+# OBSERVATION_SIZE is defined just below the State enum (it depends on len(State)).
+
 
 class Color(Enum):
     """
@@ -10,7 +22,7 @@ class Color(Enum):
     """
     NONE = 0
     RED = 1
-    YELLOW = 2
+    YELLOW = 2 
     GREEN = 3
     BLUE = 4
 
@@ -92,7 +104,12 @@ class Card:
         return 2
 
     def __eq__(self, other):
+        if not isinstance(other, Card):
+            return NotImplemented
         return self.type == other.type and self.color == other.color
+
+    def __hash__(self):
+        return hash((self.type, self.color))
 
 
 class Action(Enum):
@@ -129,6 +146,11 @@ class State(Enum):
     STOP = 6  # Internal State
 
 
+# observation() = hand(62) + discard(62) + state one-hot(len(State)) + draw_num(1)
+#                 + open-TAKI-color one-hot(4) + shown_card(62)
+OBSERVATION_SIZE = CARD_VECTOR_SIZE * 3 + len(State) + 1 + NUM_PLAY_COLORS
+
+
 def action_to_scalar(action, card):
     """
     Converts an action to a scalar.
@@ -138,12 +160,14 @@ def action_to_scalar(action, card):
     """
     if action is Action.PLAY_CARD:
         if card.color is not Color.NONE:
-            return (card.color.value-1) * 15 + card.type.value  # Play any non Super TAKI Card
-        return 60  # Play SUPER TAKI
+            return (card.color.value-1) * 15 + card.type.value  # Play any colored card
+        elif card.type is Type.CHCOL:
+            return 60  # Play a colorless Change Color
+        return 61  # Play SUPER TAKI
     elif action is Action.DRAW:
-        return 61
-    elif action is Action.CLOSE_TAKI:
         return 62
+    elif action is Action.CLOSE_TAKI:
+        return 63
 
 
 def scalar_to_action(scalar):
@@ -157,8 +181,10 @@ def scalar_to_action(scalar):
         color = Color((scalar - cardtype.value) // 15 + 1)
         return Action.PLAY_CARD, Card(cardtype, color)
     elif scalar == 60:
-        return Action.PLAY_CARD, Card(Type.TAKI)
+        return Action.PLAY_CARD, Card(Type.CHCOL)
     elif scalar == 61:
+        return Action.PLAY_CARD, Card(Type.TAKI)
+    elif scalar == 62:
         return Action.DRAW, None
     else:
         return Action.CLOSE_TAKI, None
@@ -188,11 +214,29 @@ def card_to_vector(card, *cards):
     :param cards: additional objects to add to the vector.
     :return: the card / deck vector/
     """
-    vec = np.zeros(62, dtype=int)
+    vec = np.zeros(CARD_VECTOR_SIZE, dtype=int)
     vec[card_to_scalar(card)] = 1
     if len(cards) > 0:
         for c in cards:
             vec += card_to_vector(c)
+    return vec
+
+
+def state_to_vector(state):
+    """One-hot encoding of a State (length len(State))."""
+    vec = np.zeros(len(State), dtype=int)
+    vec[state.value] = 1
+    return vec
+
+
+def color_to_vector(color):
+    """
+    One-hot encoding of a play color (length NUM_PLAY_COLORS).
+    Color.NONE (no open TAKI) is encoded as the all-zero vector.
+    """
+    vec = np.zeros(NUM_PLAY_COLORS, dtype=int)
+    if color is not Color.NONE:
+        vec[color.value - 1] = 1
     return vec
 
 
@@ -201,7 +245,7 @@ class Game:
     The general Game class.
     Controls the flow of the game.
     """
-    def __init__(self, agents, debug=False, seed=random.seed):
+    def __init__(self, agents, debug=False, seed=None):
         """
         Initialises the game
         :param agents: the agents playing
@@ -210,12 +254,21 @@ class Game:
         """
         assert 1 < len(agents) < 11
         self.agents = agents
+        self.debug = debug
+        self.random = random.Random(seed)
         self.curr = 0
         self.dir = 1
+        self.taki_color = Color.NONE  # the active color during an open (Super) TAKI
+        self._setup_round()
+
+    def _setup_round(self):
+        """
+        Builds, shuffles and deals a fresh deck for a new round.
+        """
         self.state = State.NORMAL
+        self.draw_num = 0
         self.deck = []
         self.discard = []
-        self.draw_num = 0
         for t in Type:
             if t == Type.CHCOL:
                 self.deck.extend([Card(Type.CHCOL)] * 4)
@@ -225,12 +278,10 @@ class Game:
                         self.deck.extend([Card(t, color)] * 2)
             if t == Type.TAKI:
                 self.deck.extend([Card(t)] * 2)
-        self.random = random.Random(seed)
         self.random.shuffle(self.deck)
         self.discard.append(self.deck.pop())
         self.hands = []
-        self.debug = debug
-        for i in range(len(agents)):
+        for i in range(len(self.agents)):
             a = []
             for j in range(8):
                 a.append(self.deck.pop())
@@ -238,29 +289,12 @@ class Game:
 
     def reset(self):
         """
-        Resets the game state.
+        Resets the game state for a fresh game.
         """
-        self.state = State.NORMAL
-        self.deck.clear()
-        for t in Type:
-            if t == Type.CHCOL:
-                self.deck.extend([Card(Type.CHCOL)] * 4)
-            else:
-                for color in Color:
-                    if color is not Color.NONE:
-                        self.deck.extend([Card(t, color)] * 2)
-            if t == Type.TAKI:
-                self.deck.extend([Card(t)] * 2)
-        self.random.shuffle(self.deck)
-        self.discard.clear()
-        self.discard.append(self.deck.pop())
-        self.hands.clear()
-        for i in range(len(self.agents)):
-            a = []
-            for j in range(8):
-                a.append(self.deck.pop())
-            self.hands.append(a)
-
+        self.curr = 0
+        self.dir = 1
+        self.taki_color = Color.NONE
+        self._setup_round()
 
     def shown_card(self):
         """
@@ -275,8 +309,6 @@ class Game:
         :return: the next player
         """
         self.curr = (self.curr + self.dir) % len(self.agents)
-        if self.curr < 0:
-            self.curr = len(self.agents) + self.curr
 
     def draw_card(self, agent, amount=1):
         """
@@ -318,8 +350,11 @@ class Game:
             if card.type is Type.TAKI:
                 if card.color is Color.NONE:
                     self.state = State.SUPER_TAKI
+                    # A Super TAKI acts as a TAKI of the color of the card beneath it.
+                    self.taki_color = self.discard[-2].color if len(self.discard) >= 2 else Color.NONE
                 else:
                     self.state = State.TAKI
+                    self.taki_color = card.color
             elif card.type is Type.PLUSTWO:
                 if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
                     self.state = State.DRAW_TWO
@@ -330,13 +365,16 @@ class Game:
                 if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
                     self.state = State.STOP
             elif card.type is Type.CHDIR:
-                self.dir *= -1
+                # Inside a TAKI only the last card's effect applies; defer to CLOSE_TAKI.
+                if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
+                    self.dir *= -1
             elif card.type is Type.PLUS:
                 if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
                     self.state = State.PLUS
             if self.debug:
                 print(f"Player {agent+1} played {str(card)}.")
         elif action is Action.CLOSE_TAKI:
+            self.taki_color = Color.NONE
             if self.shown_card().type is Type.STOP:
                 self.state = State.STOP
             elif self.shown_card().type is Type.PLUS:
@@ -344,6 +382,9 @@ class Game:
             elif self.shown_card().type is Type.PLUSTWO:
                 self.state = State.DRAW_TWO
                 self.draw_num += 1
+            elif self.shown_card().type is Type.CHDIR:
+                self.dir *= -1
+                self.state = State.NORMAL
             else:
                 self.state = State.NORMAL
             if self.debug:
@@ -372,13 +413,25 @@ class Game:
             agent = self.curr
         cards = self.hands[agent]
         res = []
+        in_taki = self.state is State.TAKI or self.state is State.SUPER_TAKI
         # Play Cards
         for card in cards:
             if self.state is State.DRAW_TWO:
-                if card is State.DRAW_TWO:
+                # Only another +2 may be played to stack onto the draw; otherwise draw.
+                if card.type is Type.PLUSTWO:
                     res.append((Action.PLAY_CARD, card))
-            elif self.state is State.SUPER_TAKI:
-                res.append((Action.PLAY_CARD, card))
+            elif in_taki:
+                # During an open (Super) TAKI only cards of the TAKI's color may be
+                # played, plus the colorless wilds. taki_color NONE means "any" (fallback).
+                if self.taki_color is Color.NONE \
+                        or card.color is self.taki_color \
+                        or card.color is Color.NONE:
+                    if card.type is Type.CHCOL:
+                        for i in Color:
+                            if i is not Color.NONE:
+                                res.append((Action.PLAY_CARD, Card(Type.CHCOL, i)))
+                    else:
+                        res.append((Action.PLAY_CARD, card))
             elif self.shown_card().type is card.type \
                     or self.shown_card().color is card.color \
                     or self.shown_card().color is Color.NONE\
@@ -389,10 +442,11 @@ class Game:
                             res.append((Action.PLAY_CARD, Card(Type.CHCOL, i)))
                 else:
                     res.append((Action.PLAY_CARD, card))
-        # Draw Cards
-        res.append((Action.DRAW, None))
+        # Draw Cards (not while an open TAKI is in progress — it is ended by closing it)
+        if not in_taki:
+            res.append((Action.DRAW, None))
         # Close TAKI
-        if self.state is State.TAKI or self.state is State.SUPER_TAKI:
+        if in_taki:
             res.append((Action.CLOSE_TAKI, None))
         return res
 
@@ -432,11 +486,14 @@ class Game:
         :param agent: the agent to see the observation with.
         :return: the observation vector.
         """
-        # hand + discard + state + draw_num + card shown
+        # hand + discard + state(one-hot) + draw_num + open-TAKI-color(one-hot) + card shown
         if agent is None:
             agent = self.curr
         return np.concatenate(
-            (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0 else np.zeros(62, dtype=int),
+            (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0
+             else np.zeros(CARD_VECTOR_SIZE, dtype=int),
              card_to_vector(*self.discard),
-             np.array([self.state.value]), np.array([self.draw_num]),
+             state_to_vector(self.state),
+             np.array([self.draw_num]),
+             color_to_vector(self.taki_color),
              card_to_vector(self.shown_card())))
