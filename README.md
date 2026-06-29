@@ -54,24 +54,13 @@ AI Agents need to be given a model to use or else they will use the random polic
 
 # License
 
-```
-Copyright (c) 2020 Oded "Dondish" Shapira
+**Non-commercial.** This project is licensed under the
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)
+— see [LICENSE](LICENSE). That covers the code and documentation authored by Ori Honigman **and the
+trained network weights** published on this repository's releases. Personal, research, educational
+and other non-commercial use is free; **commercial use is not permitted** under these terms. For a
+commercial license, [open an issue](https://github.com/Algo-Dev/taki_ai/issues).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+**Original code stays MIT.** Whatever survives of the starting point,
+[dondish/taki-ai](https://github.com/dondish/taki-ai) (© 2020 Oded "Dondish" Shapira), remains under
+the MIT License — see [LICENSE-MIT](LICENSE-MIT).
