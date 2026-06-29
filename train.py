@@ -19,6 +19,10 @@ OPPONENT_SYNC_EVERY = 5
 # bottoming out in the first couple of episodes.
 EPSILON_DECAY_FRACTION = 0.8
 
+# How often (in trials) to save an intermediate model snapshot, so a later eval can
+# measure improvement of the latest model over earlier ones (see eval.py mode B).
+SNAPSHOT_EVERY = 25
+
 
 def plot_rewards(values, wins, title='', save_path=None, show=False):
     f, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 5))
@@ -81,6 +85,21 @@ if __name__ == '__main__':
                  for _ in range(num_of_players - 1)]
     game = Game([dqn_agent, *opponents])
 
+    # One run directory shared by all snapshots and the final checkpoint/plot, so they
+    # carry the same timestamp and eval.py can discover the whole progression at once.
+    os.makedirs('./models', exist_ok=True)
+    timestamp = datetime.now().timestamp()
+    run_dir = f'./models/run{timestamp}'
+    os.makedirs(run_dir, exist_ok=True)
+
+    def save_snapshot(trial_idx):
+        """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
+        dqn_agent.model.save(f'{run_dir}/snap{trial_idx:04d}')
+
+    # snap0000 is the untrained network — the "earliest" baseline eval.py mode B
+    # measures every later snapshot against.
+    save_snapshot(0)
+
     rewards = []
     wins = []
     total_wins = 0
@@ -138,8 +157,10 @@ if __name__ == '__main__':
                 opp.model.set_weights(learner_weights)
                 opp.target_model.set_weights(learner_weights)
 
-    os.makedirs('./models', exist_ok=True)
-    timestamp = datetime.now().timestamp()
+        # Periodic snapshot for the progression eval (snap0000 was the untrained net).
+        if (trial + 1) % SNAPSHOT_EVERY == 0:
+            save_snapshot(trial + 1)
+
     plot_rewards(rewards, wins, 'Rewards over episodes',
                  save_path=f'./models/training{timestamp}.png', show=args.show)
     dqn_agent.model.save(f'./models/checkpoint{timestamp}')
