@@ -157,6 +157,20 @@ class GameFlowTest(unittest.TestCase):
         self.assertFalse(g.done())
         self.assertEqual(len(g.hands[0]), 1)  # drew a penalty card instead of winning
 
+    def test_observation_is_normalised(self):
+        g = self.make_game(players=4)
+        obs = g.observation()
+        # Shape and dtype: a fixed-size float vector.
+        self.assertEqual(obs.shape, (OBSERVATION_SIZE,))
+        self.assertTrue(np.issubdtype(obs.dtype, np.floating))
+        # Count features (hand + discard) are rescaled into [0, 1].
+        counts = obs[:CARD_VECTOR_SIZE * 2]
+        self.assertGreaterEqual(counts.min(), 0.0)
+        self.assertLessEqual(counts.max(), 1.0)
+        # One-hot blocks stay 0/1: exactly one active state, and a valid colour count.
+        state_block = obs[CARD_VECTOR_SIZE * 2:CARD_VECTOR_SIZE * 2 + len(State)]
+        self.assertEqual(state_block.sum(), 1.0)
+
     def _take_turn(self, game, action, card):
         """Drive one full turn (action + advancement) the way next_turn would."""
         class _Scripted:
