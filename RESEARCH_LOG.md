@@ -14,6 +14,52 @@ Definitions used throughout:
 
 ---
 
+## 2026-06-29 (latest) — 1000-trial run + dual-yardstick progression (vs random AND vs best)
+
+Closes the three open items below. **Code:** `eval.py` now uses `TURN_CAP = 2000` and a
+reworked Mode B (`--baseline`, `--snap-stride`; each snapshot scored vs random *and* vs a
+frozen reference model). **Run:** `models/run1782765573` — 1000 trials, snapshots every 25.
+**Eval:** `--snap-stride 100 --games-b 1200` (11 snapshots × 1200 games × 2 references),
+baseline = the prior best `checkpoint1782749825` (the 300-trial run). SE ≈ ±0.012.
+
+### Speed
+- **Training 1000 trials: 80 s** (~0.08 s/trial) — consistent with the ~28 s/300 fast path.
+- **Eval: 578 s** (~9.6 min) for the full 11×1200×2 sweep. vs-random ~61 g/s, vs-baseline
+  (net-vs-net) ~45 g/s.
+
+### Cap fix validated (open item 1)
+At `TURN_CAP = 2000`, **every trained snapshot has 0 undecided** vs random (incl. snap1000
+**0.857 = 1028/1200, 0 undecided**). Only the untrained `snap0000` still stalls vs random
+(173/1200 undecided → 0.085 over decided) — exactly the expected untrained-only behaviour.
+
+### vs random — converges fast, then flat (open item 3, convergence)
+Jumps to ~0.83 by **snap0100** and sits at **0.82–0.86 through snap1000** (no trend, no
+dips). Greedy skill is essentially set within the first ~100 trials — matching the 300-run's
+~snap0075. The *reward* trend in `training<ts>.png` keeps gently rising to ~1000, but that
+tracks the hand-size penalty under ongoing exploration, not greedy skill.
+
+### vs the frozen prior-best — the longer run *does* edge past it, late (open item 2)
+This is the signal vs-random can't show (it's saturated). Win rate vs the 300-run best:
+
+| snapshot | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| vs best | .245 | .245 | .245 | .229 | .242 | .233 | **.252** | **.254** | **.269** | **.279** |
+
+(`snap0000` = 0.037, the floor.) Mid-run snapshots sit *at or just below* parity (0.25) —
+the new run takes most of training just to match the old best — then the **last ~300 trials
+climb above the line**: snap1000 **0.279** is ~2.3 SE above parity (snap0900 0.269, ~1.5 SE).
+The rise begins ~snap0700–0800, coinciding with epsilon annealing to its floor at ~trial 800
+(`EPSILON_DECAY_FRACTION 0.8`): once exploration cools, the greedy policy refines just past
+the prior best. **Net: 1000 trials beats the 300-trial best, but only modestly (~+3 pts) and
+only in late training.** Plot: `models/run1782765573/progression.png`.
+
+**Takeaways:** (1) the dual yardstick works — vs-random for "did it learn / how fast" (fast),
+vs-frozen-best for fine ranking that vs-random saturates away; (2) the frozen *external* best
+has no moving-reference artifact and resolves a real ~3-pt gain at 1200 games; (3) diminishing
+returns — most of the 1000-trial budget buys little over 300; the gain is concentrated after
+epsilon bottoms out. A natural next lever is a slower/longer epsilon floor or more
+post-anneal trials, since that late window is where improvement actually happens.
+
 ## 2026-06-29 (later) — Draw-stall investigation: artifact, not a stall
 
 Instrumented every decision in 200 games (the acting agent's own legal options logged).
@@ -102,9 +148,13 @@ Every trained snapshot beats untrained `snap0000` at **0.91–1.00**; curve satu
 but does not finely rank trained snapshots. See `models/run<ts>/progression.png`.
 
 ### Open items / next
-- Raise eval `TURN_CAP` 400→~2000 so naturally long vs-random games are decided
-  (undecided → 0%). The "draw-stall" framing was wrong (see investigation above), so **no
-  draw-penalty / reward-shaping** — the trained model already draws only when forced.
-- For a *graded* progression curve, compare snapshots against a fixed mid-training snapshot
-  (or round-robin), not the untrained one.
-- Reward trend not plateaued → try 600–1000 trials (now ~1–2 min on the fast path).
+- ~~Raise eval `TURN_CAP` 400→~2000~~ **DONE** (now 2000; 0 undecided for all trained
+  snapshots — see the 1000-trial entry on top). No draw-penalty / reward-shaping.
+- ~~Graded progression curve (fixed mid-snapshot / round-robin)~~ **DONE** — replaced the
+  vs-untrained curve with vs-random **+ vs a frozen external best**; the frozen-best yardstick
+  resolves fine ranking that vs-random saturates away (no moving-reference artifact).
+- ~~Reward trend not plateaued → try 600–1000 trials~~ **DONE** (1000-trial run; reward
+  trend still gently rising but greedy skill saturates by ~snap0100).
+- *New, from the 1000-trial result:* the only real gain over the 300-run best comes **after
+  epsilon bottoms out (~trial 800)**. Worth trying a slower epsilon decay / longer post-anneal
+  tail (or more trials past 1000) to see if that late window keeps yielding improvement.

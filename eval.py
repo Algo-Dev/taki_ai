@@ -7,12 +7,12 @@ regardless of skill):
   Mode A (--model):   does the trained agent beat *random* opponents, i.e. win above
                       the 1/num_players chance line?  1 trained DQN + (N-1) RandomAgent.
 
-  Mode B (--run-dir): does the *latest* model improve over earlier ones?  For every
-                      snapshot S_t saved during training, play 1x S_t + (N-1)x S_0
-                      (S_0 = the untrained snap0000).  A win-rate curve rising above the
-                      chance line shows genuine improvement over the earliest model.
-                      The first point (S_0 vs S_0) doubles as a sanity control: equal
-                      policies should land near 1/num_players.
+  Mode B (--run-dir): how does skill progress over training?  For a sampled subset of
+                      snapshots (--snap-stride), measure each one two ways: 1x S_t vs random,
+                      and (with --baseline) 1x S_t vs a frozen reference model.  vs-random
+                      shows convergence speed; vs-baseline above 1/num_players means S_t has
+                      genuinely surpassed that reference (e.g. our current-best model).  A
+                      snapshot equal to the baseline lands at ~1/num_players (parity).
 
 All agents play fully greedily (epsilon=0) so the comparison reflects learned policy,
 not exploration.  Games share a deterministic deck/seating sequence across matchups
@@ -43,8 +43,9 @@ from agents.random import RandomAgent
 
 # A game only ends when a hand empties (State.FINISHED); a deck-exhaustion stalemate
 # never sets done(), so cap the turns per game and treat an over-cap game as undecided.
-# Legit 4-player games finish well under this; the cap only bounds degenerate stalls.
-TURN_CAP = 400
+# Legit 4-player games finish well under this (trained-vs-random tops out ~476 turns), so
+# 2000 leaves ample headroom; the cap only bounds genuinely degenerate (untrained) stalls.
+TURN_CAP = 2000
 # If the first STALL_CHECK games of a matchup are ALL undecided (capped), the matchup is
 # degenerate (e.g. untrained greedy nets that only ever draw) -> bail out instead of
 # burning every game on 400-turn stalls.
@@ -97,7 +98,7 @@ def fmt(wins, decided, undecided, baseline):
     rate = wins / decided if decided else float('nan')
     verdict = 'ABOVE' if decided and rate > baseline else 'at/below'
     extra = f' ({undecided} undecided/capped)' if undecided else ''
-    return (f'{wins}/{decided} = {rate:.3f}  vs baseline {baseline:.3f}  -> {verdict}'
+    return (f'{wins}/{decided} = {rate:.3f}  vs 1/N {baseline:.3f}  -> {verdict}'
             f' chance{extra}')
 
 
@@ -117,10 +118,16 @@ def main():
                         help='mode A: a single checkpoint to test against random opponents')
     parser.add_argument('--run-dir', default=None,
                         help='mode B: a run directory of snap<NNNN> checkpoints to chart progression')
+    parser.add_argument('--baseline', default=None,
+                        help='mode B: a frozen checkpoint (e.g. the current-best model) to also '
+                             'measure each snapshot against; above 1/num_players means it beats it')
+    parser.add_argument('--snap-stride', type=int, default=100,
+                        help='mode B: only evaluate snapshots whose trial index is a multiple of '
+                             'this (snapshots are saved every 25; default 100 -> every-100 subset)')
     parser.add_argument('--games', type=int, default=500,
                         help='games per matchup for mode A')
     parser.add_argument('--games-b', type=int, default=150,
-                        help='games per snapshot for mode B (both sides run a network, so keep modest)')
+                        help='games per matchup for mode B (per snapshot, per reference)')
     parser.add_argument('--num-players', type=int, default=4)
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
@@ -142,41 +149,57 @@ def main():
         print('DQN vs random:', fmt(wins, decided, undecided, baseline))
         print(f'(took {time.time() - t0:.1f}s)')
 
-    # ---- Mode B: snapshot-vs-earliest progression -------------------------------------
+    # ---- Mode B: progression vs random and vs a frozen baseline -----------------------
     if args.run_dir:
         snaps = discover_snapshots(args.run_dir)
         if not snaps:
             parser.error(f'no snap<NNNN> checkpoints found in {args.run_dir}')
+        # Saved every 25, but evaluating all of them is costly; sample the every-stride subset.
+        snaps = [(t, p) for t, p in snaps if t % args.snap_stride == 0]
+        if not snaps:
+            parser.error(f'no snapshots with trial %% {args.snap_stride} == 0 in {args.run_dir}')
+
+        rnd = RandomAgent(seed=args.seed)
+        # The frozen reference (e.g. the current-best model): each snapshot above 1/num_players
+        # against it has genuinely surpassed it. Constant model -> no "moving reference" artifact.
+        base_agent = load_greedy_agent(args.baseline) if args.baseline else None
+        refs = ['random'] + (['baseline'] if base_agent else [])
         print(f'\n=== Mode B: progression in {args.run_dir} '
-              f'(each snapshot vs earliest, {args.games_b} games each) ===')
-        s0_trial, s0_path = snaps[0]
-        s0_agent = load_greedy_agent(s0_path)
-        trials, rates = [], []
+              f'({len(snaps)} snapshots vs {", ".join(refs)}, {args.games_b} games each) ===')
+        if args.baseline:
+            print(f'    baseline = {args.baseline}')
+
+        trials, rnd_rates, base_rates = [], [], []
         t0 = time.time()
         for trial, path in snaps:
-            # snap0000 vs itself is the sanity control (~baseline); later snaps test improvement.
-            agent = s0_agent if path == s0_path else load_greedy_agent(path)
-            wins, decided, undecided = play_match(agent, s0_agent, args.num_players,
-                                                  args.games_b, args.seed)
-            rate = wins / decided if decided else float('nan')
+            agent = load_greedy_agent(path)
+            rw, rd, ru = play_match(agent, rnd, args.num_players, args.games_b, args.seed)
+            rnd_rate = rw / rd if rd else float('nan')
             trials.append(trial)
-            rates.append(rate)
-            tag = '  <- control (equal policies)' if path == s0_path else ''
-            print(f'snap{trial:04d} vs snap{s0_trial:04d}: '
-                  f'{fmt(wins, decided, undecided, baseline)}{tag}')
+            rnd_rates.append(rnd_rate)
+            line = f'snap{trial:04d}  vs random: {fmt(rw, rd, ru, baseline)}'
+            if base_agent is not None:
+                bw, bd, bu = play_match(agent, base_agent, args.num_players, args.games_b, args.seed)
+                base_rates.append(bw / bd if bd else float('nan'))
+                line += f'\n           vs baseline: {fmt(bw, bd, bu, baseline)}'
+            print(line)
         print(f'(took {time.time() - t0:.1f}s)')
 
         out = os.path.join(args.run_dir, 'progression.png')
-        # Skip undecided (degenerate / capped) matchups, which come back as nan.
-        pts = [(t, r) for t, r in zip(trials, rates) if not np.isnan(r)]
         plt.figure(figsize=(8, 5))
-        if pts:
-            plt.plot([t for t, _ in pts], [r for _, r in pts],
-                     marker='o', label='win rate vs snap%04d' % s0_trial)
-        plt.axhline(baseline, ls='--', color='gray', label=f'baseline {baseline:.3f}')
+
+        def _plot(rates, label):
+            pts = [(t, r) for t, r in zip(trials, rates) if not np.isnan(r)]  # skip undecided
+            if pts:
+                plt.plot([t for t, _ in pts], [r for _, r in pts], marker='o', label=label)
+
+        _plot(rnd_rates, 'win rate vs random')
+        if base_rates:
+            _plot(base_rates, 'win rate vs baseline')
+        plt.axhline(baseline, ls='--', color='gray', label=f'1/num_players = {baseline:.3f}')
         plt.xlabel('training trial (snapshot)')
-        plt.ylabel('win rate vs earliest snapshot')
-        plt.title('Self-play improvement over training')
+        plt.ylabel('win rate')
+        plt.title('Skill over training (vs random; vs baseline = beats current best above the line)')
         plt.ylim(0, 1)
         plt.legend()
         plt.tight_layout()
