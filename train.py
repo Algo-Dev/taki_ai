@@ -14,6 +14,11 @@ from game import Game, action_to_scalar
 # is a deliberately simple knob; finer tuning is part of the deferred RL work.
 OPPONENT_SYNC_EVERY = 5
 
+# Epsilon decays once per episode (not per step), reaching epsilon_min after this
+# fraction of the trials so exploration lasts across most of training rather than
+# bottoming out in the first couple of episodes.
+EPSILON_DECAY_FRACTION = 0.8
+
 
 def plot_rewards(values, wins, title='', save_path=None, show=False):
     f, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 5))
@@ -69,6 +74,9 @@ if __name__ == '__main__':
 
     # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
     dqn_agent = AIAgent(load_model=args.model)
+    # Per-episode decay sized to the run: epsilon falls from 1.0 to epsilon_min over the
+    # first EPSILON_DECAY_FRACTION of the trials (scales automatically with --trials).
+    dqn_agent.epsilon_decay = dqn_agent.epsilon_min ** (1.0 / (EPSILON_DECAY_FRACTION * trials))
     opponents = [AIAgent(epsilon=0.1, epsilon_min=0.1, load_model=args.model)
                  for _ in range(num_of_players - 1)]
     game = Game([dqn_agent, *opponents])
@@ -104,7 +112,8 @@ if __name__ == '__main__':
             next_valid = None if done else [action_to_scalar(*m)
                                             for m in game.valid_moves(agent=0)]
             dqn_agent.remember(state, action, reward, new_state, done, next_valid)
-            dqn_agent.decay_epsilon()
+            # replay()/target_train() cadence is kept as-is: it pairs reasonably with the
+            # larger replay buffer, and the slow predict/fit makes more frequent replay costly.
             if step % 4 == 0:
                 dqn_agent.replay()
             if step % update_target_network == 0:
@@ -117,6 +126,7 @@ if __name__ == '__main__':
 
         dqn_agent.replay()
         dqn_agent.target_train()
+        dqn_agent.decay_epsilon()  # decay exploration once per episode
         rewards.append(episode_reward)
         wins.append(total_wins)
 

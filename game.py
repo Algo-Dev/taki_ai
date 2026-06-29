@@ -148,6 +148,13 @@ class State(Enum):
 
 # Number of plain number cards (ONE..NINE); only these may end the game.
 NUMBER_TYPE_VALUES = frozenset(range(Type.ONE.value, Type.NINE.value + 1))
+# Cards dealt to each player at the start of a round.
+INITIAL_HAND_SIZE = 8
+# Observation normalisation constants (see Game.observation). Count features are
+# rescaled by a single fixed divisor so they stay on a comparable, bounded scale
+# regardless of game progress (the absolute counts are preserved, just in new units).
+CARD_COPIES_NORM = 4    # max copies of any single card (the change-color cards)
+MAX_PLUS_TWO_STACK = 8  # number of +2 cards, i.e. the largest meaningful draw_num
 # Extra scalar features appended to the observation (see Game.observation):
 #   turn direction, next player's hand size, minimum opponent hand size.
 EXTRA_FEATURES = 3
@@ -295,7 +302,7 @@ class Game:
         self.hands = []
         for i in range(len(self.agents)):
             a = []
-            for j in range(8):
+            for j in range(INITIAL_HAND_SIZE):
                 a.append(self.deck.pop())
             self.hands.append(a)
 
@@ -515,18 +522,23 @@ class Game:
         """
         # hand + discard + state(one-hot) + draw_num + open-TAKI-color(one-hot)
         #      + card shown + [direction, next player's hand size, min opponent hand size]
+        # Count features are normalised (see the *_NORM constants) so every input sits
+        # on a comparable, bounded scale; one-hot blocks and direction are left as-is.
         if agent is None:
             agent = self.curr
         next_player = (agent + self.dir) % len(self.agents)
         other_hand_sizes = [len(h) for i, h in enumerate(self.hands) if i != agent]
         min_other = min(other_hand_sizes) if other_hand_sizes else 0
-        extra = np.array([self.dir, len(self.hands[next_player]), min_other])
+        hand_vec = (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0
+                    else np.zeros(CARD_VECTOR_SIZE, dtype=int))
+        extra = np.array([self.dir,
+                          len(self.hands[next_player]) / INITIAL_HAND_SIZE,
+                          min_other / INITIAL_HAND_SIZE])
         return np.concatenate(
-            (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0
-             else np.zeros(CARD_VECTOR_SIZE, dtype=int),
-             card_to_vector(*self.discard),
+            (hand_vec / CARD_COPIES_NORM,
+             card_to_vector(*self.discard) / CARD_COPIES_NORM,
              state_to_vector(self.state),
-             np.array([self.draw_num]),
+             np.array([self.draw_num / MAX_PLUS_TWO_STACK]),
              color_to_vector(self.taki_color),
              card_to_vector(self.shown_card()),
              extra))

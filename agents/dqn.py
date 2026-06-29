@@ -15,13 +15,13 @@ from game import (action_to_scalar, scalar_to_action,
 
 class AIAgent:
 
-    def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=32,
-                 epsilon_decay=0.995, learning_rate=0.01, load_model=None):
+    def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
+                 epsilon_decay=0.995, learning_rate=0.001, load_model=None):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=20000)
         self.epsilon_decay = epsilon_decay
         self.learning_rate = learning_rate
         self.batch_size = batch_size
