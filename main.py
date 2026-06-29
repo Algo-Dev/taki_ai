@@ -1,3 +1,4 @@
+import argparse
 import random
 import time
 
@@ -6,18 +7,21 @@ from agents.random import RandomAgent
 from agents.human import HumanAgent
 from agents.dqn import AIAgent
 
-# Point this at a checkpoint produced by a fixed-architecture training run.
-# The old ./models/checkpoint* dirs are incompatible with the current network
-# and will fall back to random weights (with a warning) if loaded.
-MODEL_PATH = None
-
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Play / demo Taki agents.')
+    # Pass a checkpoint from a current-architecture training run to use trained
+    # weights. The old ./models/checkpoint* dirs are incompatible and would fall
+    # back to random weights (with a warning). Leave unset for random play.
+    parser.add_argument('--model', default=None,
+                        help='checkpoint to load the DQN agents from')
+    args = parser.parse_args()
+
     random.seed(42)  # Set seed for reproducibility
 
     # Normal game, 3 DQN agents (add HumanAgent() to play along).
-    agents = [AIAgent(load_model=MODEL_PATH),
-              AIAgent(load_model=MODEL_PATH),
-              AIAgent(load_model=MODEL_PATH)]  # , HumanAgent()]
+    agents = [AIAgent(load_model=args.model),
+              AIAgent(load_model=args.model),
+              AIAgent(load_model=args.model)]  # , HumanAgent()]
     random.shuffle(agents)
     game = Game(agents, True)
     print(game.observation().shape)
