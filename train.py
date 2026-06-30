@@ -23,6 +23,16 @@ EPSILON_DECAY_FRACTION = 0.8
 # measure improvement of the latest model over earlier ones (see eval.py mode B).
 SNAPSHOT_EVERY = 25
 
+# --reward anneal: gradually drift the shaped reward toward (almost) win-only over the first
+# REWARD_ANNEAL_FRACTION of trials, then hold. An instantaneous switch collapsed the policy
+# (see RESEARCH_LOG.md); annealing lets the value function track a slowly-moving target. At
+# progress p in [0,1]: the dense per-step penalty is scaled 1.0 -> STEP_COEF_FLOOR, and the
+# end-of-game reward blends from the original opponents'-card-sum toward the clipped
+# min-opponent reward with weight alpha 0 -> ALPHA_MAX.
+REWARD_ANNEAL_FRACTION = 0.8
+ALPHA_MAX = 0.99
+STEP_COEF_FLOOR = 0.01
+
 
 def plot_rewards(values, wins, title='', save_path=None, show=False):
     f, ax = plt.subplots(nrows=1, ncols=3, figsize=(12, 5))
@@ -72,9 +82,13 @@ if __name__ == '__main__':
                              'instead of re-exploring from scratch.')
     parser.add_argument('--snapshot-every', type=int, default=SNAPSHOT_EVERY,
                         help=f'save an intermediate snapshot every N trials (default {SNAPSHOT_EVERY})')
-    parser.add_argument('--reward', choices=('shaped', 'win'), default='shaped',
+    parser.add_argument('--reward', choices=('shaped', 'win', 'anneal'), default='shaped',
                         help="reward shaping: 'shaped' = per-step -len(hand) + win bonus "
-                             "(default); 'win' = win-only, no per-step penalty.")
+                             "(default); 'win' = win-only, no per-step penalty; 'anneal' = "
+                             "curriculum drifting shaped -> (almost) win-only over training.")
+    parser.add_argument('--reward-anneal-fraction', type=float, default=REWARD_ANNEAL_FRACTION,
+                        help='for --reward anneal: fraction of trials over which the reward '
+                             f'transitions, then holds (default {REWARD_ANNEAL_FRACTION})')
     parser.add_argument('--show', action='store_true',
                         help='display the training plot interactively (otherwise only saved to PNG)')
     args = parser.parse_args()
@@ -119,6 +133,16 @@ if __name__ == '__main__':
 
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
+        # Reward-anneal schedule for this trial (constant within the trial). p ramps 0->1 over
+        # the first reward_anneal_fraction of trials, then holds; step_coef 1.0->floor scales
+        # the dense per-step penalty, alpha 0->ALPHA_MAX blends the end-of-game reward.
+        step_coef, alpha = 1.0, 0.0
+        if args.reward == 'anneal':
+            p = min(1.0, trial / max(1.0, args.reward_anneal_fraction * trials))
+            step_coef = 1.0 - (1.0 - STEP_COEF_FLOOR) * p
+            alpha = ALPHA_MAX * p
+            if trial % 500 == 0:
+                print(f"  [anneal] p={p:.3f} step_coef={step_coef:.3f} alpha={alpha:.3f}")
         game.reset()
         episode_reward = 0
         for step in range(trial_len):
@@ -132,7 +156,16 @@ if __name__ == '__main__':
                 done, _ = game.next_turn()
 
             new_state = game.observation(agent=0)
-            if args.reward == 'win':
+            if args.reward == 'anneal':
+                # Curriculum: dense per-step penalty scaled by step_coef (1.0 -> floor), and on
+                # a win the end reward blends from the original opponents'-card-sum toward the
+                # clipped min-opponent reward (alpha 0 -> ALPHA_MAX). At p=0 this is exactly the
+                # 'shaped' reward; at p=1 it is almost the 'win' reward (tiny dense floor).
+                reward = step_coef * (-len(game.hands[0]))
+                if learner_won:
+                    opp = [len(h) for i, h in enumerate(game.hands) if i != 0]
+                    reward += (1.0 - alpha) * sum(opp) + alpha * min(min(opp), 4)
+            elif args.reward == 'win':
                 # Win-only: no per-step / loss signal (so the agent isn't punished for
                 # strategically taking a card). On a win, reward = the fewest cards any
                 # opponent still holds, clipped to 4 -> a decisive win against even the
