@@ -14,6 +14,56 @@ Definitions used throughout:
 
 ---
 
+## 2026-06-30 (later) — Curriculum reward annealing: collapse avoided, but no net gain
+
+**Hypothesis:** the instant shaped→win switch collapsed because the value function couldn't
+absorb the reward-scale shock all at once (see entry below). Anneal it slowly so the Q-values
+track a moving target. **Result: the curriculum completely fixes the collapse — but the
+win-only objective still doesn't beat the shaped model; it lands at parity.**
+
+**Code:** new `--reward anneal` ([train.py](train.py)). Per trial, progress `p` ramps 0→1 over
+the first `--reward-anneal-fraction` (0.8) of trials then holds; `step_coef = 1−0.99p` scales the
+dense per-step penalty (1.0→0.01), `alpha = 0.99p` blends the end reward from `sum(opp)` toward
+`min(opp,4)`. At `p=0` it is *exactly* the shaped reward (verified), so warm-starting has zero
+initial mismatch. **Run:** warm-start `checkpoint1782765573`, 10000 trials, `--epsilon-start 0.1`,
+`--snapshot-every 250`.
+
+**Collapse fixed (the headline):**
+- **687 s** total, healthy **~0.07 s/trial the whole way** (vs the collapse's 7741 s / 0.77).
+  Live pace-monitoring through the near-sparse hold phase (`step_coef=0.01, alpha=0.99`, trials
+  8000–10000) showed no stall.
+- Accumulated training wins climb ~linearly to **~2580** (vs the collapse's flat **9**).
+- Eval: **0/1200 undecided** at every snapshot; **vs random ~0.85 throughout** (snap10000 0.848).
+  The policy stays strong from start to finish.
+
+**But no improvement over the shaped best.** Win rate vs the start model (`checkpoint1782765573`,
+1200 games, SE ≈ ±0.013):
+
+| snap | 0 | 1000 | 2000 | 3000 | 4000 | 5000 | 6000 | 7000 | 8000 | 9000 | 10000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vs start | .263 | .252 | **.290** | **.290** | .258 | .246 | .248 | .275 | .241 | .235 | .246 |
+
+snap0000 (= the start model) sits at ~parity as expected. A modest bump at snap2000–3000
+(0.290, ~3 SE above 0.25) occurs while the reward is still ~75% shaped (`alpha` ≈ 0.25–0.37) —
+most likely just *extra near-shaped training* (the 1000-run was itself still inching up), not a
+win-reward effect, since it **washes out as the reward becomes win-dominated**: snap8000–10000
+fall back to/just below parity (snap10000 **0.246 ≈ start model**).
+
+**Verdict:** annealing is the right mechanism — it turns a catastrophic collapse into a stable
+run. The original motivation (drop the draw-penalty → better play) is **largely not supported**:
+the fully-annealed (near win-only) model is statistically indistinguishable from the shaped best,
+and the win-dominated tail erodes the small mid-run edge. If win-reward is worth another pass, the
+signal says the *late* win-dominated regime is where it stops helping — try a larger per-step
+floor, or the gentler "penalize only net hand growth" shaping noted in [PLAN.md](PLAN.md), rather
+than driving `step_coef` to ~0.
+
+**New best (promoted):** the highest vs-start scorer, **snap3000** (0.290 vs the prior best,
+~3 SE above parity), copied to `models/checkpoint_anneal_snap3000` and adopted as the current
+best. Caveat for the record: snap3000 is mid-anneal (reward still ~63% shaped, `alpha≈0.37`), so
+this edge most likely reflects *extra near-shaped training* on top of the 1000-run rather than a
+win-reward benefit — but it is a real, measured head-to-head improvement over `checkpoint1782765573`.
+Use `--baseline ./models/checkpoint_anneal_snap3000` in future progression evals.
+
 ## 2026-06-30 — Win-only finetune: catastrophic collapse (negative result)
 
 **Hypothesis:** the dense `-len(hand)` reward punishes drawing even when drawing is correct;
