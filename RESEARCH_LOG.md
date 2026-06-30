@@ -14,6 +14,51 @@ Definitions used throughout:
 
 ---
 
+## 2026-06-30 — Win-only finetune: catastrophic collapse (negative result)
+
+**Hypothesis:** the dense `-len(hand)` reward punishes drawing even when drawing is correct;
+finetuning the 1000-trial best with a **win-only** reward should remove that bias. **It
+destroyed the model instead.**
+
+**Code (new, all working):** `dqn.py` now *raises* on a failed `load_model` (no silent
+cold-start); `train.py` gains `--epsilon-start`, `--snapshot-every`, and `--reward {shaped,win}`.
+`win` reward = 0 every step/loss, and on a win `min(fewest opponent's cards, 4)`.
+**Run:** warm-start `checkpoint1782765573` (1000-trial best), 10000 trials, `--epsilon-start 0.1`
+(flat = `epsilon_min`), `--snapshot-every 250`, `--reward win`.
+
+**Result — collapse within ~50 episodes, never recovered:**
+- Training plot: accumulated wins jump to 9 in the first ~50 episodes then are **dead flat for
+  the remaining ~9 950**; per-episode reward is 0 after the start. The learner stopped winning
+  entirely.
+- Eval (`--snap-stride 1000 --games-b 500`, baseline = the start checkpoint):
+
+  | snapshot | vs random | vs baseline (start model) |
+  |---|---|---|
+  | snap0000 (= warm-start) | **0.856** | 0.302 |
+  | snap1000 … snap10000 | **0.000** (heavy undecided) | **0.000** |
+
+  snap0000 confirms the warm-start loaded the good model; **every snapshot from 1000 on wins 0/500
+  vs both** random and the start model, with large undecided counts (the collapsed policy stalls).
+- Wall time **~7740 s (~10× a normal 10k run)**: opponents are synced to the collapsing learner,
+  so all four seats stall and every trial runs to the 300-step cap.
+
+**Diagnosis — sparse reward + warm-start scale mismatch + self-play, compounding:**
+1. The loaded Q-values were fit to the *dense* reward (episode returns ~ −50…−230); the win-only
+   targets live in `{0} ∪ [1,4]`. The first replay updates drag every Q toward ~0, flattening the
+   action ordering → the learned policy is erased almost immediately.
+2. With no shaping, the **only** learning signal is a win; once the policy degrades it stops
+   winning, so the signal vanishes and there's nothing to climb back on (sparse-reward trap).
+3. `OPPONENT_SYNC_EVERY=5` copies the degrading learner into the opponents, so self-play locks the
+   whole table into a non-terminating stall — the win signal can't reappear even by luck.
+
+**Takeaways / what would be needed to make win-only viable:** keep it *potential-based / shaped*
+rather than fully sparse, or normalize/reset the value head before switching reward scale; use
+**high** exploration when changing the objective (not `epsilon=0.1`); and during finetuning hold a
+**fixed strong opponent set** instead of syncing to the learner, so a collapse can't propagate and
+games still terminate. The draw-penalty concern is real, but the fix is gentler reward shaping
+(e.g. only penalize *net* hand growth, or reward progress toward emptying), not removing all
+per-step signal. Run kept at `models/run1782767834` (gitignored).
+
 ## 2026-06-29 (latest) — 1000-trial run + dual-yardstick progression (vs random AND vs best)
 
 Closes the three open items below. **Code:** `eval.py` now uses `TURN_CAP = 2000` and a
@@ -155,6 +200,12 @@ but does not finely rank trained snapshots. See `models/run<ts>/progression.png`
   resolves fine ranking that vs-random saturates away (no moving-reference artifact).
 - ~~Reward trend not plateaued → try 600–1000 trials~~ **DONE** (1000-trial run; reward
   trend still gently rising but greedy skill saturates by ~snap0100).
-- *New, from the 1000-trial result:* the only real gain over the 300-run best comes **after
-  epsilon bottoms out (~trial 800)**. Worth trying a slower epsilon decay / longer post-anneal
-  tail (or more trials past 1000) to see if that late window keeps yielding improvement.
+- *From the 1000-trial result:* the only real gain over the 300-run best comes **after epsilon
+  bottoms out (~trial 800)**. Worth trying a slower epsilon decay / longer post-anneal tail (or
+  more trials past 1000) to see if that late window keeps yielding improvement.
+- *From the win-only collapse (2026-06-30):* fully-sparse reward is a dead end here. To revisit
+  the draw-penalty concern, try **gentle/potential-based shaping** (penalize only *net* hand
+  growth, or reward progress toward emptying) rather than removing per-step signal; and when
+  changing the objective, raise exploration + hold a **fixed strong opponent set** (don't sync
+  opponents to a possibly-collapsing learner). The current best model remains
+  `checkpoint1782765573` (the shaped-reward 1000-trial run); the win-only run did not improve it.

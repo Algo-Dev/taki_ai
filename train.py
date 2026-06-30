@@ -66,6 +66,15 @@ if __name__ == '__main__':
     parser.add_argument('--model', default=None,
                         help='checkpoint to warm-start the learner and opponents from')
     parser.add_argument('--trials', type=int, default=100)
+    parser.add_argument('--epsilon-start', type=float, default=1.0,
+                        help='initial exploration rate (default 1.0). Lower it (down to '
+                             'epsilon_min) to continue a warm-started model near-greedily '
+                             'instead of re-exploring from scratch.')
+    parser.add_argument('--snapshot-every', type=int, default=SNAPSHOT_EVERY,
+                        help=f'save an intermediate snapshot every N trials (default {SNAPSHOT_EVERY})')
+    parser.add_argument('--reward', choices=('shaped', 'win'), default='shaped',
+                        help="reward shaping: 'shaped' = per-step -len(hand) + win bonus "
+                             "(default); 'win' = win-only, no per-step penalty.")
     parser.add_argument('--show', action='store_true',
                         help='display the training plot interactively (otherwise only saved to PNG)')
     args = parser.parse_args()
@@ -77,10 +86,14 @@ if __name__ == '__main__':
     num_of_players = 4
 
     # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
-    dqn_agent = AIAgent(load_model=args.model)
-    # Per-episode decay sized to the run: epsilon falls from 1.0 to epsilon_min over the
-    # first EPSILON_DECAY_FRACTION of the trials (scales automatically with --trials).
-    dqn_agent.epsilon_decay = dqn_agent.epsilon_min ** (1.0 / (EPSILON_DECAY_FRACTION * trials))
+    dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model)
+    if not dqn_agent.epsilon_min <= args.epsilon_start <= 1.0:
+        parser.error(f'--epsilon-start must be in [{dqn_agent.epsilon_min}, 1.0]')
+    # Per-episode decay sized to the run: epsilon falls from epsilon_start to epsilon_min over
+    # the first EPSILON_DECAY_FRACTION of the trials (scales with --trials). If epsilon_start
+    # already equals epsilon_min the ratio is 1, so epsilon stays flat (a near-greedy continue).
+    dqn_agent.epsilon_decay = (dqn_agent.epsilon_min / args.epsilon_start) ** (
+        1.0 / (EPSILON_DECAY_FRACTION * trials))
     opponents = [AIAgent(epsilon=0.1, epsilon_min=0.1, load_model=args.model)
                  for _ in range(num_of_players - 1)]
     game = Game([dqn_agent, *opponents])
@@ -119,11 +132,20 @@ if __name__ == '__main__':
                 done, _ = game.next_turn()
 
             new_state = game.observation(agent=0)
-            # Heuristic reward: minus the cards the learner holds after its turn,
-            # plus the sum of the opponents' cards if the learner wins.
-            reward = -len(game.hands[0])
-            if learner_won:
-                reward += sum(len(h) for i, h in enumerate(game.hands) if i != 0)
+            if args.reward == 'win':
+                # Win-only: no per-step / loss signal (so the agent isn't punished for
+                # strategically taking a card). On a win, reward = the fewest cards any
+                # opponent still holds, clipped to 4 -> a decisive win against even the
+                # best-placed opponent scores highest, capped so blowouts don't dominate.
+                reward = 0
+                if learner_won:
+                    reward = min(min(len(h) for i, h in enumerate(game.hands) if i != 0), 4)
+            else:
+                # Shaped (default): minus the cards the learner holds after its turn,
+                # plus the sum of the opponents' cards if the learner wins.
+                reward = -len(game.hands[0])
+                if learner_won:
+                    reward += sum(len(h) for i, h in enumerate(game.hands) if i != 0)
 
             # When the episode continues it is again the learner's turn (curr == 0),
             # so these are exactly the actions it may pick next — used to mask the
@@ -158,7 +180,7 @@ if __name__ == '__main__':
                 opp.target_model.set_weights(learner_weights)
 
         # Periodic snapshot for the progression eval (snap0000 was the untrained net).
-        if (trial + 1) % SNAPSHOT_EVERY == 0:
+        if (trial + 1) % args.snapshot_every == 0:
             save_snapshot(trial + 1)
 
     plot_rewards(rewards, wins, 'Rewards over episodes',
