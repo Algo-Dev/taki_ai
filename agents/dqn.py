@@ -41,13 +41,14 @@ class AIAgent:
         self.model = self.create_model()
         self.target_model = self.create_model()
         if load_model is not None:
+            # A failed load must stop the process: silently falling back to random weights
+            # turns an intended warm-start into a cold-start without anyone noticing.
             try:
                 loaded = keras.models.load_model(load_model)
-                self.model.set_weights(loaded.get_weights())
-                self.target_model.set_weights(loaded.get_weights())
             except Exception as e:
-                print(f"Warning: could not load model from '{load_model}': {e}. "
-                      f"Using freshly initialised weights.")
+                raise RuntimeError(f"could not load model from '{load_model}': {e}") from e
+            self.model.set_weights(loaded.get_weights())
+            self.target_model.set_weights(loaded.get_weights())
 
     def create_model(self):
         model = keras.Sequential()
