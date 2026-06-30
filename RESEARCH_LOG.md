@@ -14,6 +14,71 @@ Definitions used throughout:
 
 ---
 
+## 2026-06-30 (3000-game re-eval) — CORRECTION: shaped keeps improving; new best snap10000
+
+Re-ran the two recent Mode-B evals at **3000 games** (SE ≈ ±0.0079 vs ±0.0125 at 1200) to resolve
+borderline head-to-heads. The tighter numbers **overturn the "plateau / no gain" call below** — at
+1200 games the ~2–3 pt edges were buried in noise. All figures vs the named baseline, `snap-stride
+1000`, 0 undecided, vs-random ~0.85–0.88 throughout.
+
+**snap3000 (anneal) genuinely beats the 1000-best** — not noise after all:
+| anneal snap | 2000 | 3000 | 7000 | 8000 | 9000 | 10000 |
+|---|---|---|---|---|---|---|
+| vs 1000-best | **.285** | **.278** | .268 | **.227** | **.226** | .249 |
+
+snap2000/3000 are ~3.5–4.4 SE above 0.25. But the **win-dominated tail (snap8000/9000) drops to
+~0.226, ~3 SE *below* parity** → once the win reward dominates it *actively hurts*; the anneal net
+ends ~parity (snap10000 0.249). (The earlier "snap3000 = noise" doubt came from one noisy 1200-game
+reverse reading; the direct 3000-game measurement settles it.)
+
+**Shaped continuation keeps climbing — new best:** vs snap3000, a consistent rising trend
+snap7000 .259 → 8000 .257 → 9000 **.268** → **snap10000 .278 (~3.5 SE)**. So pure shaped training
+past 1000 trials *does* yield real, slow gains; **`shaped-snap10000` > `snap3000` > `1000-best`**
+(each ~3.5 SE, all directly measured). snap10000 also has the best vs-random (0.877).
+
+**New best (promoted):** shaped-continuation `snap10000` → `models/checkpoint_shaped_snap10000`
+(= `checkpoint1782834176`). Use it as `--baseline` going forward.
+
+**Corrected takeaways:** (1) the model is **not** plateaued — shaped self-play still improves slowly;
+the earlier "converged" entry was a 1200-game-noise artifact. (2) **Win-reward is harmful**, now
+confirmed at high precision (anneal win-tail regresses below the 1000-best). (3) **Methodology:**
+1200 games (SE ±0.0125) can't resolve the ~2–3 pt gaps these models differ by — use ≥3000 games
+(SE ±0.0079) for ranking near-equal snapshots.
+
+## 2026-06-30 (latest) — More shaped training: converged, no decisive gain [SUPERSEDED]
+
+**⚠ Conclusion corrected by the 3000-game re-eval above** — the "converged / no decisive gain"
+read was driven by 1200-game noise; at 3000 games snap10000 beats snap3000 by ~3.5 SE. The
+healthy-run / vs-random facts below still hold; only the "no gain / plateau" verdict is wrong.
+
+**Test:** is snap3000's edge just "extra near-shaped training" that would keep paying off?
+Continue **pure shaped** training from `checkpoint1782765573` (the 1000-run best, clean lineage),
+10000 trials, `--epsilon-start 0.1` (flat), `--snapshot-every 250`. **Answer: no — the model is
+at a plateau; more shaped training does not produce a clearly better player.**
+
+- **Healthy** (shaped never collapses): 594 s, ~0.07 s/trial, wins climb ~linearly to ~2580;
+  reward trend essentially **flat** (~−90→−70) — i.e. converged, not climbing.
+- **vs random:** flat ~0.84–0.875 across all snapshots (snap10000 0.873), 0 undecided.
+- **vs the current best (snap3000), 1200 games, SE ≈ ±0.013:** every snapshot is within noise of
+  0.25; the best (snap9000 0.270, snap10000 0.269) is only ~1.5 SE above — **below the ≳2–3 SE bar
+  for promotion. No new best; snap3000 retained.**
+
+| snap | 0 | 1000 | 2000 | 3000 | 4000 | 5000 | 6000 | 7000 | 8000 | 9000 | 10000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vs snap3000 | .254 | .223 | .258 | .247 | .229 | .242 | .252 | .254 | .258 | .270 | .269 |
+
+**Consistency finding (corrects the snap3000 promotion):** `snap0000` here *is*
+`checkpoint1782765573`, and it scores **0.254 vs snap3000** (~parity). Last run snap3000 scored
+0.290 *vs* `checkpoint1782765573`; if that edge were real the reverse matchup would be clearly
+*below* 0.25, not at it. So **snap3000 ≈ `checkpoint1782765573` — the 0.290 was mostly noise**, and
+the entire shaped family (1000-best, snap3000, this run) sits on one plateau at ~0.86 vs random.
+
+**Verdict:** greedy skill saturated early (≈snap0100 in the 1000-run) and **nothing since — more
+trials, annealing, or win-reward — has decisively moved it.** Breaking this plateau likely needs a
+different lever (network capacity / observation features, richer opponents, or smarter exploration)
+rather than more self-play trials of the same setup. Current best unchanged
+(`checkpoint_anneal_snap3000`, ≈ tied with `checkpoint1782765573`).
+
 ## 2026-06-30 (later) — Curriculum reward annealing: collapse avoided, but no net gain
 
 **Hypothesis:** the instant shaped→win switch collapsed because the value function couldn't
@@ -257,5 +322,16 @@ but does not finely rank trained snapshots. See `models/run<ts>/progression.png`
   the draw-penalty concern, try **gentle/potential-based shaping** (penalize only *net* hand
   growth, or reward progress toward emptying) rather than removing per-step signal; and when
   changing the objective, raise exploration + hold a **fixed strong opponent set** (don't sync
-  opponents to a possibly-collapsing learner). The current best model remains
-  `checkpoint1782765573` (the shaped-reward 1000-trial run); the win-only run did not improve it.
+  opponents to a possibly-collapsing learner).
+- ~~PLATEAU (no gain from more training)~~ **RETRACTED by the 3000-game re-eval** — that was
+  1200-game noise. Shaped self-play *does* keep improving slowly: `shaped-snap10000` >
+  `snap3000` > `1000-best` (each ~3.5 SE). vs-random saturates (~0.86) but the head-to-head
+  ranking keeps creeping up. Current best: **`checkpoint_shaped_snap10000`**.
+- **Win-reward: harmful (confirmed).** The anneal's win-dominated tail regresses ~3 SE below the
+  1000-best. Don't pursue win-only/near-win-only; if revisiting the draw-penalty, use gentle
+  potential-based shaping (see [PLAN.md](PLAN.md)).
+- **Eval precision:** these models differ by only ~2–3 pts, so rank snapshots at **≥3000 games**
+  (SE ±0.0079); 1200 games (±0.0125) is too noisy and produced a false "plateau" read.
+- *Next lever for bigger gains* (vs the slow shaped creep): structural — larger network / richer
+  observation features, stronger/more diverse opponents, or n-step/MC returns + reward
+  normalization for more stable, multi-state updates (see [PLAN.md](PLAN.md)).
