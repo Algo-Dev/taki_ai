@@ -14,6 +14,36 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-01 — Long shaped run (1M trials): real gain to ~0.90 vs random, then plateau
+
+Continued **pure shaped** from `checkpoint_shaped_snap10000`, `--epsilon-start 0.1`,
+`--snapshot-every 10000`, cap `--trials 1000000`. Ran to completion: **1M trials, 13.1 h,
+~0.047 s/trial, 101 snapshots, healthy throughout** (hourly heartbeat + periodic spot-checks).
+Peak-finding eval at 3000 games (SE ≈ ±0.0079), stride 100000, baseline = the start model
+(`checkpoint_shaped_snap10000`):
+
+| snap (×1000) | 0 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vs random | .869 | .900 | .888 | .901 | .892 | .902 | .901 | .900 | **.906** | .892 | .900 |
+| vs start-best | .243 | .283 | .284 | **.305** | .285 | .287 | .291 | .294 | .289 | .286 | .297 |
+
+**Two real gains, then saturation:**
+- **vs random jumps ~0.869 → ~0.90** for every snapshot from 100k on (+~3 pts absolute). This
+  updates the earlier "vs-random saturates ~0.86" claim — with *far* more trials it reaches ~0.90.
+  The plateau isn't where we thought; it's ~0.90.
+- **vs the start-best, all long-run snapshots are +4 to +7 SE above parity**; the gain is real,
+  not noise. Peak **snap300000 = 0.305** vs the prior best (also 0.901 vs random).
+- But **100k→1M is flat** (vs-best 0.28–0.31, vs-random 0.888–0.906, all within ~2–3 SE): the
+  improvement **saturated by ~snap100–300k**; the remaining ~700k trials (~9 h) added nothing.
+
+**New best (promoted): `models/checkpoint_shaped_snap300000`** — beats the prior best by ~+5.5 pts
+(0.305, ~7 SE) and lifts vs-random to 0.901. Use it as `--baseline` going forward.
+
+**Takeaways:** (1) shaped self-play has **more headroom than the 1200-game evals implied** —
+~0.90 vs random, not ~0.86 — but it *does* saturate. (2) Past the saturation point (~snap300k),
+more trials are wasted; to go beyond ~0.90 the lever is **structural** (network capacity, richer
+observation features, stronger/more diverse opponents), not more self-play of the same setup.
+
 ## 2026-06-30 (3000-game re-eval) — CORRECTION: shaped keeps improving; new best snap10000
 
 Re-ran the two recent Mode-B evals at **3000 games** (SE ≈ ±0.0079 vs ±0.0125 at 1200) to resolve
@@ -323,10 +353,11 @@ but does not finely rank trained snapshots. See `models/run<ts>/progression.png`
   growth, or reward progress toward emptying) rather than removing per-step signal; and when
   changing the objective, raise exploration + hold a **fixed strong opponent set** (don't sync
   opponents to a possibly-collapsing learner).
-- ~~PLATEAU (no gain from more training)~~ **RETRACTED by the 3000-game re-eval** — that was
-  1200-game noise. Shaped self-play *does* keep improving slowly: `shaped-snap10000` >
-  `snap3000` > `1000-best` (each ~3.5 SE). vs-random saturates (~0.86) but the head-to-head
-  ranking keeps creeping up. Current best: **`checkpoint_shaped_snap10000`**.
+- **Shaped self-play keeps improving until ~snap300k, then saturates at ~0.90 vs random**
+  (1M-trial run, 2026-07-01). The earlier "~0.86 ceiling" was undertrained: with enough trials
+  vs-random reaches ~0.90 and the head-to-head chain `shaped-snap300000` > `snap10000` >
+  `snap3000` > `1000-best` holds. Past ~snap300k more trials are wasted. Current best:
+  **`checkpoint_shaped_snap300000`** (0.305 / ~7 SE vs the prior best; 0.901 vs random).
 - **Win-reward: harmful (confirmed).** The anneal's win-dominated tail regresses ~3 SE below the
   1000-best. Don't pursue win-only/near-win-only; if revisiting the draw-penalty, use gentle
   potential-based shaping (see [PLAN.md](PLAN.md)).
