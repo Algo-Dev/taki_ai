@@ -54,7 +54,6 @@ def plot_rewards(values, wins, title='', save_path=None, show=False):
     ax[1].hist(values[-50:])
     ax[1].set_xlabel('Rewards per Last 50 Episodes')
     ax[1].set_ylabel('Frequency')
-    ax[1].legend()
 
     ax[2].plot(wins, label='accumulated wins')
     ax[2].set_xlabel('Episode')
@@ -123,8 +122,9 @@ if __name__ == '__main__':
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
         dqn_agent.model.save(f'{run_dir}/snap{trial_idx:04d}')
 
-    # snap0000 is the untrained network — the "earliest" baseline eval.py mode B
-    # measures every later snapshot against.
+    # snap0000 is the starting network (untrained on a fresh run, or the warm-start
+    # model when --model is given) — the baseline eval.py mode B measures every
+    # later snapshot against.
     save_snapshot(0)
 
     rewards = []

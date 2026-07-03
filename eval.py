@@ -15,8 +15,12 @@ regardless of skill):
                       snapshot equal to the baseline lands at ~1/num_players (parity).
 
 All agents play fully greedily (epsilon=0) so the comparison reflects learned policy,
-not exploration.  Games share a deterministic deck/seating sequence across matchups
-(seeded) so snapshots are compared on identical games (variance reduction).
+not exploration.  Every game is seeded individually — deck, seating AND the random
+opponents' choice stream (reseeded per game via RandomAgent.reseed) — so game g of any
+matchup replays identical randomness regardless of which snapshot is being tested or how
+earlier games unfolded.  Snapshots are therefore compared on identical games (common
+random numbers, variance reduction), and any (model, seed, games) result is reproducible
+independent of the surrounding sweep.
 """
 import os
 # The network is tiny; TF's default thread pools oversubscribe and thrash (huge system
@@ -62,8 +66,10 @@ def play_match(test_agent, opponent_agent, num_players, games, seed=0):
 
     A single opponent object fills every opponent seat (play() is stateless across
     seats: it reads the current seat's observation, and last_state/last_action are
-    overwritten each call). Seating and deck are seeded so every call to play_match
-    with the same seed sees identical games.
+    overwritten each call). Every game is individually seeded: the deck, the seating
+    and — for opponents exposing reseed() (RandomAgent) — the opponent's choice stream,
+    so game g is played on identical randomness in every matchup that shares `seed`,
+    no matter how games 0..g-1 went. Greedy nets are deterministic and need no reseed.
 
     Returns (test_wins, decided, undecided).
     """
@@ -75,6 +81,10 @@ def play_match(test_agent, opponent_agent, num_players, games, seed=0):
         seat_rng.shuffle(order)                 # randomise seating, deterministically
         seat_agents = [agents[i] for i in order]
         test_seat = order.index(0)              # where the test agent ended up
+        if hasattr(opponent_agent, 'reseed'):
+            # Common random numbers: restart the opponent's choice stream per game
+            # (string seed: distinct from the deck's integer stream seed+g below).
+            opponent_agent.reseed(f'{seed}:{g}:opp')
         game = Game(seat_agents, seed=seed + g)  # identical decks across matchups
         turns = 0
         while not game.done() and turns < TURN_CAP:
