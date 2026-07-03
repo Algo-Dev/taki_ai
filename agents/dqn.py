@@ -102,7 +102,7 @@ class AIAgent:
         self.target_model.set_weights(self.model.get_weights())
 
     def decay_epsilon(self):
-        """Decay exploration once per environment step (called by the training loop)."""
+        """Decay exploration once per episode (called by the training loop)."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def act(self, state, actions):
