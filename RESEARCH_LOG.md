@@ -14,6 +14,56 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-03 — Eval RNG fix: per-game common random numbers; reproducibility fixed, no extra comparison precision
+
+**Bug (found in the 2026-07-02 code review):** eval.py Mode B created ONE `RandomAgent(seed)`
+and reused it across every snapshot matchup, so its choice stream carried over — snapshot k's
+vs-random games depended on how snapshots 1..k−1 consumed the stream. The documented
+"snapshots are compared on identical games" guarantee only covered decks/seating, not the
+opponents' choices, and a result silently depended on the snapshot's *position in the sweep*
+(and on `--snap-stride`).
+
+**Fix:** reseed the opponent **per game** — `RandomAgent.reseed(f'{seed}:{g}:opp')` in
+`play_match` [eval.py] — alongside the existing per-game deck seed (`seed+g`) and per-matchup
+seating stream. Now game g replays identical randomness in every matchup sharing `--seed`,
+regardless of the model under test or how games 0..g−1 unfolded (true common random numbers);
+greedy net opponents are deterministic and need no reseed.
+
+**Experiment A — same model in 10 Mode-B slots** (10 × `checkpoint_shaped_snap300000`,
+1000 games each, seed 0). Any spread = pure opponent-stream artifact:
+
+| | rates across the 10 duplicate slots | sd | spread |
+|---|---|---|---|
+| before | 0.885 … 0.922 | 0.0132 | 0.037 |
+| after | **0.897 ×10 (bit-identical)** | **0.0000** | 0.000 |
+
+Before the fix the artifact was *larger than the binomial SE at 1000 games* (±0.0094) — a
+snapshot could gain/lose ~2–4 pts vs random purely from sweep position. After the fix, a
+(model, seed, games) triple is one deterministic number. **Reproducibility: fixed, verified.**
+
+**Experiment B — does CRN also tighten model *comparisons*?** best vs prior-best
+(`shaped_snap300000` vs `shaped_snap10000`) in one Mode-B sweep, 300 games/matchup,
+seeds 0..39; metric = sd across seeds of the paired vs-random difference. **No:**
+sd(diff) 0.0252 → 0.0259 (ratio 1.03), pairing correlation ρ̂ = 0.04 before / −0.02 after
+(SE ≈ 0.16), and each model's seed-to-seed sd matches pure binomial noise. Mechanism: two
+policies diverge at their first differing decision and the trajectories decorrelate — common
+decks/streams can't couple the outcomes. Not extended past 40 seeds: the correlation channel
+(the only mechanism by which pairing could cut variance) measures empty in both arms.
+
+**Takeaways:** (1) vs-random numbers are now exactly reproducible and independent of sweep
+composition — before, up to ~±1.3 pts (sd) was position artifact. (2) CRN does **not** buy
+comparison precision here; the **≥3000 games** rule for ranking near-equal snapshots stands
+unchanged. (3) Calibration going forward: vs-random rates shift *within SE* under the new
+stream scheme (best: 0.901 → 0.897 at these game counts); historical log numbers remain
+valid/unbiased, just not bit-reproducible. Mean best-vs-prior gap was ~+2.4 pts vs random in
+both arms — estimates unbiased before and after.
+
+Same session, non-eval fixes: main.py demo previously created its DQN agents with the default
+`epsilon=1.0` — i.e. **pure random play even with `--model`**; it now plays greedily when a
+model is given (random otherwise, since greedy random-weight nets stall) and is fully seeded
+(two runs replay bit-identical games). Verified: gametest 13/13; demo with the best model
+finishes 4/4 games, play-dominated (243 plays / 140 draws).
+
 ## 2026-07-01 — Long shaped run (1M trials): real gain to ~0.90 vs random, then plateau
 
 Continued **pure shaped** from `checkpoint_shaped_snap10000`, `--epsilon-start 0.1`,
@@ -38,6 +88,14 @@ Peak-finding eval at 3000 games (SE ≈ ±0.0079), stride 100000, baseline = the
 
 **New best (promoted): `models/checkpoint_shaped_snap300000`** — beats the prior best by ~+5.5 pts
 (0.305, ~7 SE) and lifts vs-random to 0.901. Use it as `--baseline` going forward.
+
+**10,000-game recheck (vs the prior best, seed 0, SE ≈ ±0.0046)** — to be sure about the plateau:
+snap0000 (control) **0.2530** ✓; snap100000 .2902, snap300000 .2998, snap500000 .2961,
+snap700000 .2986, snap1000000 **.3039**. Verdict: the gain is rock-solid (+9…+12 SE over the prior
+best), and 100k→1M is a **near-plateau with a faint residual creep** — .290→.304, i.e. snap1000000
+is only ~2.1 SE above snap100000 (≈+1.4 pts over 900k trials). So *practically* plateaued (near-zero
+returns after ~snap100k) but not dead-flat. Peak is a tie: snap1000000 (.3039) is nominally highest
+but only ~0.6 SE over snap300000 (.2998) → best pick unchanged; the final model at most ties it.
 
 **Takeaways:** (1) shaped self-play has **more headroom than the 1200-game evals implied** —
 ~0.90 vs random, not ~0.86 — but it *does* saturate. (2) Past the saturation point (~snap300k),

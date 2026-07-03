@@ -2,6 +2,8 @@ import argparse
 import random
 import time
 
+import numpy as np
+
 from game import Game
 from agents.random import RandomAgent
 from agents.human import HumanAgent
@@ -10,21 +12,28 @@ from agents.dqn import AIAgent
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Play / demo Taki agents.')
     # Pass a checkpoint from a current-architecture training run to use trained
-    # weights. The old ./models/checkpoint* dirs are incompatible and would fall
-    # back to random weights (with a warning). Leave unset for random play.
+    # weights (an incompatible checkpoint raises a load error, see agents/dqn.py).
+    # Leave unset for random play.
     parser.add_argument('--model', default=None,
                         help='checkpoint to load the DQN agents from')
     args = parser.parse_args()
 
-    random.seed(42)  # Set seed for reproducibility
+    # Seed everything the demo touches (agent order, epsilon draws, the game's own
+    # deck RNG below) so a run is reproducible end to end.
+    random.seed(42)
+    np.random.seed(42)
+
+    # With a trained model play fully greedily (epsilon=0) so the network actually
+    # drives the moves. Without one, keep epsilon=1 (uniform-random policy): greedy
+    # play on random weights degenerates into a draw loop that never ends.
+    epsilon = 0.0 if args.model else 1.0
 
     # Normal game, 3 DQN agents (add HumanAgent() to play along).
-    agents = [AIAgent(load_model=args.model),
-              AIAgent(load_model=args.model),
-              AIAgent(load_model=args.model)]  # , HumanAgent()]
+    agents = [AIAgent(epsilon=epsilon, epsilon_min=epsilon, load_model=args.model),
+              AIAgent(epsilon=epsilon, epsilon_min=epsilon, load_model=args.model),
+              AIAgent(epsilon=epsilon, epsilon_min=epsilon, load_model=args.model)]  # , HumanAgent()]
     random.shuffle(agents)
-    game = Game(agents, True)
-    print(game.observation().shape)
+    game = Game(agents, True, seed=42)
 
     games_won_per_player = [0] * len(agents)
     num_iterations = 4
