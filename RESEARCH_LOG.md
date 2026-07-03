@@ -14,6 +14,68 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-03 — Color-symmetry replay augmentation (`--color-sym`): +3.3 pts vs random, wins head-to-head
+
+**Idea (PLAN.md:9).** TAKI's four colors are interchangeable — only color *consistency*
+matters — so every transition is equivalent under any of the 24 (4!) color relabelings.
+The DQN never exploited this: each buffered transition is replayed ~16×, always with the
+same color realization. New `--color-sym` flag augments each *sampled* transition in
+`AIAgent.replay()` with one uniformly-random color permutation (identity included),
+applied consistently to state / new_state / action / next_valid (reward and done are
+color-invariant). Chosen over canonicalization (discontinuous input map) and over
+expanding the buffer in `remember()` (would shrink the 20k horizon ~24×); per-draw
+augmentation turns each of the ~16 replays of a transition into a different recoloring for
+free.
+
+**Implementation.** `game.py` builds `OBS_PERMS` (24×201 gather arrays) and `ACT_PERMS`
+(24×64 forward maps) once at import; the observation table is the *inverse* of the action
+forward map (gather vs scatter — the one real pitfall, `aug[f[i]]=orig[i]`). `replay()`
+does two `np.take_along_axis` gathers on the batch + a per-row action relabel. New
+`ColorSymmetryTest` (6 tests) proves equivariance directly: recoloring a real mid-game
+state and re-encoding equals permuting the original encoding, for all 24 perms
+(`gametest` 19/19). **Overhead: none measurable** — 200 trials 21.5 s (off) vs 20.6 s
+(on); the two float gathers are noise next to the TF step.
+
+**A/B setup.** Two fresh runs, identical except the flag: `--trials 10000 --reward shaped
+--snapshot-every 500`. Control `run1783094805.690908`, treatment
+`run1783094809.117728_colorsym` (each run's `config.txt` records the args). Eval seed 0.
+This is the deliberately small "quick signal" scale — 10k trials, one pair.
+
+**Headline (3000-game evals, best snapshot = snap10000 for both):**
+
+| metric | control | color-sym | gap |
+|---|---|---|---|
+| vs random (Mode A) | 0.866 (2597/3000) | **0.899 (2696/3000)** | **+0.033, z ≈ 4.0** |
+| head-to-head: 1 color-sym seat + 3 control seats | — | **0.323 (969/3000)** | **+0.073 over 0.25 parity, z ≈ 8.6** |
+
+The head-to-head is the decisive one: drop the color-sym model into a table of three
+control copies and it wins 32.3% of games where equal skill scores 25% — it genuinely
+beats the control *policy*, not just a shared random opponent. All 3000 games decided, 0
+undecided.
+
+**Progression (Mode B, 300 games/snapshot vs random and vs the frozen current-best
+`checkpoint_shaped_snap300000`):** color-sym is ahead at essentially every late snapshot.
+
+| snapshot | control vs random | color-sym vs random | control vs best | color-sym vs best |
+|---|---|---|---|---|
+| snap5000 | 0.843 | 0.867 | 0.193 | 0.243 |
+| snap7000 | 0.873 | 0.897 | 0.190 | 0.220 |
+| snap9000 | 0.860 | 0.893 | 0.180 | 0.233 |
+| snap10000 | 0.857 | 0.900 | 0.203 | 0.233 |
+
+(Both runs stay *below* 0.25 vs the 1M-trial best — expected at 10k trials; neither has
+caught the current champion, but color-sym closes the gap faster.)
+
+**Caveats.** (1) **n = 1 training pair**, both unseeded; historical run-to-run variance is
+~0.02 vs random, so the +0.033 Mode-A gap alone is ~1.6σ of *training* noise even though
+it is ~4σ of *eval* noise. What lifts this above "lucky run" is the convergence of three
+independent readouts: the 3000-game vs-random gap, the decisive z≈8.6 head-to-head (a
+direct model-vs-model ranking, largely immune to the shared-opponent variance), and
+color-sym leading at nearly every Mode-B snapshot. (2) A definitive *effect-size* estimate
+still needs replicate pairs and/or a longer horizon. **Next:** run the A/B at 100k–300k
+trials (and ideally 2–3 seeded pairs) to see whether the gain compounds toward / past the
+current best, and whether augmentation shifts where greedy skill plateaus.
+
 ## 2026-07-03 — Eval RNG fix: per-game common random numbers; reproducibility fixed, no extra comparison precision
 
 **Bug (found in the 2026-07-02 code review):** eval.py Mode B created ONE `RandomAgent(seed)`
