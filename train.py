@@ -88,18 +88,24 @@ if __name__ == '__main__':
     parser.add_argument('--reward-anneal-fraction', type=float, default=REWARD_ANNEAL_FRACTION,
                         help='for --reward anneal: fraction of trials over which the reward '
                              f'transitions, then holds (default {REWARD_ANNEAL_FRACTION})')
+    parser.add_argument('--color-sym', action='store_true',
+                        help='augment each replayed transition with a random relabeling of '
+                             'the four colors (24 TAKI color symmetries); learner only')
     parser.add_argument('--show', action='store_true',
                         help='display the training plot interactively (otherwise only saved to PNG)')
     args = parser.parse_args()
 
-    print('Training a DQN agent via self-play against 3 opponents')
+    print(f'Training a DQN agent via self-play against 3 opponents '
+          f'(reward={args.reward}, color_sym={args.color_sym})')
     trials = args.trials
     trial_len = 300
     update_target_network = 100
     num_of_players = 4
 
     # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
-    dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model)
+    # color_sym only affects replay(), which only the learner runs.
+    dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model,
+                        color_sym=args.color_sym)
     if not dqn_agent.epsilon_min <= args.epsilon_start <= 1.0:
         parser.error(f'--epsilon-start must be in [{dqn_agent.epsilon_min}, 1.0]')
     # Per-episode decay sized to the run: epsilon falls from epsilon_start to epsilon_min over
@@ -113,10 +119,15 @@ if __name__ == '__main__':
 
     # One run directory shared by all snapshots and the final checkpoint/plot, so they
     # carry the same timestamp and eval.py can discover the whole progression at once.
+    # The _colorsym tag keeps A/B runs distinguishable at a glance; config.txt records
+    # the full arguments for later comparison.
     os.makedirs('./models', exist_ok=True)
     timestamp = datetime.now().timestamp()
-    run_dir = f'./models/run{timestamp}'
+    tag = '_colorsym' if args.color_sym else ''
+    run_dir = f'./models/run{timestamp}{tag}'
     os.makedirs(run_dir, exist_ok=True)
+    with open(f'{run_dir}/config.txt', 'w') as f:
+        f.write(f'{vars(args)!r}\n')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
@@ -217,5 +228,5 @@ if __name__ == '__main__':
             save_snapshot(trial + 1)
 
     plot_rewards(rewards, wins, 'Rewards over episodes',
-                 save_path=f'./models/training{timestamp}.png', show=args.show)
-    dqn_agent.model.save(f'./models/checkpoint{timestamp}')
+                 save_path=f'./models/training{timestamp}{tag}.png', show=args.show)
+    dqn_agent.model.save(f'./models/checkpoint{timestamp}{tag}')

@@ -17,7 +17,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 from game import (action_to_scalar, scalar_to_action,
-                  OBSERVATION_SIZE, ACTION_SIZE)
+                  OBSERVATION_SIZE, ACTION_SIZE, OBS_PERMS, ACT_PERMS)
 
 # I would like to thank https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
 # for making an easy to read tutorial on DQN with Keras, I didn't know how to implement this and it really helped.
@@ -26,10 +26,15 @@ from game import (action_to_scalar, scalar_to_action,
 class AIAgent:
 
     def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
-                 epsilon_decay=0.995, learning_rate=0.001, load_model=None):
+                 epsilon_decay=0.995, learning_rate=0.001, load_model=None,
+                 color_sym=False):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
+        # Replay-time color-symmetry augmentation: TAKI's colors are interchangeable,
+        # so each sampled transition is trained under a random relabeling of the four
+        # colors (see the COLOR_PERMS tables in game.py).
+        self.color_sym = color_sym
         self.epsilon_min = epsilon_min
         self.memory = deque(maxlen=20000)
         self.epsilon_decay = epsilon_decay
@@ -83,11 +88,30 @@ class AIAgent:
         samples = random.sample(self.memory, self.batch_size)
         states = np.array([s[0] for s in samples], dtype=np.float32)       # (batch, OBS)
         next_states = np.array([s[3] for s in samples], dtype=np.float32)  # (batch, OBS)
+        if self.color_sym:
+            # One uniformly-random color relabeling per transition (identity included);
+            # state, new_state, action and next_valid all get the SAME permutation, so
+            # each row stays a genuine environment transition (reward/done are
+            # color-invariant). Must happen BEFORE the model() calls below: the target
+            # rows are the predictions on the augmented states, so the 63 untouched
+            # entries keep target == prediction (zero gradient). The buffer keeps the
+            # originals — states/next_states are fresh copies and take_along_axis
+            # allocates new arrays.
+            ks = np.random.randint(len(OBS_PERMS), size=self.batch_size)
+            states = np.take_along_axis(states, OBS_PERMS[ks], axis=1)
+            next_states = np.take_along_axis(next_states, OBS_PERMS[ks], axis=1)
         # Direct model() calls instead of model.predict() — far less per-call overhead
         # for batches this small.
         targets = self.model(states, training=False).numpy()       # (batch, ACTION_SIZE)
         next_q = self.target_model(next_states, training=False).numpy()
         for i, (_, action, reward, _, done, next_valid) in enumerate(samples):
+            if self.color_sym:
+                act_f = ACT_PERMS[ks[i]]
+                action = act_f[action]
+                # Keep next_valid a Python list: the `if next_valid` mask below relies
+                # on list truthiness (None / [] -> unmasked max).
+                if next_valid:
+                    next_valid = [act_f[a] for a in next_valid]
             if done:
                 targets[i][action] = reward
             else:
