@@ -1,3 +1,4 @@
+import copy
 import unittest
 from game import *
 from agents.random import RandomAgent
@@ -178,6 +179,96 @@ class GameFlowTest(unittest.TestCase):
                 return action, card
         game.agents[game.curr] = _Scripted()
         return game.next_turn()
+
+
+class ColorSymmetryTest(unittest.TestCase):
+    """The COLOR_PERMS/OBS_PERMS/ACT_PERMS tables must exactly mirror a recoloring of
+    the real game: recoloring a game and re-encoding it must equal permuting the
+    original encoding. This is what makes the replay augmentation a genuine
+    environment transition rather than noise."""
+
+    def _recolored(self, g, pi):
+        """A deep copy of game g with every color c relabeled to pi[c-1] (NONE fixed).
+        Builds new Card objects: the deck is constructed with [Card(...)] * 2, so the
+        same object can appear twice and in-place recoloring would hit it twice."""
+        def pc(color):
+            return color if color is Color.NONE else Color(pi[color.value - 1])
+        g2 = copy.deepcopy(g)
+        g2.hands = [[Card(c.type, pc(c.color)) for c in h] for h in g.hands]
+        g2.discard = [Card(c.type, pc(c.color)) for c in g.discard]
+        g2.deck = [Card(c.type, pc(c.color)) for c in g.deck]
+        g2.taki_color = pc(g.taki_color)
+        return g2
+
+    def _assert_equivariant(self, g):
+        """For all 24 perms: recolored observation == gathered observation, and
+        recolored valid-move scalars == forward-mapped original scalars."""
+        obs = g.observation(agent=0)
+        scalars = [action_to_scalar(*m) for m in g.valid_moves(agent=g.curr)]
+        for pi, gobs, gact in zip(COLOR_PERMS, OBS_PERMS, ACT_PERMS):
+            g2 = self._recolored(g, pi)
+            np.testing.assert_array_equal(g2.observation(agent=0), obs[gobs])
+            scalars2 = [action_to_scalar(*m) for m in g2.valid_moves(agent=g.curr)]
+            self.assertEqual(sorted(scalars2), sorted(int(gact[a]) for a in scalars))
+
+    def test_tables_are_bijections_with_correct_fixed_points(self):
+        for k in range(len(COLOR_PERMS)):
+            self.assertEqual(sorted(OBS_PERMS[k]), list(range(OBSERVATION_SIZE)))
+            self.assertEqual(sorted(ACT_PERMS[k]), list(range(ACTION_SIZE)))
+            # Colorless actions (CHCOL/SuperTAKI/DRAW/CLOSE_TAKI) never move.
+            self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63])
+            # State one-hot, draw_num and the extra features never move.
+            fixed = list(range(124, 132)) + list(range(198, 201))
+            self.assertEqual(list(OBS_PERMS[k][fixed]), fixed)
+
+    def test_identity_perm_is_noop(self):
+        # itertools.permutations is lexicographic, so index 0 is the identity.
+        self.assertEqual(COLOR_PERMS[0], (1, 2, 3, 4))
+        np.testing.assert_array_equal(OBS_PERMS[0], np.arange(OBSERVATION_SIZE))
+        np.testing.assert_array_equal(ACT_PERMS[0], np.arange(ACTION_SIZE))
+
+    def test_known_swap_values(self):
+        # RED <-> YELLOW swap: red taki (0) <-> yellow taki (15), and the gather for
+        # the augmented yellow-three slot (18) reads the original red-three slot (3).
+        k = COLOR_PERMS.index((2, 1, 3, 4))
+        self.assertEqual(ACT_PERMS[k][0], 15)
+        self.assertEqual(ACT_PERMS[k][18], 3)
+        self.assertEqual(ACT_PERMS[k][60], 60)
+        self.assertEqual(OBS_PERMS[k][18], 3)
+
+    def test_observation_and_action_equivariance(self):
+        # Real games at several stages of play, driven by seeded random agents.
+        for seed in range(4):
+            for turns in (0, 5, 20, 60):
+                g = Game([RandomAgent(seed=i) for i in range(4)], seed=seed)
+                for _ in range(turns):
+                    if g.done():
+                        break
+                    g.next_turn()
+                if not g.done():
+                    self._assert_equivariant(g)
+
+    def test_equivariance_in_taki_and_chcol_states(self):
+        # Hand-built state covering the tricky slots: colorless CHCOL (60) and Super
+        # TAKI (61) in hand, a color-carrying played CHCOL on the discard top (slot
+        # 44), an active taki_color one-hot, and CHCOL's 4-way valid_moves expansion.
+        g = Game([RandomAgent(seed=i) for i in range(4)], seed=0)
+        g.curr = 0
+        g.hands[0] = [Card(Type.CHCOL), Card(Type.TAKI),
+                      Card(Type.THREE, Color.GREEN), Card(Type.PLUSTWO, Color.BLUE)]
+        g.discard = [Card(Type.FIVE, Color.RED), Card(Type.CHCOL, Color.GREEN)]
+        g.state = State.TAKI
+        g.taki_color = Color.GREEN
+        self._assert_equivariant(g)
+
+    def test_batched_gather_matches_rowwise(self):
+        # The exact vectorised expression used by AIAgent.replay(): a per-row gather.
+        rng = np.random.RandomState(0)
+        m = rng.rand(8, OBSERVATION_SIZE).astype(np.float32)
+        ks = rng.randint(len(OBS_PERMS), size=8)
+        batched = np.take_along_axis(m, OBS_PERMS[ks], axis=1)
+        for i in range(8):
+            np.testing.assert_array_equal(batched[i], m[i][OBS_PERMS[ks[i]]])
 
 
 if __name__ == '__main__':

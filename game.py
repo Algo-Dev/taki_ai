@@ -1,3 +1,4 @@
+import itertools
 import random
 from enum import Enum
 
@@ -250,6 +251,49 @@ def color_to_vector(color):
     if color is not Color.NONE:
         vec[color.value - 1] = 1
     return vec
+
+
+# --- Color-symmetry tables (used by the DQN replay augmentation, agents/dqn.py) -------
+# TAKI's four play colors are interchangeable: relabeling colors by any permutation maps
+# a legal game onto a legal game with identical dynamics and (hand-size-based) rewards.
+#   COLOR_PERMS[k]  : the k-th permutation pi as a tuple; pi[c-1] is the new color of c.
+#                     itertools order is lexicographic, so index 0 is the identity.
+#   ACT_PERMS[k][a] : FORWARD map — what old action scalar a is called after recoloring.
+#   OBS_PERMS[k]    : GATHER indices — recolored_obs = obs[OBS_PERMS[k]].
+# Direction matters: aug[forward[i]] = orig[i]  <=>  aug[j] = orig[forward^-1[j]], so the
+# observation table is the INVERSE of the forward map (built by inverting obs_f below).
+COLOR_PERMS = tuple(itertools.permutations(range(1, NUM_PLAY_COLORS + 1)))
+
+
+def _build_color_perm_tables():
+    obs_perms, act_perms = [], []
+    ntypes = len(Type)                                   # 15, the card-block stride
+    color_off = CARD_VECTOR_SIZE * 2 + len(State) + 1    # 132: open-TAKI color one-hot
+    # Offsets of the three card-vector blocks in the observation: hand, discard, shown.
+    card_blocks = (0, CARD_VECTOR_SIZE, color_off + NUM_PLAY_COLORS)
+    for pi in COLOR_PERMS:
+        # Forward map on the 62 card slots; colorless slots 60/61 stay fixed.
+        card_f = np.arange(CARD_VECTOR_SIZE, dtype=np.intp)
+        for c in range(1, NUM_PLAY_COLORS + 1):
+            card_f[(c - 1) * ntypes:c * ntypes] = np.arange(
+                (pi[c - 1] - 1) * ntypes, pi[c - 1] * ntypes)
+        # Forward action map: card slots 0-59; 60-63 (CHCOL/SuperTAKI/DRAW/CLOSE) fixed.
+        act_f = np.arange(ACTION_SIZE, dtype=np.intp)
+        act_f[:60] = card_f[:60]
+        act_perms.append(act_f)
+        # Forward observation map, then inverted into a gather array.
+        obs_f = np.arange(OBSERVATION_SIZE, dtype=np.intp)
+        for off in card_blocks:
+            obs_f[off:off + CARD_VECTOR_SIZE] = off + card_f
+        for c in range(1, NUM_PLAY_COLORS + 1):
+            obs_f[color_off + c - 1] = color_off + pi[c - 1] - 1
+        gather = np.empty(OBSERVATION_SIZE, dtype=np.intp)
+        gather[obs_f] = np.arange(OBSERVATION_SIZE)
+        obs_perms.append(gather)
+    return np.array(obs_perms), np.array(act_perms)
+
+
+OBS_PERMS, ACT_PERMS = _build_color_perm_tables()        # shapes (24, 201) and (24, 64)
 
 
 class Game:
