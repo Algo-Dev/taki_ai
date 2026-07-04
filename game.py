@@ -95,15 +95,6 @@ class Card:
     def __repr__(self):
         return str(self)
 
-    def amount(self):
-        """
-        Calculates the amount needed per game
-        :return: an int
-        """
-        if self.type == Type.CHCOL:
-            return 4
-        return 2
-
     def __eq__(self, other):
         if not isinstance(other, Card):
             return NotImplemented
@@ -175,6 +166,10 @@ def action_to_scalar(action, card):
         if card.color is not Color.NONE:
             return (card.color.value-1) * 15 + card.type.value  # Play any colored card
         elif card.type is Type.CHCOL:
+            # Scalar 60 = a colorless Change Color play. Unreachable in practice: valid_moves
+            # always expands a playable CHCOL into its four colored choices (scalars 14/29/44/59),
+            # so this branch never fires from real play and action 60 is never trained. It exists
+            # only to mirror the card-vector layout (card_to_scalar maps an in-hand CHCOL here).
             return 60  # Play a colorless Change Color
         return 61  # Play SUPER TAKI
     elif action is Action.DRAW:
@@ -325,15 +320,19 @@ class Game:
         self.draw_num = 0
         self.deck = []
         self.discard = []
+        # Build each card as a DISTINCT object. `[Card(...)] * n` would alias one object
+        # into n deck slots (in-place card mutation would then hit every alias); distinct
+        # objects keep counts identical (4 CHCOL, 2 per colored card, 2 Super TAKI) while
+        # removing that hazard.
         for t in Type:
             if t == Type.CHCOL:
-                self.deck.extend([Card(Type.CHCOL)] * 4)
+                self.deck.extend(Card(Type.CHCOL) for _ in range(4))
             else:
                 for color in Color:
                     if color is not Color.NONE:
-                        self.deck.extend([Card(t, color)] * 2)
+                        self.deck.extend(Card(t, color) for _ in range(2))
             if t == Type.TAKI:
-                self.deck.extend([Card(t)] * 2)
+                self.deck.extend(Card(t) for _ in range(2))
         self.random.shuffle(self.deck)
         self.discard.append(self.deck.pop())
         # Standard Taki: the game must open on a plain number card. Re-draw the
@@ -413,7 +412,8 @@ class Game:
                 self.hands[agent].remove(Card(Type.CHCOL))
             else:
                 if card not in self.hands[agent]:
-                    print(self.hands[agent], card)
+                    raise ValueError(
+                        f"agent {agent} played {card}, which is not in hand {self.hands[agent]}")
                 self.hands[agent].remove(card)
             if card.type is Type.TAKI:
                 if card.color is Color.NONE:
