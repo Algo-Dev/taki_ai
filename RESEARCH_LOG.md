@@ -14,6 +14,40 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-04 — DQN-hygiene package A/B at 10k trials (branch `exp-dqn-hygiene`): weak, seed-inconsistent; does NOT clear the adopt bar
+
+**Setup.** 3 seeded pairs (seeds 0/1/2), 10k trials, `--reward shaped --color-sym` in **both**
+arms. Treatment adds the full package: `--double-dqn --loss huber --reward-scale 0.1
+--target-sync-mode steps --target-sync-every 2000` (slow lagged target that drops the
+episode-end hard copy, Double DQN, Huber, reward÷10). Thread-capped (OMP/OPENBLAS=1) + `nice
+-19 ionice`, run concurrently with the other session's 100k color-sym A/B. Trainings 6/6 OK in
+22 min; run dirs + logs under `models/_hygiene_ab/`. Evals: 3000 games, seed 0 (CRN).
+
+**Results** (head-to-head = treatment as 1 seat vs 3 control-copy seats; parity 0.25, SE ≈ 0.0079):
+
+| seed | control vs rand | treat vs rand | head-to-head | vs parity |
+|---|---|---|---|---|
+| 0 | 0.895 | 0.911 | 0.289 | +4.9 SE |
+| 1 | 0.904 | 0.900 | 0.239 | −1.4 SE (below parity) |
+| 2 | 0.911 | 0.907 | 0.267 | +2.2 SE |
+| pooled | 0.903 | 0.906 | 0.265 | +3.2 SE |
+
+**Verdict: does not meet the pre-registered adopt bar** (needed ≥2/3 seeds at ≥3 SE, consistent
+sign; got 1/3, with seed 1 *below* parity). vs-random is unchanged (treat 0.906 vs control 0.903)
+— the package neither hurts nor helps the random baseline. Pooled head-to-head is +3.2 SE (~+1.5
+pts over parity) but driven almost entirely by seed 0; high between-seed variance vs a small
+effect → **not robust**. Contrast color-sym's decisive +7.3 pts / z≈8.6 at the same scale.
+
+**Caveats / why this isn't a clean "reject".** (1) The treatment bundles 4 levers — a mixed result
+can't attribute; the slow-target/Double-DQN benefit is a *stability* effect expected to compound
+over LONG horizons, and 10k trials is exactly where it's least visible (unlike color-sym, which
+pays off immediately, so the 10k screen was predictive there and may under-read here). (2) Possible
+internal cancellation (e.g. reward÷10 + Huber δ=1 interaction, or slow target hurting at short
+horizon). **Next options (Phase 2 gated on review):** component ablation (which lever moves it),
+the `--target-sync-mode polyak` variant, or — despite the weak screen — a 100k A/B of the full
+bundle since these levers target the long-run plateau, not 10k skill. **Not adopted; nothing
+promoted.**
+
 ## 2026-07-04 — Review fixes S1–S8 (branch `review-fixes-s1-s8`); vs-random baseline must be re-measured
 
 Code-only follow-ups to the 2026-07-03 full review (see [PLAN.md](PLAN.md) for the S1–S8 /
