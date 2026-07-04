@@ -134,8 +134,9 @@ def main():
     parser.add_argument('--snap-stride', type=int, default=100,
                         help='mode B: only evaluate snapshots whose trial index is a multiple of '
                              'this (snapshots are saved every 25; default 100 -> every-100 subset)')
-    parser.add_argument('--games', type=int, default=500,
-                        help='games per matchup for mode A')
+    parser.add_argument('--games', type=int, default=3000,
+                        help='games per matchup for mode A (default 3000 -> SE ~= 0.008, the '
+                             'precision needed to rank near-equal models; see RESEARCH_LOG.md)')
     parser.add_argument('--games-b', type=int, default=150,
                         help='games per matchup for mode B (per snapshot, per reference)')
     parser.add_argument('--num-players', type=int, default=4)
@@ -147,6 +148,16 @@ def main():
 
     baseline = 1.0 / args.num_players
     print(f'Baseline (1/num_players) = {baseline:.3f}  [{args.num_players} players]')
+
+    # Ranking near-equal snapshots needs >=3000 games (SE ~= 0.008); fewer games produced a
+    # false "plateau" read historically (see RESEARCH_LOG.md). Warn rather than block.
+    PRECISION_GAMES = 3000
+    if args.model and args.games < PRECISION_GAMES:
+        print(f'  [warning] mode A --games={args.games} < {PRECISION_GAMES}: too noisy to rank '
+              f'near-equal models (SE ~= {0.5 / args.games ** 0.5:.4f}).')
+    if args.run_dir and args.games_b < PRECISION_GAMES:
+        print(f'  [warning] mode B --games-b={args.games_b} < {PRECISION_GAMES}: fine for the '
+              f'vs-random convergence curve, too noisy for ranking near-equal snapshots.')
 
     # ---- Mode A: trained DQN vs random ------------------------------------------------
     if args.model:
