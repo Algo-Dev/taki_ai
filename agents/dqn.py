@@ -27,7 +27,7 @@ class AIAgent:
 
     def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
                  epsilon_decay=0.995, learning_rate=0.001, load_model=None,
-                 color_sym=False):
+                 color_sym=False, double_dqn=False, loss='mse', huber_delta=1.0):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
@@ -35,6 +35,18 @@ class AIAgent:
         # so each sampled transition is trained under a random relabeling of the four
         # colors (see the COLOR_PERMS tables in game.py).
         self.color_sym = color_sym
+        # DQN-hygiene levers (all default to vanilla behavior so an off run is bit-identical
+        # to the pre-flag code):
+        #   double_dqn  - select the bootstrap action with the ONLINE net, evaluate it with
+        #                 the TARGET net (decouples selection from evaluation -> less
+        #                 overestimation). Needs a lagged target to help (see train.py's
+        #                 --target-sync-mode); with an on-policy target it degenerates to max.
+        #   loss/delta  - 'huber' bounds the per-sample gradient at +/-delta, capping the
+        #                 influence of rare large TD errors (wins, stale bootstraps). Pair
+        #                 with a reward scale that puts delta inside the error distribution.
+        self.double_dqn = double_dqn
+        self.loss = loss
+        self.huber_delta = huber_delta
         self.epsilon_min = epsilon_min
         self.memory = deque(maxlen=20000)
         self.epsilon_decay = epsilon_decay
@@ -72,12 +84,20 @@ class AIAgent:
     @tf.function
     def _train_step(self, states, targets):
         # Compiled single gradient step (replaces model.fit, which retraces per call in
-        # eager and carries heavy Python overhead). MSE over the full action vector — the
-        # non-taken actions have target == current prediction, so they contribute no
-        # gradient, exactly as the previous fit-based update did.
+        # eager and carries heavy Python overhead). Loss is over the full action vector —
+        # the non-taken actions have target == current prediction, so they contribute no
+        # gradient, exactly as the previous fit-based update did. self.loss is a Python
+        # attribute fixed at construction, so this branch is resolved once at trace time
+        # (no per-call retrace); the compiled graph is MSE or Huber for the agent's life.
         with tf.GradientTape() as tape:
             preds = self.model(states, training=True)
-            loss = tf.reduce_mean(tf.square(targets - preds))
+            err = targets - preds
+            if self.loss == 'huber':
+                # Quadratic within +/-delta, linear beyond -> bounded gradient magnitude.
+                a = tf.minimum(tf.abs(err), self.huber_delta)
+                loss = tf.reduce_mean(0.5 * a * a + self.huber_delta * (tf.abs(err) - a))
+            else:
+                loss = tf.reduce_mean(tf.square(err))
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         return loss
@@ -104,6 +124,11 @@ class AIAgent:
         # for batches this small.
         targets = self.model(states, training=False).numpy()       # (batch, ACTION_SIZE)
         next_q = self.target_model(next_states, training=False).numpy()
+        # Double DQN: the ONLINE net selects the bootstrap action, the TARGET net evaluates
+        # it. One extra batched forward pass, only when the flag is on. Uses the same
+        # (possibly color-permuted) next_states as next_q, so the two agree row-for-row.
+        online_next = (self.model(next_states, training=False).numpy()
+                       if self.double_dqn else None)
         for i, (_, action, reward, _, done, next_valid) in enumerate(samples):
             if self.color_sym:
                 act_f = ACT_PERMS[ks[i]]
@@ -115,15 +140,32 @@ class AIAgent:
             if done:
                 targets[i][action] = reward
             else:
-                # Bootstrap only from actions that are legal in the next state; the
-                # network is never trained on illegal actions, so their Q-values are junk.
-                best_next = np.max(next_q[i][next_valid]) if next_valid else np.max(next_q[i])
+                # Bootstrap only from actions that are legal in the next state; the network
+                # is never trained on illegal actions, so their Q-values are junk. legal
+                # None (== next_valid None/[]) means "no mask", matching the old behavior.
+                legal = next_valid if next_valid else None
+                if self.double_dqn:
+                    online_row = online_next[i] if legal is None else online_next[i][legal]
+                    pos = int(np.argmax(online_row))
+                    a_star = pos if legal is None else legal[pos]
+                    best_next = next_q[i][a_star]
+                else:
+                    best_next = np.max(next_q[i]) if legal is None else np.max(next_q[i][legal])
                 targets[i][action] = reward + self.gamma * best_next
         self._train_step(tf.convert_to_tensor(states),
                           tf.convert_to_tensor(targets, dtype=tf.float32))
 
     def target_train(self):
         self.target_model.set_weights(self.model.get_weights())
+
+    def polyak_update(self, tau):
+        """Soft target update: target <- tau*online + (1-tau)*target. A small tau makes the
+        target a slow exponential-moving-average of the online net (the smooth alternative
+        to periodic hard copies; see train.py --target-sync-mode polyak)."""
+        online_w = self.model.get_weights()
+        target_w = self.target_model.get_weights()
+        self.target_model.set_weights(
+            [tau * o + (1.0 - tau) * t for o, t in zip(online_w, target_w)])
 
     def decay_epsilon(self):
         """Decay exploration once per episode (called by the training loop)."""
