@@ -26,10 +26,13 @@ duplicated cards in hand. **Greedy DQN play is bit-identical** (duplicate moves 
 `argmax` is unchanged), which means **model-vs-model head-to-head evals are unaffected**, but the
 **vs-random win rate shifts** because the random opponents now play a different distribution.
 
-**Action for the next experiment:** re-measure `checkpoint_shaped_snap300000` vs random at ≥3000
-games under this branch to establish the new baseline (the "~0.90 vs random" figure in
-[CLAUDE.md](CLAUDE.md) and older log entries predates the dedup). Head-to-head chains and Mode-B
-`--baseline` comparisons carry over unchanged.
+**New baseline measured (post-dedup):** `checkpoint_shaped_snap300000` vs 3 random,
+**0.907 (9068/10000), 0 undecided**, seed 0, SE ≈ ±0.003. This is if anything ~+0.6 pt above the
+pre-dedup figures (~0.897–0.901 at 3000 games, older RandomAgent) — well within a couple SE, i.e.
+the S3 dedup did **not** degrade the vs-random rate; deduping just makes the random opponents
+slightly more uniform over distinct moves. Use **0.907** as the vs-random reference on this branch.
+Head-to-head chains and Mode-B `--baseline` comparisons carry over unchanged (greedy play is
+bit-identical).
 
 Other fixes (no behavior change): S1 raise instead of print on an illegal play; S2 distinct deck
 objects (counts unchanged); S4 comment on the unreachable colorless-CHCOL action scalar; S5 removed
