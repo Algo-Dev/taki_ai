@@ -97,7 +97,29 @@ if __name__ == '__main__':
                         help='max learner steps per episode before the trial is cut off (default 300)')
     parser.add_argument('--target-sync-every', type=int, default=100,
                         help='hard-copy the online net into the target net every N learner steps '
-                             '(default 100; note the loop also syncs at every episode end)')
+                             '(default 100; legacy mode also syncs at every episode end)')
+    # --- DQN-hygiene levers (default = vanilla; see RESEARCH_LOG / PLAN A1-A3) ---------------
+    parser.add_argument('--target-sync-mode', choices=('legacy', 'steps', 'polyak'),
+                        default='legacy',
+                        help="'legacy' (default): hard-copy on step %% --target-sync-every AND at "
+                             "every episode end (near-on-policy target). 'steps': hard-copy on a "
+                             "GLOBAL learner-step counter %% --target-sync-every, no episode-end "
+                             "copy (a genuinely lagged target). 'polyak': soft EMA update every "
+                             "replay, no hard copies.")
+    parser.add_argument('--polyak-tau', type=float, default=0.005,
+                        help='soft-update rate for --target-sync-mode polyak (default 0.005)')
+    parser.add_argument('--double-dqn', action='store_true',
+                        help='Double DQN bootstrap (online net selects, target net evaluates); '
+                             'learner only. Needs a lagged target (--target-sync-mode) to help.')
+    parser.add_argument('--loss', choices=('mse', 'huber'), default='mse',
+                        help="learner loss (default mse); 'huber' bounds per-sample gradients")
+    parser.add_argument('--huber-delta', type=float, default=1.0,
+                        help='delta for --loss huber (default 1.0; pair with --reward-scale so '
+                             'delta sits inside the TD-error distribution)')
+    parser.add_argument('--reward-scale', type=float, default=1.0,
+                        help='multiply every per-step reward by this before storing it (default '
+                             '1.0). NEVER combine with --model warm-start: a reward-scale change '
+                             'on loaded Q-values is the win-only-collapse scale shock. Fresh runs only.')
     parser.add_argument('--seed', type=int, default=None,
                         help='seed Python/NumPy RNGs and the game deck for a reproducible run '
                              '(default: unseeded)')
@@ -121,10 +143,16 @@ if __name__ == '__main__':
     update_target_network = args.target_sync_every
     num_of_players = 4
 
+    if args.reward_scale != 1.0 and args.model is not None:
+        parser.error('--reward-scale with --model warm-start is the scale-shock that collapsed '
+                     'the win-only run; use a fresh run (no --model) when changing reward scale.')
+
     # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
-    # color_sym only affects replay(), which only the learner runs.
+    # color_sym / double_dqn / loss only affect replay(), which only the learner runs, so the
+    # opponents stay plain greedy nets (constructed below with defaults).
     dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model,
-                        color_sym=args.color_sym)
+                        color_sym=args.color_sym, double_dqn=args.double_dqn,
+                        loss=args.loss, huber_delta=args.huber_delta)
     if not dqn_agent.epsilon_min <= args.epsilon_start <= 1.0:
         parser.error(f'--epsilon-start must be in [{dqn_agent.epsilon_min}, 1.0]')
     # Per-episode decay sized to the run: epsilon falls from epsilon_start to epsilon_min over
@@ -160,6 +188,10 @@ if __name__ == '__main__':
     rewards = []
     wins = []
     total_wins = 0
+    # Global learner-step counter (spans episodes). The per-episode `step` resets each trial,
+    # which is why 'legacy' target syncs land near step 0 every episode (A1); 'steps' mode uses
+    # this instead so the target lags by a fixed number of gradient-eligible steps.
+    global_step = 0
 
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
@@ -209,6 +241,10 @@ if __name__ == '__main__':
                 reward = -len(game.hands[0])
                 if learner_won:
                     reward += sum(len(h) for i, h in enumerate(game.hands) if i != 0)
+            # Optional global reward scaling (default 1.0 = no-op), applied uniformly to every
+            # reward mode so it only rescales magnitude, not the shaping. Lets Huber's delta sit
+            # inside the TD-error distribution without changing the objective.
+            reward *= args.reward_scale
 
             # When the episode continues it is again the learner's turn (curr == 0),
             # so these are exactly the actions it may pick next — used to mask the
@@ -216,12 +252,20 @@ if __name__ == '__main__':
             next_valid = None if done else [action_to_scalar(*m)
                                             for m in game.valid_moves(agent=0)]
             dqn_agent.remember(state, action, reward, new_state, done, next_valid)
-            # replay()/target_train() cadence is kept as-is: it pairs reasonably with the
-            # larger replay buffer, and the slow predict/fit makes more frequent replay costly.
+            # replay() cadence kept as-is (every 4 steps): pairs reasonably with the larger
+            # replay buffer, and the slow predict/fit makes more frequent replay costly.
             if step % 4 == 0:
                 dqn_agent.replay()
-            if step % update_target_network == 0:
+                if args.target_sync_mode == 'polyak':
+                    dqn_agent.polyak_update(args.polyak_tau)
+            # Target sync. 'legacy': the original per-episode-step hard copy (fires near step 0
+            # each episode -> near-on-policy target). 'steps': hard copy on the GLOBAL counter,
+            # a genuinely lagged target. 'polyak': soft update above, no hard copy here.
+            if args.target_sync_mode == 'legacy' and step % update_target_network == 0:
                 dqn_agent.target_train()
+            elif args.target_sync_mode == 'steps' and global_step % update_target_network == 0:
+                dqn_agent.target_train()
+            global_step += 1
             episode_reward += reward
             if done:
                 if learner_won:
@@ -229,7 +273,13 @@ if __name__ == '__main__':
                 break
 
         dqn_agent.replay()
-        dqn_agent.target_train()
+        if args.target_sync_mode == 'polyak':
+            dqn_agent.polyak_update(args.polyak_tau)
+        elif args.target_sync_mode == 'legacy':
+            # The unconditional episode-end hard copy — this is what made the target
+            # near-on-policy (A1). 'steps' deliberately omits it; the target lags by
+            # --target-sync-every global steps instead.
+            dqn_agent.target_train()
         dqn_agent.decay_epsilon()  # decay exploration once per episode
         rewards.append(episode_reward)
         wins.append(total_wins)
