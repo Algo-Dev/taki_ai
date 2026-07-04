@@ -516,7 +516,12 @@ class Game:
         # Close TAKI
         if in_taki:
             res.append((Action.CLOSE_TAKI, None))
-        return res
+        # Collapse exact-duplicate moves (e.g. two identical cards in hand -> one entry;
+        # a CHCOL's four colored choices are distinct and survive). Without this, a uniform
+        # chooser (RandomAgent, epsilon-exploration) over-weights duplicated cards. Greedy
+        # argmax play is unaffected (duplicates share a Q-value), so model-vs-model evals
+        # are unchanged; only the random baseline's move distribution shifts.
+        return list(dict.fromkeys(res))
 
     def next_turn(self):
         """
