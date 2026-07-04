@@ -14,6 +14,29 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-04 — Review fixes S1–S8 (branch `review-fixes-s1-s8`); vs-random baseline must be re-measured
+
+Code-only follow-ups to the 2026-07-03 full review (see [PLAN.md](PLAN.md) for the S1–S8 /
+A1–A9 findings). No training or eval was run here — that is a separate experiment.
+
+**One change shifts the vs-random baseline: S3.** `valid_moves` now deduplicates exact-duplicate
+`(Action, Card)` moves (`dict.fromkeys`), so a uniform chooser (`RandomAgent`, epsilon-exploration)
+is uniform over *distinct* moves instead of over move *instances* — previously it over-weighted
+duplicated cards in hand. **Greedy DQN play is bit-identical** (duplicate moves share a Q-value, so
+`argmax` is unchanged), which means **model-vs-model head-to-head evals are unaffected**, but the
+**vs-random win rate shifts** because the random opponents now play a different distribution.
+
+**Action for the next experiment:** re-measure `checkpoint_shaped_snap300000` vs random at ≥3000
+games under this branch to establish the new baseline (the "~0.90 vs random" figure in
+[CLAUDE.md](CLAUDE.md) and older log entries predates the dedup). Head-to-head chains and Mode-B
+`--baseline` comparisons carry over unchanged.
+
+Other fixes (no behavior change): S1 raise instead of print on an illegal play; S2 distinct deck
+objects (counts unchanged); S4 comment on the unreachable colorless-CHCOL action scalar; S5 removed
+dead `Card.amount()`; S6 eval mode-A `--games` default → 3000 + sub-precision warnings; S7
+`--trial-len`/`--target-sync-every` flags; S8 `--seed` (verified: two `--seed 123` runs → identical
+weights). Tests: `gametest` 19/19.
+
 ## 2026-07-03 — Color-symmetry replay augmentation (`--color-sym`): +3.3 pts vs random, wins head-to-head
 
 **Idea (PLAN.md:9).** TAKI's four colors are interchangeable — only color *consistency*
