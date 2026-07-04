@@ -1,12 +1,14 @@
 import argparse
 import os
+import random
 import numpy as np
 from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')  # headless-safe backend; switched to interactive only with --show
 from matplotlib import pyplot as plt
 
-from agents.dqn import AIAgent
+from agents.dqn import AIAgent  # configures TF threading on import; keep before tensorflow use
+import tensorflow as tf
 from game import Game, action_to_scalar
 
 # How often (in trials) to copy the learner's weights into the opponents so that
@@ -91,15 +93,32 @@ if __name__ == '__main__':
     parser.add_argument('--color-sym', action='store_true',
                         help='augment each replayed transition with a random relabeling of '
                              'the four colors (24 TAKI color symmetries); learner only')
+    parser.add_argument('--trial-len', type=int, default=300,
+                        help='max learner steps per episode before the trial is cut off (default 300)')
+    parser.add_argument('--target-sync-every', type=int, default=100,
+                        help='hard-copy the online net into the target net every N learner steps '
+                             '(default 100; note the loop also syncs at every episode end)')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='seed Python/NumPy RNGs and the game deck for a reproducible run '
+                             '(default: unseeded)')
     parser.add_argument('--show', action='store_true',
                         help='display the training plot interactively (otherwise only saved to PNG)')
     args = parser.parse_args()
 
+    # Seed everything the run touches so replicate runs are bit-reproducible: Python's random
+    # (agent epsilon draws, replay sampling), NumPy (color-sym permutation draws, act()), TF
+    # (network weight initialisation — set before the AIAgents build their models below), and
+    # the game's own deck RNG (passed to Game below). Left unseeded when --seed is omitted.
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        tf.random.set_seed(args.seed)
+
     print(f'Training a DQN agent via self-play against 3 opponents '
           f'(reward={args.reward}, color_sym={args.color_sym})')
     trials = args.trials
-    trial_len = 300
-    update_target_network = 100
+    trial_len = args.trial_len
+    update_target_network = args.target_sync_every
     num_of_players = 4
 
     # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
@@ -115,7 +134,7 @@ if __name__ == '__main__':
         1.0 / (EPSILON_DECAY_FRACTION * trials))
     opponents = [AIAgent(epsilon=0.1, epsilon_min=0.1, load_model=args.model)
                  for _ in range(num_of_players - 1)]
-    game = Game([dqn_agent, *opponents])
+    game = Game([dqn_agent, *opponents], seed=args.seed)
 
     # One run directory shared by all snapshots and the final checkpoint/plot, so they
     # carry the same timestamp and eval.py can discover the whole progression at once.
