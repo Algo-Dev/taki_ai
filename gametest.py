@@ -23,8 +23,10 @@ class ColorTest(unittest.TestCase):
         self.assertEqual(action_to_scalar(action, chcol), 60)
         supertaki = Card(Type.TAKI)
         self.assertEqual(action_to_scalar(action, supertaki), 61)
-        self.assertEqual(action_to_scalar(Action.DRAW, None), 62)
-        self.assertEqual(action_to_scalar(Action.CLOSE_TAKI, None), 63)
+        king = Card(Type.KING)
+        self.assertEqual(action_to_scalar(action, king), 62)
+        self.assertEqual(action_to_scalar(Action.DRAW, None), 63)
+        self.assertEqual(action_to_scalar(Action.CLOSE_TAKI, None), 64)
 
     def test_scalar_to_action(self):
         playredtaki = Card(Type.TAKI, Color.RED)
@@ -36,8 +38,10 @@ class ColorTest(unittest.TestCase):
         self.assertEqual((action, chcol), scalar_to_action(60))
         supertaki = Card(Type.TAKI)
         self.assertEqual((action, supertaki), scalar_to_action(61))
-        self.assertEqual((Action.DRAW, None), scalar_to_action(62))
-        self.assertEqual((Action.CLOSE_TAKI, None), scalar_to_action(63))
+        king = Card(Type.KING)
+        self.assertEqual((action, king), scalar_to_action(62))
+        self.assertEqual((Action.DRAW, None), scalar_to_action(63))
+        self.assertEqual((Action.CLOSE_TAKI, None), scalar_to_action(64))
 
     def test_action_scalar_round_trip(self):
         # Every legal action scalar must survive a decode -> encode round trip.
@@ -62,9 +66,14 @@ class ColorTest(unittest.TestCase):
         vec = card_to_vector(chcol)
         self.assertEqual(vec[60], 1)
         self.assertEqual(vec[0], 0)
-        vec = card_to_vector(supertaki, chcol)
+        king = Card(Type.KING)
+        vec = card_to_vector(king)
+        self.assertEqual(vec[62], 1)
+        self.assertEqual(vec[0], 0)
+        vec = card_to_vector(supertaki, chcol, king)
         self.assertEqual(vec[61], 1)
         self.assertEqual(vec[60], 1)
+        self.assertEqual(vec[62], 1)
         self.assertEqual(vec[0], 0)
 
 
@@ -158,6 +167,89 @@ class GameFlowTest(unittest.TestCase):
         self.assertFalse(g.done())
         self.assertEqual(len(g.hands[0]), 1)  # drew a penalty card instead of winning
 
+    def test_king_cancels_pending_plus_two(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.PLUSTWO, Color.GREEN)]
+        g.hands[0] = [Card(Type.KING), Card(Type.ONE, Color.RED)]
+        g.state = State.DRAW_TWO
+        g.draw_num = 2
+        before = len(g.hands[0])
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertEqual(g.draw_num, 0)             # pending draw cancelled
+        self.assertEqual(g.state, State.KING)       # player may now put one more card
+        self.assertEqual(g.curr, 0)                 # same player keeps the turn
+        self.assertEqual(len(g.hands[0]), before - 1)  # played King, drew nothing
+
+    def test_king_only_legal_plus_two_response_besides_draw(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.PLUSTWO, Color.GREEN)]
+        g.hands[0] = [Card(Type.KING), Card(Type.FIVE, Color.RED)]
+        g.state = State.DRAW_TWO
+        g.draw_num = 1
+        moves = g.valid_moves(0)
+        self.assertIn((Action.PLAY_CARD, Card(Type.KING)), moves)
+        self.assertIn((Action.DRAW, None), moves)
+        # A non-+2, non-King card cannot be played against a pending +2.
+        self.assertNotIn((Action.PLAY_CARD, Card(Type.FIVE, Color.RED)), moves)
+
+    def test_king_grants_one_optional_follow_up(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.hands[0] = [Card(Type.KING), Card(Type.THREE, Color.BLUE),
+                      Card(Type.ONE, Color.RED)]
+        g.state = State.NORMAL
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertEqual(g.state, State.KING)
+        self.assertEqual(g.curr, 0)                 # same player continues
+        # Any card is playable after a King (even an off-color one), plus CLOSE_TAKI to
+        # end the turn; a plain DRAW is not offered.
+        moves = g.valid_moves(0)
+        self.assertIn((Action.PLAY_CARD, Card(Type.THREE, Color.BLUE)), moves)
+        self.assertIn((Action.CLOSE_TAKI, None), moves)
+        self.assertNotIn((Action.DRAW, None), moves)
+        # Putting the follow-up card ends the turn (state back to NORMAL, turn advances).
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.THREE, Color.BLUE))
+        self.assertEqual(g.state, State.NORMAL)
+        self.assertEqual(g.curr, 1)
+
+    def test_king_follow_up_is_optional_via_close(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.hands[0] = [Card(Type.KING), Card(Type.THREE, Color.BLUE)]
+        g.state = State.NORMAL
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertEqual(g.state, State.KING)
+        self._take_turn(g, Action.CLOSE_TAKI, None)  # decline the follow-up
+        self.assertEqual(g.state, State.NORMAL)
+        self.assertEqual(g.curr, 1)
+        self.assertEqual(g.hands[0], [Card(Type.THREE, Color.BLUE)])  # nothing else played
+
+    def test_king_not_playable_inside_open_taki(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.ONE, Color.RED)]
+        g.hands[0] = [Card(Type.KING), Card(Type.FIVE, Color.RED)]
+        g.state = State.TAKI
+        g.taki_color = Color.RED
+        moves = g.valid_moves(0)
+        self.assertNotIn((Action.PLAY_CARD, Card(Type.KING)), moves)  # house rule
+        self.assertIn((Action.PLAY_CARD, Card(Type.FIVE, Color.RED)), moves)
+
+    def test_cannot_win_on_king(self):
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.hands[0] = [Card(Type.KING)]  # last card is a King (an action card)
+        g.state = State.NORMAL
+        done, _ = self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertFalse(done)
+        self.assertFalse(g.done())
+        self.assertEqual(len(g.hands[0]), 1)  # drew a penalty card instead of winning
+
     def test_observation_is_normalised(self):
         g = self.make_game(players=4)
         obs = g.observation()
@@ -215,10 +307,12 @@ class ColorSymmetryTest(unittest.TestCase):
         for k in range(len(COLOR_PERMS)):
             self.assertEqual(sorted(OBS_PERMS[k]), list(range(OBSERVATION_SIZE)))
             self.assertEqual(sorted(ACT_PERMS[k]), list(range(ACTION_SIZE)))
-            # Colorless actions (CHCOL/SuperTAKI/DRAW/CLOSE_TAKI) never move.
-            self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63])
+            # Colorless actions (CHCOL/SuperTAKI/King/DRAW/CLOSE_TAKI) never move.
+            self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63, 64])
             # State one-hot, draw_num and the extra features never move.
-            fixed = list(range(124, 132)) + list(range(198, 201))
+            # Layout: hand(63)+discard(63) -> state one-hot+draw_num at 126..134,
+            # then open-TAKI color(4) + shown card(63), then extra features at 202..204.
+            fixed = list(range(126, 135)) + list(range(202, 205))
             self.assertEqual(list(OBS_PERMS[k][fixed]), fixed)
 
     def test_identity_perm_is_noop(self):
