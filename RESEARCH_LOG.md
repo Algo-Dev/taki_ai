@@ -14,6 +14,17 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-05 — PROMOTION: new best `checkpoint_colorsym_snap180000` (color-sym)
+
+Promoted the peak snapshot of the 300k color-sym run (`run1783109653.234119_colorsym/snap180000`)
+to `models/checkpoint_colorsym_snap180000`, replacing `checkpoint_shaped_snap300000` as the
+current best. Confirming eval (3000 games, seed 0, CRN — bit-identical to the 2026-07-04 A/B):
+**0.926 vs random** and **0.292 head-to-head vs the old champion** (> 0.25 parity, z ≈ 5). It is
+the strongest snapshot on hand — stronger than any 100k color-sym run (0.913 / 0.270). The old
+`checkpoint_shaped_snap300000` (1M-trial run, ~0.91 vs random) is retained for reference/baseline.
+
+---
+
 ## 2026-07-05 — 3-seed 100k A/B: color-sym stable and beats champion; **vanilla control DIVERGES**
 
 Purpose: replicate the color-sym advantage across seeds at the 100k scale, on the current

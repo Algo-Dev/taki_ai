@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
-Current best model: `models/checkpoint_shaped_snap300000` (~0.91 win rate vs 3 random opponents — 0.907 at 10k games post-S3-dedup; chance is 0.25).
+Current best model: `models/checkpoint_colorsym_snap180000` (color-sym, the 300k-run snap180000 — **0.926** vs 3 random opponents at 3000 games, and beats the previous best `checkpoint_shaped_snap300000` head-to-head 0.292 > 0.25 parity). Color-sym augmentation is on by default in training (opt out with `--no-color-sym`). Previous best `checkpoint_shaped_snap300000` (~0.91 vs random) kept for reference. Chance is 0.25.
 
 ## Environment & Commands
 
