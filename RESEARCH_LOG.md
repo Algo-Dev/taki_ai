@@ -14,6 +14,135 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-05 — 3-seed 100k A/B: color-sym stable and beats champion; **vanilla control DIVERGES**
+
+Purpose: replicate the color-sym advantage across seeds at the 100k scale, on the current
+post-S1–S8 branch code (`exp-color-sym` worktree, tip after the DQN-hygiene commits, all
+hygiene flags default-off). Six runs, identical except `--color-sym`:
+`--trials 100000 --reward shaped --snapshot-every 10000 --epsilon-start 1.0 --seed {0,1,2}`.
+Thread-capped (`OMP/OPENBLAS/MKL=1`, `TF_INTRA=2/INTER=1`) after an earlier unthrottled
+6-way launch died — six uncapped `train.py` each grab ~8 cores and oversubscribe/OOM the
+6-core box. All eval at seed 0, 3000 games unless noted.
+
+Run dirs: color-sym `…357439_colorsym` (s0), `…360439_colorsym` (s1), `…358192_colorsym`
+(s2); control `…369189` (s0), `…361702` (s1), `…375708` (s2) (all `models/run1783181329.*`).
+
+**Color-sym (snap100000) — stable and strong, all three seeds:**
+
+| seed | vs random | vs champion `snap300000` (head-to-head) |
+|---|---|---|
+| 0 | 0.911 (2734/3000) | 0.279 (838/3000) |
+| 1 | 0.918 (2755/3000) | 0.266 (799/3000) |
+| 2 | 0.909 (2726/3000) | 0.264 (791/3000) |
+
+vs-random ~0.913 (above the 0.907 champion reference); vs-champion **pooled 2428/9000 =
+0.270, z ≈ 3.8** over 0.25 parity — color-sym at **100k** trials beats the 1M-trial champion
+in every seed. Consistent with the 2026-07-04 300k result, at 1/3 the trials.
+
+**Vanilla control (snap100000) — diverged, worse than random:**
+
+| seed | vs random | color-sym vs control (head-to-head) |
+|---|---|---|
+| 0 | (not evaluated — run finished ~5 h late, see below) | — |
+| 1 | 0.038 (92/2411, 589 undecided) | 0.933 (2798/3000) |
+| 2 | 0.002 (6/2605, 395 undecided) | 0.9997 (2996/3000) |
+
+**Divergence trajectory (control seed 1, 1000 games/snapshot vs random):**
+
+| snap | 0 | 10000 | 20000–50000 | 60000 | 70000–100000 |
+|---|---|---|---|---|---|
+| vs random | 0.810 | **0.860** | **0.000 (all undecided)** | 0.132 | 0.00–0.05 |
+
+The control run climbs normally to snap10000 (0.86) then **collapses between 10k and 20k**:
+win rate → 0 with **every game hitting the turn cap (undecided)** — a degenerate greedy
+policy stuck in non-terminating loops, the textbook signature of **Q-value divergence
+(overestimation blowup)**. It never recovers. Both control seeds show it; color-sym on
+identical code does not. This is exactly the instability PLAN.md **A1/A2** predicted (target
+network effectively disabled + vanilla max-Q). Color-sym augmentation evidently **damps**
+it (regularization / ~4× effective data).
+
+**Caveats / open puzzle.**
+- The 100k control is **not a valid skill baseline** — it's a diverged run, so the
+  color-sym-vs-control head-to-head (0.93 / 0.9997) is real but **confounded**: color-sym
+  isn't out-skilling a *trained* vanilla agent, it's staying stable while vanilla
+  self-destructs. The vs-random and vs-champion color-sym numbers do **not** depend on the
+  control arm and stand on their own.
+- **Discrepancy with 2026-07-04:** that 300k control (0.892, no divergence) ran on
+  *pre-S1–S8* code. This 100k control (same `color_sym=False`, all hygiene flags off) is on
+  the newer branch and diverges two-for-two. Either an S1–S8 change shifted training
+  dynamics (S3's `valid_moves` dedup alters the exploration + `max(next_valid)` target
+  distribution — prime suspect) or divergence is partly stochastic; two seeds argue against
+  pure luck. Unresolved — worth a bisect.
+- Control finished ~5 h after color-sym because weaker/looping play → longer games → more
+  learner steps/trial, *and* two unrelated `--color-sym --seed 2` processes (one a
+  Double-DQN/Huber hygiene run) were competing for CPU during the run.
+
+**Decision:** color-sym is verified across seeds and adopted as an integral part of training
+(→ make it default, per the PLAN.md item). **Next experiment:** does the DQN-hygiene package
+(Double DQN + Huber + slow/stepped target) prevent the vanilla divergence? — i.e. re-run the
+control arm with `--double-dqn --loss huber --target-sync-mode steps --target-sync-every 2000`.
+
+---
+
+## 2026-07-04 — Color-symmetry at 300k trials BEATS the 1M-trial champion; control plateaus
+
+Follow-up to the 2026-07-03 `--color-sym` entry, at the 100k–300k scale it flagged as
+"next". Two fresh runs, identical except the flag: `--trials 300000 --reward shaped
+--snapshot-every 10000`. Control `run1783109650.848521`, color-sym
+`run1783109653.234119_colorsym`. Both trained on identical pre-S3 code (launched before
+the S1–S8 branch), so they are directly comparable to each other; **both evaluated under
+the current post-S3 eval code**, so vs-random uses the 0.907 reference and the champion
+`checkpoint_shaped_snap300000` is the frozen baseline. Eval seed 0. Best snapshot per run
+picked from the Mode-B curve: color-sym **snap180000**, control **snap300000** (the control
+policy converged — see below — so any late snapshot is equivalent).
+
+**Headline (3000-game evals):**
+
+| matchup | control best | color-sym best | notes |
+|---|---|---|---|
+| vs random | 0.892 (2675/3000) | **0.926 (2777/3000)** | color-sym +3.4 pts, z ≈ 4.6; and **above the 0.907 champion reference** (z ≈ 2.6) |
+| vs champion (head-to-head, over 0.25 parity) | 0.211 (633/3000) | **0.292 (875/3000)** | control **loses** to the champion (z ≈ −5.2 *below* parity); color-sym **beats** it (z ≈ +5.0 above) |
+| color-sym best vs control best (head-to-head) | — | **0.345 (1035/3000)** | +9.5 pts over 0.25 parity, **z ≈ 11** — decisive |
+
+**The result:** a 300k-trial color-sym run surpasses `checkpoint_shaped_snap300000` — the
+previous best, which took **1M** trials — both on the vs-random yardstick (0.926 > 0.907)
+and in a direct 3000-game head-to-head (0.292 > 0.25, z ≈ 5). The equal-length control run
+never reaches the champion (0.211 < 0.25). **~3.3× more sample-efficient** at matching, and
+then exceeding, the old best.
+
+**Control plateau (behavioral convergence).** In the 300-game Mode-B sweep every control
+snapshot from snap90000 → snap300000 returned *byte-identical* rates (0.850 vs random,
+0.240 vs champion). The snapshot weights **differ** (distinct md5s) — so this is not frozen
+weights or an eval bug (color-sym, same eval code, keeps varying and climbing). It is a
+**converged greedy policy**: the net keeps drifting but its argmax action in every state on
+these common-random-number games stops changing, so play is identical. Control settles just
+*below* the champion and stays there; color-sym keeps improving, peaking at snap180000.
+(Note: the first-300-game window undersold control's vs-random rate — 0.850 there vs 0.892
+over the full 3000 — but the ranking color-sym > champion > control holds at 3000 games.)
+
+**Mode-B progression, vs random / vs champion (300 games/snapshot, coarse):**
+
+| snapshot | control vs rand | color-sym vs rand | control vs champ | color-sym vs champ |
+|---|---|---|---|---|
+| snap90000 | 0.850 | 0.903 | 0.240 | 0.250 |
+| snap120000 | 0.850 | 0.900 | 0.240 | 0.280 |
+| snap180000 | 0.850 | **0.947** | 0.240 | **0.333** |
+| snap300000 | 0.850 | 0.913 | 0.240 | 0.247 |
+
+color-sym clears the champion (>0.25 vs baseline) across snap120000–snap270000; control
+never does. (300-game figures are noisy — the 3000-game table above is authoritative for
+ranking; e.g. snap180000-vs-champion is 0.333 at 300 games, 0.292 at 3000.)
+
+**Caveats.** Still **n = 1 training pair**, unseeded. But the effect is now large and
+multiply-confirmed: +3.4 pts vs random (z ≈ 4.6), a z ≈ 11 direct head-to-head, and — the
+qualitative jump — color-sym *beats the 1M-trial champion* at <⅓ the trials while the
+control plateaus short of it. The `--seed` flag (S8) now exists, so the clean next step is
+2–3 **seeded** replicate pairs to pin the effect size and confirm the control-plateau /
+color-sym-keeps-climbing divergence reproduces. Worth also re-timing: color-sym snapshots
+kept moving out to snap180000, so a longer color-sym run may go further still.
+
+---
+
 ## 2026-07-04 — Review fixes S1–S8 (branch `review-fixes-s1-s8`); vs-random baseline must be re-measured
 
 Code-only follow-ups to the 2026-07-03 full review (see [PLAN.md](PLAN.md) for the S1–S8 /
