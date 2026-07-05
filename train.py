@@ -90,9 +90,12 @@ if __name__ == '__main__':
     parser.add_argument('--reward-anneal-fraction', type=float, default=REWARD_ANNEAL_FRACTION,
                         help='for --reward anneal: fraction of trials over which the reward '
                              f'transitions, then holds (default {REWARD_ANNEAL_FRACTION})')
-    parser.add_argument('--color-sym', action='store_true',
-                        help='augment each replayed transition with a random relabeling of '
-                             'the four colors (24 TAKI color symmetries); learner only')
+    parser.add_argument('--no-color-sym', dest='color_sym', action='store_false',
+                        help='disable color-symmetry augmentation (on by default): each '
+                             'replayed transition is trained under a random relabeling of the '
+                             'four colors (24 TAKI color symmetries); learner only. Off = '
+                             'vanilla replay, which diverges on long runs (see RESEARCH_LOG.md)')
+    parser.set_defaults(color_sym=True)
     parser.add_argument('--trial-len', type=int, default=300,
                         help='max learner steps per episode before the trial is cut off (default 300)')
     parser.add_argument('--target-sync-every', type=int, default=100,
@@ -138,11 +141,11 @@ if __name__ == '__main__':
 
     # One run directory shared by all snapshots and the final checkpoint/plot, so they
     # carry the same timestamp and eval.py can discover the whole progression at once.
-    # The _colorsym tag keeps A/B runs distinguishable at a glance; config.txt records
-    # the full arguments for later comparison.
+    # Color-sym is the default now, so tag only the ablation (--no-color-sym) runs to keep
+    # them distinguishable at a glance; config.txt records the full arguments regardless.
     os.makedirs('./models', exist_ok=True)
     timestamp = datetime.now().timestamp()
-    tag = '_colorsym' if args.color_sym else ''
+    tag = '' if args.color_sym else '_nocolorsym'
     run_dir = f'./models/run{timestamp}{tag}'
     os.makedirs(run_dir, exist_ok=True)
     with open(f'{run_dir}/config.txt', 'w') as f:
