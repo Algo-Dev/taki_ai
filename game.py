@@ -4,16 +4,24 @@ from enum import Enum
 
 import numpy as np
 
+# Number of colorable type-slots per color (the colored-block stride). All Type members
+# EXCEPT the King are colorable; the King is a colorless wild with its own dedicated slot
+# (like Change Color / Super TAKI) and is never placed in the colored block. This stride is
+# deliberately decoupled from len(Type) so adding the wild-only King (len(Type) -> 16) does
+# not shift every colored card's slot.
+TYPES_PER_COLOR = 15
 # Size of a single card / deck vector (see card_to_vector / card_to_scalar):
 #   indices 0-59  -> the 60 colored card slots
 #   index   60    -> colorless Change Color
 #   index   61    -> Super TAKI
-CARD_VECTOR_SIZE = 62
+#   index   62    -> colorless King
+CARD_VECTOR_SIZE = 63
 # Number of real play colors (RED, YELLOW, GREEN, BLUE); Color.NONE is encoded as all-zero.
 NUM_PLAY_COLORS = 4
 # Action scalar space (see action_to_scalar / scalar_to_action):
-#   0-59 colored plays, 60 colorless Change Color, 61 Super TAKI, 62 DRAW, 63 CLOSE_TAKI
-ACTION_SIZE = 64
+#   0-59 colored plays, 60 colorless Change Color, 61 Super TAKI, 62 King, 63 DRAW,
+#   64 CLOSE_TAKI
+ACTION_SIZE = 65
 # OBSERVATION_SIZE is defined just below the State enum (it depends on len(State)).
 
 
@@ -59,6 +67,7 @@ class Type(Enum):
     PLUSTWO = 12
     PLUS = 13
     CHCOL = 14
+    KING = 15
 
     def __str__(self):
         if self is Type.TAKI:
@@ -73,6 +82,8 @@ class Type(Enum):
             return "change color"
         elif self is Type.PLUS:
             return "+"
+        elif self is Type.KING:
+            return "king"
         else:
             return str(self.value)
 
@@ -136,6 +147,7 @@ class State(Enum):
     FINISHED = 4
     PLUS = 5
     STOP = 6  # Internal State
+    KING = 7  # King played: same player may put one more card (any color/type)
 
 
 # Number of plain number cards (ONE..NINE); only these may end the game.
@@ -150,8 +162,8 @@ MAX_PLUS_TWO_STACK = 8  # number of +2 cards, i.e. the largest meaningful draw_n
 # Extra scalar features appended to the observation (see Game.observation):
 #   turn direction, next player's hand size, minimum opponent hand size.
 EXTRA_FEATURES = 3
-# observation() = hand(62) + discard(62) + state one-hot(len(State)) + draw_num(1)
-#                 + open-TAKI-color one-hot(4) + shown_card(62) + extra features(3)
+# observation() = hand(63) + discard(63) + state one-hot(len(State)) + draw_num(1)
+#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(3)
 OBSERVATION_SIZE = CARD_VECTOR_SIZE * 3 + len(State) + 1 + NUM_PLAY_COLORS + EXTRA_FEATURES
 
 
@@ -164,18 +176,20 @@ def action_to_scalar(action, card):
     """
     if action is Action.PLAY_CARD:
         if card.color is not Color.NONE:
-            return (card.color.value-1) * 15 + card.type.value  # Play any colored card
+            return (card.color.value-1) * TYPES_PER_COLOR + card.type.value  # Play any colored card
         elif card.type is Type.CHCOL:
             # Scalar 60 = a colorless Change Color play. Unreachable in practice: valid_moves
             # always expands a playable CHCOL into its four colored choices (scalars 14/29/44/59),
             # so this branch never fires from real play and action 60 is never trained. It exists
             # only to mirror the card-vector layout (card_to_scalar maps an in-hand CHCOL here).
             return 60  # Play a colorless Change Color
+        elif card.type is Type.KING:
+            return 62  # Play the colorless King
         return 61  # Play SUPER TAKI
     elif action is Action.DRAW:
-        return 62
-    elif action is Action.CLOSE_TAKI:
         return 63
+    elif action is Action.CLOSE_TAKI:
+        return 64
 
 
 def scalar_to_action(scalar):
@@ -185,14 +199,16 @@ def scalar_to_action(scalar):
     :return: an (Action, Card) tuple.
     """
     if scalar < 60:
-        cardtype = Type(scalar % 15)
-        color = Color((scalar - cardtype.value) // 15 + 1)
+        cardtype = Type(scalar % TYPES_PER_COLOR)
+        color = Color((scalar - cardtype.value) // TYPES_PER_COLOR + 1)
         return Action.PLAY_CARD, Card(cardtype, color)
     elif scalar == 60:
         return Action.PLAY_CARD, Card(Type.CHCOL)
     elif scalar == 61:
         return Action.PLAY_CARD, Card(Type.TAKI)
     elif scalar == 62:
+        return Action.PLAY_CARD, Card(Type.KING)
+    elif scalar == 63:
         return Action.DRAW, None
     else:
         return Action.CLOSE_TAKI, None
@@ -206,9 +222,11 @@ def card_to_scalar(card):
     :return: a scalar (int)
     """
     if card.color is not Color.NONE:
-        return (card.color.value - 1) * 15 + card.type.value
+        return (card.color.value - 1) * TYPES_PER_COLOR + card.type.value
     elif card.type is Type.CHCOL:
         return 60
+    elif card.type is Type.KING:
+        return 62
     else:
         return 61
 
@@ -262,7 +280,7 @@ COLOR_PERMS = tuple(itertools.permutations(range(1, NUM_PLAY_COLORS + 1)))
 
 def _build_color_perm_tables():
     obs_perms, act_perms = [], []
-    ntypes = len(Type)                                   # 15, the card-block stride
+    ntypes = TYPES_PER_COLOR                             # 15, the card-block stride
     color_off = CARD_VECTOR_SIZE * 2 + len(State) + 1    # 132: open-TAKI color one-hot
     # Offsets of the three card-vector blocks in the observation: hand, discard, shown.
     card_blocks = (0, CARD_VECTOR_SIZE, color_off + NUM_PLAY_COLORS)
@@ -322,11 +340,14 @@ class Game:
         self.discard = []
         # Build each card as a DISTINCT object. `[Card(...)] * n` would alias one object
         # into n deck slots (in-place card mutation would then hit every alias); distinct
-        # objects keep counts identical (4 CHCOL, 2 per colored card, 2 Super TAKI) while
-        # removing that hazard.
+        # objects keep counts identical (4 CHCOL, 2 King, 2 per colored card, 2 Super TAKI)
+        # while removing that hazard.
         for t in Type:
             if t == Type.CHCOL:
                 self.deck.extend(Card(Type.CHCOL) for _ in range(4))
+            elif t == Type.KING:
+                # The King is a colorless wild (like CHCOL): 2 colorless copies, no colored.
+                self.deck.extend(Card(Type.KING) for _ in range(2))
             else:
                 for color in Color:
                     if color is not Color.NONE:
@@ -406,6 +427,11 @@ class Game:
             self.state = State.NORMAL
         if self.state is State.SUPER_TAKI:
             self.state = State.TAKI
+        if self.state is State.KING:
+            # The King's follow-up card (or CLOSE_TAKI) consumes the King continuation;
+            # process that card in a normal context so its own effect applies and a plain
+            # number follow-up ends the turn.
+            self.state = State.NORMAL
         if action == Action.PLAY_CARD:
             self.discard.append(card)
             if card.type is Type.CHCOL:
@@ -439,6 +465,12 @@ class Game:
             elif card.type is Type.PLUS:
                 if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
                     self.state = State.PLUS
+            elif card.type is Type.KING:
+                # King is a colorless wild that cancels any pending +2 (draw_num -> 0) and
+                # keeps the turn so the player may put one more card of any color/type.
+                self.draw_num = 0
+                self.taki_color = Color.NONE
+                self.state = State.KING
             if self.debug:
                 print(f"Player {agent+1} played {str(card)}.")
         elif action is Action.CLOSE_TAKI:
@@ -485,12 +517,26 @@ class Game:
         # Play Cards
         for card in cards:
             if self.state is State.DRAW_TWO:
-                # Only another +2 may be played to stack onto the draw; otherwise draw.
-                if card.type is Type.PLUSTWO:
+                # Only another +2 (to stack the draw) or a King (to cancel it) may be
+                # played in response to a pending +2; otherwise draw.
+                if card.type is Type.PLUSTWO or card.type is Type.KING:
+                    res.append((Action.PLAY_CARD, card))
+            elif self.state is State.KING:
+                # After a King the player may put any single card (any color/type);
+                # wilds expand into their colored choices. Another King is allowed too
+                # (Kings chain, each granting one more card).
+                if card.type is Type.CHCOL:
+                    for i in Color:
+                        if i is not Color.NONE:
+                            res.append((Action.PLAY_CARD, Card(Type.CHCOL, i)))
+                else:
                     res.append((Action.PLAY_CARD, card))
             elif in_taki:
                 # During an open (Super) TAKI only cards of the TAKI's color may be
                 # played, plus the colorless wilds. taki_color NONE means "any" (fallback).
+                # The King is excluded (house rule): it is not playable inside a TAKI.
+                if card.type is Type.KING:
+                    continue
                 if self.taki_color is Color.NONE \
                         or card.color is self.taki_color \
                         or card.color is Color.NONE:
@@ -510,11 +556,12 @@ class Game:
                             res.append((Action.PLAY_CARD, Card(Type.CHCOL, i)))
                 else:
                     res.append((Action.PLAY_CARD, card))
-        # Draw Cards (not while an open TAKI is in progress — it is ended by closing it)
-        if not in_taki:
+        # Draw Cards (not while an open TAKI or a King continuation is in progress — those
+        # are ended by closing them, not by drawing)
+        if not in_taki and self.state is not State.KING:
             res.append((Action.DRAW, None))
-        # Close TAKI
-        if in_taki:
+        # Close TAKI — also the "done, decline the follow-up" terminator for a King
+        if in_taki or self.state is State.KING:
             res.append((Action.CLOSE_TAKI, None))
         # Collapse exact-duplicate moves (e.g. two identical cards in hand -> one entry;
         # a CHCOL's four colored choices are distinct and survive). Without this, a uniform
