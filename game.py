@@ -162,12 +162,27 @@ INITIAL_HAND_SIZE = 8
 # regardless of game progress (the absolute counts are preserved, just in new units).
 CARD_COPIES_NORM = 4    # max copies of any single card (the change-color cards)
 MAX_PLUS_TWO_STACK = 8  # number of +2 cards, i.e. the largest meaningful draw_num
+# Opponent hand sizes shown in the observation, in turn order from the current player. Fixed
+# so the vector stays constant-length across the supported 2..10 player counts (zero-padded
+# when there are fewer opponents, truncated when there are more).
+OPP_HAND_SLOTS = 3
+# A fresh deck builds to this many cards (see _setup_round): 14 colored types x 4 colors x 2
+# + 2 Super TAKI + 4 Change Color + 2 King = 120. Normaliser for the deck-size feature.
+TOTAL_DECK_CARDS = 120
+# Per-type copy counts, used to normalise the unseen-count features into [0, 1].
+TOTAL_PLUS_TWO = 8   # 4 colors x 2
+TOTAL_KING = 2
+TOTAL_CHCOL = 4
 # Extra scalar features appended to the observation (see Game.observation):
-#   turn direction, next player's hand size, minimum opponent hand size.
-EXTRA_FEATURES = 3
-# observation() = hand(63) + discard(63) + state one-hot(len(State)) + draw_num(1)
-#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(3)
-OBSERVATION_SIZE = CARD_VECTOR_SIZE * 3 + len(State) + 1 + NUM_PLAY_COLORS + EXTRA_FEATURES
+#   turn direction(1) + opponent hand sizes in turn order(OPP_HAND_SLOTS) + deck size(1)
+#   + unseen +2 / King / Change-Color counts(3) = 8.
+EXTRA_FEATURES = 1 + OPP_HAND_SLOTS + 1 + 3
+# observation() = hand(63) + state one-hot(len(State)) + draw_num(1)
+#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(8)
+# The discard pile is deliberately NOT exposed as a histogram (only the shown top card is);
+# the net gets a coarse card-count sense via the unseen +2/King/CHCOL features instead, rather
+# than a full memory of everything that has been played.
+OBSERVATION_SIZE = CARD_VECTOR_SIZE * 2 + len(State) + 1 + NUM_PLAY_COLORS + EXTRA_FEATURES
 
 
 def action_to_scalar(action, card):
@@ -284,9 +299,10 @@ COLOR_PERMS = tuple(itertools.permutations(range(1, NUM_PLAY_COLORS + 1)))
 def _build_color_perm_tables():
     obs_perms, act_perms = [], []
     ntypes = TYPES_PER_COLOR                             # 15, the card-block stride
-    color_off = CARD_VECTOR_SIZE * 2 + len(State) + 1    # 132: open-TAKI color one-hot
-    # Offsets of the three card-vector blocks in the observation: hand, discard, shown.
-    card_blocks = (0, CARD_VECTOR_SIZE, color_off + NUM_PLAY_COLORS)
+    color_off = CARD_VECTOR_SIZE + len(State) + 1        # 72: open-TAKI color one-hot
+    # Offsets of the two card-vector blocks in the observation: hand, shown (the discard
+    # histogram is not part of the observation).
+    card_blocks = (0, color_off + NUM_PLAY_COLORS)
     for pi in COLOR_PERMS:
         # Forward map on the 62 card slots; colorless slots 60/61 stay fixed.
         card_f = np.arange(CARD_VECTOR_SIZE, dtype=np.intp)
@@ -309,7 +325,7 @@ def _build_color_perm_tables():
     return np.array(obs_perms), np.array(act_perms)
 
 
-OBS_PERMS, ACT_PERMS = _build_color_perm_tables()        # shapes (24, 201) and (24, 64)
+OBS_PERMS, ACT_PERMS = _build_color_perm_tables()        # shapes (24, 147) and (24, 65)
 
 
 class Game:
@@ -373,11 +389,15 @@ class Game:
                 a.append(self.deck.pop())
             self.hands.append(a)
 
-    def reset(self):
+    def reset(self, start_seat=0):
         """
         Resets the game state for a fresh game.
+        :param start_seat: the seat that opens the round (default 0 preserves eval/main/demo
+            behaviour). Randomised per trial in training so the learner no longer opens 100%
+            of games (see A4).
         """
-        self.curr = 0
+        assert 0 <= start_seat < len(self.agents)
+        self.curr = start_seat
         self.dir = 1
         self.taki_color = Color.NONE
         self._setup_round()
@@ -633,23 +653,44 @@ class Game:
         :param agent: the agent to see the observation with.
         :return: the observation vector.
         """
-        # hand + discard + state(one-hot) + draw_num + open-TAKI-color(one-hot)
-        #      + card shown + [direction, next player's hand size, min opponent hand size]
-        # Count features are normalised (see the *_NORM constants) so every input sits
-        # on a comparable, bounded scale; one-hot blocks and direction are left as-is.
+        # hand + state(one-hot) + draw_num + open-TAKI-color(one-hot) + card shown
+        #      + [direction, OPP_HAND_SLOTS opponent hand sizes in turn order, deck size,
+        #         unseen +2 / King / Change-Color counts]
+        # The discard pile is intentionally NOT exposed as a histogram; only the shown top
+        # card is, plus the coarse unseen +2/King/CHCOL counts (see A7 scoping).
+        # Count features are normalised (see the *_NORM / TOTAL_* constants) so every input
+        # sits on a comparable, bounded scale; one-hot blocks and direction are left as-is.
         if agent is None:
             agent = self.curr
-        next_player = (agent + self.dir) % len(self.agents)
-        other_hand_sizes = [len(h) for i, h in enumerate(self.hands) if i != agent]
-        min_other = min(other_hand_sizes) if other_hand_sizes else 0
-        hand_vec = (card_to_vector(*self.hands[agent]) if len(self.hands[agent]) > 0
+        num_players = len(self.agents)
+        hand = self.hands[agent]
+        hand_vec = (card_to_vector(*hand) if len(hand) > 0
                     else np.zeros(CARD_VECTOR_SIZE, dtype=int))
+        # Opponent hand sizes in TURN ORDER from the current player (dir-aware), normalised by
+        # INITIAL_HAND_SIZE. Fixed OPP_HAND_SLOTS slots: zero-padded when there are fewer
+        # opponents, truncated when there are more, so the vector stays constant-length.
+        opp_sizes = []
+        for k in range(1, OPP_HAND_SLOTS + 1):
+            if k < num_players:
+                seat = (agent + k * self.dir) % num_players
+                opp_sizes.append(len(self.hands[seat]) / INITIAL_HAND_SIZE)
+            else:
+                opp_sizes.append(0.0)
+        # Unseen counts of +2 / King / Change-Color, counted by card TYPE over the raw Card
+        # lists (a played CHCOL is recoloured into a colored slot, so slot-based counting is
+        # ambiguous). Unseen = total - (in this agent's hand) - (in the discard pile).
+        def _unseen(ctype, total):
+            seen = (sum(1 for c in hand if c.type is ctype)
+                    + sum(1 for c in self.discard if c.type is ctype))
+            return (total - seen) / total
         extra = np.array([self.dir,
-                          len(self.hands[next_player]) / INITIAL_HAND_SIZE,
-                          min_other / INITIAL_HAND_SIZE])
+                          *opp_sizes,
+                          len(self.deck) / TOTAL_DECK_CARDS,
+                          _unseen(Type.PLUSTWO, TOTAL_PLUS_TWO),
+                          _unseen(Type.KING, TOTAL_KING),
+                          _unseen(Type.CHCOL, TOTAL_CHCOL)])
         return np.concatenate(
             (hand_vec / CARD_COPIES_NORM,
-             card_to_vector(*self.discard) / CARD_COPIES_NORM,
              state_to_vector(self.state),
              np.array([self.draw_num / MAX_PLUS_TWO_STACK]),
              color_to_vector(self.taki_color),

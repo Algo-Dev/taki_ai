@@ -124,7 +124,8 @@ if __name__ == '__main__':
     update_target_network = args.target_sync_every
     num_of_players = 4
 
-    # The learner sits at seat 0; the opponents play mostly-greedily on their own nets.
+    # The learner sits at list index 0; the opener is randomised per trial (A4), so the learner
+    # no longer goes first 100% of the time. The opponents play mostly-greedily on their own nets.
     # color_sym only affects replay(), which only the learner runs.
     dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model,
                         color_sym=args.color_sym)
@@ -164,6 +165,10 @@ if __name__ == '__main__':
     wins = []
     total_wins = 0
 
+    # Dedicated opener RNG (A4). Separate from the deck RNG (game.random) and the agents'
+    # epsilon/replay streams, so existing seeded decks stay bit-reproducible.
+    seat_rng = random.Random(args.seed)
+
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
         # Reward-anneal schedule for this trial (constant within the trial). p ramps 0->1 over
@@ -176,9 +181,18 @@ if __name__ == '__main__':
             alpha = ALPHA_MAX * p
             if trial % 500 == 0:
                 print(f"  [anneal] p={p:.3f} step_coef={step_coef:.3f} alpha={alpha:.3f}")
-        game.reset()
+        start = seat_rng.randrange(num_of_players)   # random opener; learner stays index 0
+        game.reset(start_seat=start)
         episode_reward = 0
+        # If the learner isn't the opener, advance opponents up to its first turn. If an
+        # opponent somehow finishes the round before the learner ever acts, done is already
+        # True and the step loop is skipped (this trial contributes no learner transition).
+        done = False
+        while not done and game.curr != 0:
+            done, _ = game.next_turn()
         for step in range(trial_len):
+            if done:
+                break
             # At the top of each step it is the learner's (seat 0) turn.
             done, _ = game.next_turn()                 # learner acts via play()
             state = dqn_agent.last_state
