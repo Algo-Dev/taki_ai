@@ -3,13 +3,15 @@ This is an experiment of teaching an AI to play [Taki](https://www.takigame.com/
 
 This project uses Keras and Tensorflow for Neural Networks.
 
-The game does not use the 3+, 3+ breaker cards and the king card (new Taki cards).
+The game does not use the 3+ and 3+ breaker cards (newer Taki cards). The King card **is**
+implemented — see [RULES.md](RULES.md) for how it and the other special cards behave.
 
 This project taught me a lot about reinforcement learning and AI and I hope to continue making silly robots that learn!
 
 See [RESEARCH_LOG.md](RESEARCH_LOG.md) for the full experiment history (training runs, evals,
-negative results, and which checkpoint is the current best), and [PLAN.md](PLAN.md) for open
-items and future levers.
+negative results, and which checkpoint is the current best), [RULES.md](RULES.md) for the
+rules-engine behaviour and house-rule interpretations, and [PLAN.md](PLAN.md) for open items
+and future levers.
 
 # Algorithm
 Uses DQN with experience replay, trained by self-play: 1 learner + 3 opponents whose weights
@@ -30,25 +32,25 @@ Three reward schemes are available via `train.py --reward`:
   the win-dominated tail measurably hurts — win-based objectives have not beaten `shaped`.
 
 ## Card Vector
-Cards are a vector with dimension of the number of distinct cards (62: 60 colored slots, plus
-the colorless Change Color and the Super TAKI), with one at the respective index.
+Cards are a vector with dimension of the number of distinct cards (63: 60 colored slots, plus
+the colorless Change Color, Super TAKI, and King), with one at the respective index.
 
 A deck is a vector sum of card vectors.
 
 ## Action Space
-64 actions: scalars 0–59 play a colored card, 60 plays a colorless Change Color (the chosen
-color is encoded in the colored slots when played), 61 plays a Super TAKI, 62 draws, and 63
-closes an open TAKI.
+65 actions: scalars 0–59 play a colored card, 60 plays a colorless Change Color (the chosen
+color is encoded in the colored slots when played), 61 plays a Super TAKI, 62 plays a King, 63
+draws, and 64 closes an open TAKI.
 
 ## State Space
-The observation is a 201-float concatenation of the following blocks (count features are
+The observation is a 205-float concatenation of the following blocks (count features are
 normalised to a bounded scale):
-* The hand of the player (62, counts / 4)
-* The discard pile (62, counts / 4)
-* The game state one-hot (7: normal, draw-two, taki, super-taki, finished, plus, stop)
+* The hand of the player (63, counts / 4)
+* The discard pile (63, counts / 4)
+* The game state one-hot (8: normal, draw-two, taki, super-taki, finished, plus, stop, king)
 * The amount of 2+ stacked (1 scalar, / 8)
 * The active color of an open (Super) TAKI, one-hot (4)
-* The card shown on the table (62, one-hot)
+* The card shown on the table (63, one-hot)
 * Extra scalars (3): turn direction, next player's hand size / 8, minimum opponent hand size / 8
 
 # Using the project
