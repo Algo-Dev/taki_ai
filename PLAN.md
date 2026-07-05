@@ -61,10 +61,12 @@ live in **RULES.md**. Check (and update) that file for rules questions.
 
 ### Algorithm findings
 
--- A4. **Learner always seat 0, always opens.** `Game.reset()` sets `curr = 0` and the learner is
-   always seat 0 in train.py — 100% of training games have the learner going first, while eval
-   shuffles seating per game. First-mover advantage in a shedding game means a train/eval
-   distribution shift. Randomize (or rotate) the starting seat per trial.
+-- A4. **DONE (code)** on branch `obs-features-seat-random` — `reset(start_seat=0)` + a per-trial
+   `seat_rng.randrange(num_of_players)` in train.py randomize the opener (learner stays list index 0;
+   opponents are interchangeable, so this is distributionally identical to eval's seat-shuffle).
+   Pending: the from-scratch retrain (batched with A7 below) to measure the effect.
+   Original finding: learner was hardcoded at seat 0 and `reset()` set `curr = 0`, so it opened 100%
+   of training games while eval shuffles seating — a first-mover train/eval distribution shift.
 
 -- A5. **Self-play opponents are a ≤5-trial-old mirror.** `OPPONENT_SYNC_EVERY=5` means the learner
    only ever faces (almost) itself — prone to strategy cycling, and was the amplifier in the
@@ -76,11 +78,17 @@ live in **RULES.md**. Check (and update) that file for rules questions.
 -- A6. Semi-MDP handling (one transition per learner decision, opponents fast-forwarded, TAKI
    chains, truncation with done=False) reviewed and found correct — no action item.
 
--- A7. **Observation gaps.** The `dir` feature is useless without per-opponent hand sizes in turn
-   order — add all 3 opponent hand sizes ordered from the current player in play direction (dir
-   then becomes meaningful); add deck size; consider an explicit "unseen cards" 62-vector (deck
-   minus hand minus discard — derivable, but saves the tiny net from learning subtraction).
-   Invalidates checkpoints — batch with a network-capacity change (A8).
+-- A7. **DONE (code)** on branch `obs-features-seat-random` — observation reshaped 205→147: added the 3
+   opponent hand sizes in turn order (dir-aware, zero-padded), deck size, and counts of the unseen
+   +2 / King / Change-Color cards (unseen = total − in-hand − in-discard, by card type), and
+   **removed the full discard-pile histogram** (only the shown top card remains, so the net gets a
+   coarse card-count sense rather than a perfect memory of what has been played). Scoped by the user:
+   the "unseen cards" 62-vector was dropped in favour of just those three counts.
+   Network kept at 124→64 (the capacity/dueling bump is deliberately left as a separate screened
+   experiment, not batched here). Invalidates all checkpoints → trains from scratch; pending the
+   retrain + eval to measure the effect.
+   Original finding: `dir` is useless without per-opponent hand sizes in turn order; add deck size;
+   consider an "unseen cards" vector.
 
 -- A8. **Only seat 0's experience is used**; the other 3 seats play the same policy and their
    transitions are discarded. Storing all 4 seats' transitions is ~4x data per trial at near-zero
@@ -108,10 +116,11 @@ live in **RULES.md**. Check (and update) that file for rules questions.
 
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
+2. ~~Randomize starting seat in training (A4)~~ — **DONE (code)**, branch `obs-features-seat-random`.
 3. Learn from all four seats (A8) — ~4x data per trial for free.
-4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
-   Invalidates checkpoints — batch with #5.
+4. ~~Richer observation (A7): opponent hand sizes in turn order, deck size~~ — **DONE (code)**, same
+   branch (unseen-cards vector descoped to +2/King/CHCOL counts). Invalidated checkpoints; net kept
+   at 124→64, so #5 remains open as a separate experiment.
 5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
    advantage) — well-suited since most of the 64 actions are illegal in any given state. Same
    checkpoint-invalidation caveat as #4.
