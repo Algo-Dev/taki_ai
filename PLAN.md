@@ -45,28 +45,9 @@ section is intentionally deferred — we will tune those later.**
    train.py's run-length-scaled decay; the default is noise, not a real setting.
 
 
-## Rules fidelity notes
-
-Moved out of PLAN.md: the game-rules behaviour and deliberate house-rule interpretations now
-live in **RULES.md**. Check (and update) that file for rules questions.
-
-
 ## Full project review (2026-07-03) — software + algorithm findings and action items
 
-### Software findings
-
--- S1–S8 (2026-07-03 review) — **DONE** on branch `review-fixes-s1-s8` (2026-07-04). All eight
-   implemented; the only behavioral change was S3 (`valid_moves` deduplication), which shifted the
-   vs-random baseline to **0.907** (post-dedup). Details in RESEARCH_LOG 2026-07-04.
-
 ### Algorithm findings
-
--- A4. **DONE (code)** on branch `obs-features-seat-random` — `reset(start_seat=0)` + a per-trial
-   `seat_rng.randrange(num_of_players)` in train.py randomize the opener (learner stays list index 0;
-   opponents are interchangeable, so this is distributionally identical to eval's seat-shuffle).
-   Pending: the from-scratch retrain (batched with A7 below) to measure the effect.
-   Original finding: learner was hardcoded at seat 0 and `reset()` set `curr = 0`, so it opened 100%
-   of training games while eval shuffles seating — a first-mover train/eval distribution shift.
 
 -- A5. **Self-play opponents are a ≤5-trial-old mirror.** `OPPONENT_SYNC_EVERY=5` means the learner
    only ever faces (almost) itself — prone to strategy cycling, and was the amplifier in the
@@ -74,21 +55,6 @@ live in **RULES.md**. Check (and update) that file for rules questions.
    table). Try an opponent *pool* (past snapshots + occasionally a RandomAgent seat) — standard
    fictitious-self-play fix, likely the best lever to break the ~0.90 plateau since "more of the
    same self-play" is already established as exhausted.
-
--- A6. Semi-MDP handling (one transition per learner decision, opponents fast-forwarded, TAKI
-   chains, truncation with done=False) reviewed and found correct — no action item.
-
--- A7. **DONE (code)** on branch `obs-features-seat-random` — observation reshaped 205→147: added the 3
-   opponent hand sizes in turn order (dir-aware, zero-padded), deck size, and counts of the unseen
-   +2 / King / Change-Color cards (unseen = total − in-hand − in-discard, by card type), and
-   **removed the full discard-pile histogram** (only the shown top card remains, so the net gets a
-   coarse card-count sense rather than a perfect memory of what has been played). Scoped by the user:
-   the "unseen cards" 62-vector was dropped in favour of just those three counts.
-   Network kept at 124→64 (the capacity/dueling bump is deliberately left as a separate screened
-   experiment, not batched here). Invalidates all checkpoints → trains from scratch; pending the
-   retrain + eval to measure the effect.
-   Original finding: `dir` is useless without per-opponent hand sizes in turn order; add deck size;
-   consider an "unseen cards" vector.
 
 -- A8. **Only seat 0's experience is used**; the other 3 seats play the same policy and their
    transitions are discarded. Storing all 4 seats' transitions is ~4x data per trial at near-zero
@@ -105,22 +71,12 @@ live in **RULES.md**. Check (and update) that file for rules questions.
 
 ### Action items, ranked by expected value / cost
 
-> **RESULT (2026-07-05, exp-dqn-hygiene): the DQN-hygiene package (Double DQN + slow/Polyak
-> target + Huber + reward÷10) has been run and is NOT the plateau-breaker — do not re-run it
-> blind.** A/B'd at 10k and 100k with color-sym on in every arm, it adds at most ~+1.5 pt
-> vs-random over plain color-sym and no clear head-to-head edge. Ablation: Double DQN + slow
-> target inert; only Huber + reward-scale moves the needle, marginally. "Beats the 1M-trial
-> champion" is the **color-sym** effect, not these levers. **The lead lever is now structural
-> (#4 richer observation / #5 bigger-dueling network), plus #1 opponent pool.** Details in
-> RESEARCH_LOG 2026-07-05.
-
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-2. ~~Randomize starting seat in training (A4)~~ — **DONE (code)**, branch `obs-features-seat-random`.
+2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
 3. Learn from all four seats (A8) — ~4x data per trial for free.
-4. ~~Richer observation (A7): opponent hand sizes in turn order, deck size~~ — **DONE (code)**, same
-   branch (unseen-cards vector descoped to +2/King/CHCOL counts). Invalidated checkpoints; net kept
-   at 124→64, so #5 remains open as a separate experiment.
+4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
+   Invalidates checkpoints — batch with #5.
 5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
    advantage) — well-suited since most of the 64 actions are illegal in any given state. Same
    checkpoint-invalidation caveat as #4.
@@ -179,8 +135,3 @@ are float64 now) to halve buffer memory.
 DQN-hygiene package has already been run (marginal, see RESULT above), so the plateau-breaker is
 now expected to be structural (richer observation / bigger network) or a stronger, more diverse
 opponent set rather than more of the same self-play.
-
-
--- once color-sym is proven to be good, set is as default behaviour and remove the flag, or set the flag is no-color-sym
-
--- once i finish all the fixes above. Change the observation memory. From the discard pile, I want it to remember only the number of +2 cards, the color changes, and the king cards (were they added to this game simulation?)
