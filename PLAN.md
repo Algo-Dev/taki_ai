@@ -56,11 +56,6 @@ section is intentionally deferred — we will tune those later.**
    fictitious-self-play fix, likely the best lever to break the ~0.90 plateau since "more of the
    same self-play" is already established as exhausted.
 
--- A8. **Only seat 0's experience is used**; the other 3 seats play the same policy and their
-   transitions are discarded. Storing all 4 seats' transitions is ~4x data per trial at near-zero
-   cost (DQN is off-policy; the epsilon mismatch is negligible). Recompute the replay ratio if
-   adopted (see tuning table below).
-
 -- A9. **Reward design, if ever revisited:** the gentler middle ground PLAN.md's "penalize only net
    hand growth" idea gropes toward is **potential-based shaping** — `r' = r_win + gamma*phi(s') -
    phi(s)` with `phi(s) = -len(hand)`. Provably policy-invariant w.r.t. the win objective, keeps a
@@ -74,7 +69,9 @@ section is intentionally deferred — we will tune those later.**
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
 2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
-3. Learn from all four seats (A8) — ~4x data per trial for free.
+3. ~~Learn from all four seats (A8) — ~4x data per trial for free.~~ **DONE** (branch
+   `a8-learn-from-all-seats`): all-seats collection + buffer 20k→80k; replay ratio ~20→~5.
+   See RESEARCH_LOG.md; not yet A/B-screened.
 4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
    Invalidates checkpoints — batch with #5.
 5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
@@ -95,16 +92,17 @@ the (completed, marginal) DQN-hygiene package.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
 
-Framing: the **replay ratio** — currently ~25 learner transitions/trial collected, `replay()` runs
-at steps 0,4,8,... plus once at episode end (~8 calls x batch 64 ~= 512 samples/trial), so each
-transition is trained on ~20x before eviction (Atari reference point is ~8). Replay ratio, learning
+Framing: the **replay ratio** — since A8 (all-seats collection) ~100 transitions/trial are
+collected (~25 x 4 seats), `replay()` runs at learner-steps 0,4,8,... plus once at episode end
+(~8 calls x batch 64 ~= 512 samples/trial), so each transition is now trained on ~5x before
+eviction (was ~20x under seat-0-only; Atari reference point is ~8). Replay ratio, learning
 rate, and target-sync period must move together: more updates per datum -> lower lr and/or slower
 target sync.
 
 | Knob | Current | Sweep | What to watch |
 |---|---|---|---|
-| Replay frequency | every 4 steps + episode end (train.py:202) | every 1 / 2 / 4 / 8 steps | Q divergence & loss spikes at high ratio; slow learning at low |
-| Buffer size | 20k (dqn.py:39) | 20k / 100k / 500k | oscillation/forgetting vs earlier snapshots if too small; sluggish early adaptation if too large |
+| Replay frequency | every 4 learner steps + episode end (train.py) | every 1 / 2 / 4 / 8 steps | Q divergence & loss spikes at high ratio; slow learning at low |
+| Buffer size | 80k (dqn.py:39, A8) | 80k / 200k / 500k | oscillation/forgetting vs earlier snapshots if too small; sluggish early adaptation if too large |
 | Target sync | ~2x/episode (effective) | hard: 500 / 2000 / 10000 learner steps; or Polyak tau 0.01 / 0.001 | loss sawtooth at each hard sync; head-to-head vs current best |
 | Learning rate | 1e-3 | 1e-3 / 3e-4 / 1e-4, +/- decay schedule | late-run creep vs plateau; gradient norms |
 | Batch size | 64 | 64 / 256 (scale lr with it) | wall-clock per trial; interacts with replay ratio |
@@ -112,9 +110,9 @@ target sync.
 | gamma | 0.99 | 0.99 / 0.995 | endgame credit: at ~30 decisions/episode the win bonus reaches the opening at ~0.74 discount — mild, so low priority |
 | Opponent sync | every 5 trials | 5 / 25 / 100, then pool | robustness vs random AND vs frozen bests simultaneously |
 
-Buffer-size context: 20k transitions ~= 600-1000 trials of history — 6-10% of a 10k run but ~0.1%
-of a 1M run; scale with run length (100k-500k for long runs). Store observations as float32 (they
-are float64 now) to halve buffer memory.
+Buffer-size context: since A8 (~100 transitions/trial), 80k transitions ~= 800 trials of history
+— restores the horizon 20k gave under seat-0-only collection; scale with run length (200k-500k
+for long runs). Store observations as float32 (they are float64 now) to halve buffer memory.
 
 ### Recommended process (matches how the color-sym experiment was actually run)
 
