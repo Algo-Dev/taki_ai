@@ -82,6 +82,19 @@ it (regularization / ~4× effective data).
 (Double DQN + Huber + slow/stepped target) prevent the vanilla divergence? — i.e. re-run the
 control arm with `--double-dqn --loss huber --target-sync-mode steps --target-sync-every 2000`.
 
+**Update — cross-reference to the DQN-hygiene branch (`exp-dqn-hygiene`, 2026-07-05).** That
+parallel line ran the hygiene package as a 10k ablation + a 100k full-bundle A/B, always with
+`--color-sym` on. Two conclusions bear on this entry: (1) **Corroboration** — its
+color-sym control reproduced *these exact numbers* (vs-random .913 pooled; vs-champion .270,
++5.2 SE), independently confirming "100k color-sym beats the 1M-trial champion." (2)
+**Resolution of the open question above** — the A1/A2 stability levers (Double DQN + slow
+target) are **inert** (10k head-to-head 0.252, +0.4 SE; nothing at 100k); only Huber+reward÷10
+helps, and only ~+1.5 pt vs-random. Since those levers do nothing *once color-sym is present*,
+the evidence is that **color-sym itself is the long-run stabilizer** that A1/A2 were meant to
+be — consistent with vanilla diverging here while color-sym does not. The DQN-hygiene package
+is **not** the plateau-breaker; the lead levers are now structural (richer observation / bigger
+network) + an opponent pool. See PLAN.md action-items #1–3 (marked done/inert).
+
 ---
 
 ## 2026-07-04 — Color-symmetry at 300k trials BEATS the 1M-trial champion; control plateaus
