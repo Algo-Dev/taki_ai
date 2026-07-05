@@ -38,6 +38,13 @@ Thread-capped (`OMP/OPENBLAS/MKL=1`, `TF_INTRA=2/INTER=1`) after an earlier unth
 Run dirs: color-sym `…357439_colorsym` (s0), `…360439_colorsym` (s1), `…358192_colorsym`
 (s2); control `…369189` (s0), `…361702` (s1), `…375708` (s2) (all `models/run1783181329.*`).
 
+**Artifacts preserved** (the `exp-color-sym` worktree these ran in was retired 2026-07-05;
+its `models/` was relocated into the main worktree, gitignored): the six trained run dirs at
+`models/run1783181329.*` (11 snapshots each, snap0000→snap100000); their final checkpoints,
+per-run training-curve PNGs, and all A/B eval logs (`AB_final_eval.txt`, `AB_control_eval.txt`,
+the `ab_s*_*.log` training logs and `launch_ab.sh`/`auto_eval*.sh` scripts) under
+`models/_colorsym_ab_logs/`.
+
 **Color-sym (snap100000) — stable and strong, all three seeds:**
 
 | seed | vs random | vs champion `snap300000` (head-to-head) |
