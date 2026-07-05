@@ -228,27 +228,51 @@ class GameFlowTest(unittest.TestCase):
         self.assertEqual(g.curr, 1)
         self.assertEqual(g.hands[0], [Card(Type.THREE, Color.BLUE)])  # nothing else played
 
-    def test_king_not_playable_inside_open_taki(self):
+    def test_king_inside_taki_is_inert(self):
+        # A King played mid-TAKI is playable but has no effect: it does not change
+        # taki_color and does not start a King continuation; the TAKI simply goes on.
         g = self.make_game()
         g.curr = 0
         g.discard = [Card(Type.ONE, Color.RED)]
         g.hands[0] = [Card(Type.KING), Card(Type.FIVE, Color.RED)]
         g.state = State.TAKI
         g.taki_color = Color.RED
-        moves = g.valid_moves(0)
-        self.assertNotIn((Action.PLAY_CARD, Card(Type.KING)), moves)  # house rule
-        self.assertIn((Action.PLAY_CARD, Card(Type.FIVE, Color.RED)), moves)
+        self.assertIn((Action.PLAY_CARD, Card(Type.KING)), g.valid_moves(0))  # playable
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertEqual(g.state, State.TAKI)       # still an open TAKI (inert)
+        self.assertEqual(g.taki_color, Color.RED)   # color unchanged
+        self.assertEqual(g.curr, 0)                 # same player keeps playing
 
-    def test_cannot_win_on_king(self):
+    def test_king_closing_a_taki_grants_optional_followup(self):
+        # If the TAKI is closed on a King, the player is granted an optional follow-up turn.
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [Card(Type.ONE, Color.RED)]
+        g.hands[0] = [Card(Type.TAKI, Color.RED), Card(Type.KING),
+                      Card(Type.NINE, Color.BLUE)]
+        g.state = State.NORMAL
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.TAKI, Color.RED))
+        self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))   # King now on top, inert
+        self.assertEqual(g.shown_card(), Card(Type.KING))
+        self._take_turn(g, Action.CLOSE_TAKI, None)             # close ON the King
+        self.assertEqual(g.state, State.KING)                   # follow-up granted
+        self.assertEqual(g.curr, 0)                             # same player
+        # ... and it is optional: declining with CLOSE_TAKI just ends the turn (no re-grant).
+        self._take_turn(g, Action.CLOSE_TAKI, None)
+        self.assertEqual(g.state, State.NORMAL)
+        self.assertEqual(g.curr, 1)
+
+    def test_can_win_on_king(self):
+        # Unlike other action cards, the King is a legal finishing card.
         g = self.make_game()
         g.curr = 0
         g.discard = [Card(Type.FIVE, Color.RED)]
-        g.hands[0] = [Card(Type.KING)]  # last card is a King (an action card)
+        g.hands[0] = [Card(Type.KING)]  # last card is a King
         g.state = State.NORMAL
-        done, _ = self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
-        self.assertFalse(done)
-        self.assertFalse(g.done())
-        self.assertEqual(len(g.hands[0]), 1)  # drew a penalty card instead of winning
+        done, winner = self._take_turn(g, Action.PLAY_CARD, Card(Type.KING))
+        self.assertTrue(done)
+        self.assertEqual(winner, 0)
+        self.assertTrue(g.done())
 
     def test_observation_is_normalised(self):
         g = self.make_game(players=4)

@@ -59,15 +59,25 @@ section is intentionally deferred — we will tune those later.**
    experiments; fix only if 2-player play ever matters.
 
 -- King card (added on branch `feature/king-card`): a colorless wild (2 copies, slot 62 /
-   action 62, `State.KING`). It cancels a pending +2 (`draw_num -> 0`, no cards drawn) and
-   grants the player one OPTIONAL follow-up card of any color/type (declined with CLOSE_TAKI,
-   which is reused as the "done" terminator; no DRAW is offered during the King continuation).
-   House rules chosen here: (1) the follow-up card is optional, not mandatory; (2) the King is
-   NOT playable inside an open (Super) TAKI — it is only offered in NORMAL and DRAW_TWO, to keep
-   the "any card after" semantics from tangling with a color-locked TAKI run; (3) Kings chain
-   (a King may be the follow-up to a King, each granting one more card); (4) you cannot win on a
-   King (it is an action card → penalty draw). NOTE: this change bumped the encoding to
-   63/65/205 and invalidated every pre-King checkpoint; the last old-contract commit is 344535a.
+   action 62, `State.KING`). Outside a TAKI it cancels a pending +2 (`draw_num -> 0`, no cards
+   drawn) and grants the player one OPTIONAL follow-up card of any color/type (declined with
+   CLOSE_TAKI, which is reused as the "done" terminator; no DRAW is offered during the King
+   continuation). Rules interpretation:
+   (1) the follow-up card is optional, not mandatory;
+   (2) the King IS playable inside an open (Super) TAKI, but there it is INERT — like every
+       other action card mid-run, only the last card's effect applies. A King played
+       mid-sequence does not change `taki_color` and does not start a continuation; the TAKI
+       simply goes on. If the TAKI is CLOSED on a King (the King is the top card at close), the
+       player is granted the optional follow-up turn (mirrors PLUSTWO/STOP/etc. deferred-at-
+       close handling);
+   (3) Kings chain (a King may be the follow-up to a King, each granting one more card);
+   (4) you CAN win on a King — it is a legal finishing card (`FINISHING_TYPE_VALUES` =
+       numbers + King), unlike other action cards which force a penalty draw.
+   Implementation note: `process_action` captures `prev_state` before its transient resets so a
+   CLOSE_TAKI that DECLINES a King follow-up (`prev_state is State.KING`) is distinguished from
+   a CLOSE_TAKI that closes a TAKI ON a King (which re-grants) — otherwise declining would loop.
+   NOTE: this change bumped the encoding to 63/65/205 and invalidated every pre-King checkpoint;
+   the last old-contract commit is 344535a.
 
 
 ## Full project review (2026-07-03) — software + algorithm findings and action items

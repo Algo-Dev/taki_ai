@@ -150,8 +150,11 @@ class State(Enum):
     KING = 7  # King played: same player may put one more card (any color/type)
 
 
-# Number of plain number cards (ONE..NINE); only these may end the game.
+# Plain number cards (ONE..NINE); the round must OPEN on one of these.
 NUMBER_TYPE_VALUES = frozenset(range(Type.ONE.value, Type.NINE.value + 1))
+# Card types the game may END on: the plain numbers plus the King (the King is a legal
+# finishing card in standard Taki). Every other action card triggers the penalty draw.
+FINISHING_TYPE_VALUES = NUMBER_TYPE_VALUES | {Type.KING.value}
 # Cards dealt to each player at the start of a round.
 INITIAL_HAND_SIZE = 8
 # Observation normalisation constants (see Game.observation). Count features are
@@ -423,14 +426,18 @@ class Game:
         """
         if self.debug:
             print(f"Player {agent+1}'s turn.\nCards {self.hands[agent]}")
+        # The state we entered this action with, before the transient resets below. Used to
+        # tell "closing an open TAKI" from "declining a King's optional follow-up" (both use
+        # CLOSE_TAKI), since the KING reset erases self.state.
+        prev_state = self.state
         if self.state is State.PLUS:
             self.state = State.NORMAL
         if self.state is State.SUPER_TAKI:
             self.state = State.TAKI
         if self.state is State.KING:
-            # The King's follow-up card (or CLOSE_TAKI) consumes the King continuation;
-            # process that card in a normal context so its own effect applies and a plain
-            # number follow-up ends the turn.
+            # The King's follow-up card (or a CLOSE_TAKI decline) consumes the King
+            # continuation; process it in a normal context so its own effect applies and a
+            # plain number follow-up ends the turn.
             self.state = State.NORMAL
         if action == Action.PLAY_CARD:
             self.discard.append(card)
@@ -466,16 +473,23 @@ class Game:
                 if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
                     self.state = State.PLUS
             elif card.type is Type.KING:
-                # King is a colorless wild that cancels any pending +2 (draw_num -> 0) and
-                # keeps the turn so the player may put one more card of any color/type.
-                self.draw_num = 0
-                self.taki_color = Color.NONE
-                self.state = State.KING
+                # Inside a TAKI only the last card's effect applies, so a King played
+                # mid-sequence is inert (no +2 cancel, no color change, TAKI continues); its
+                # "grant a follow-up" fires at CLOSE_TAKI if it is the card closed on. Outside
+                # a TAKI the King is a colorless wild that cancels any pending +2
+                # (draw_num -> 0) and keeps the turn for one optional follow-up card.
+                if self.state is not State.TAKI and self.state is not State.SUPER_TAKI:
+                    self.draw_num = 0
+                    self.taki_color = Color.NONE
+                    self.state = State.KING
             if self.debug:
                 print(f"Player {agent+1} played {str(card)}.")
         elif action is Action.CLOSE_TAKI:
             self.taki_color = Color.NONE
-            if self.shown_card().type is Type.STOP:
+            if prev_state is State.KING:
+                # Declining the King's optional follow-up: just end the turn.
+                self.state = State.NORMAL
+            elif self.shown_card().type is Type.STOP:
                 self.state = State.STOP
             elif self.shown_card().type is Type.PLUS:
                 self.state = State.PLUS
@@ -485,6 +499,9 @@ class Game:
             elif self.shown_card().type is Type.CHDIR:
                 self.dir *= -1
                 self.state = State.NORMAL
+            elif self.shown_card().type is Type.KING:
+                # The TAKI closed on a King: grant the optional follow-up turn.
+                self.state = State.KING
             else:
                 self.state = State.NORMAL
             if self.debug:
@@ -533,10 +550,9 @@ class Game:
                     res.append((Action.PLAY_CARD, card))
             elif in_taki:
                 # During an open (Super) TAKI only cards of the TAKI's color may be
-                # played, plus the colorless wilds. taki_color NONE means "any" (fallback).
-                # The King is excluded (house rule): it is not playable inside a TAKI.
-                if card.type is Type.KING:
-                    continue
+                # played, plus the colorless wilds (incl. the King, which is inert mid-run
+                # but grants a follow-up if the TAKI is closed on it). taki_color NONE means
+                # "any" (fallback).
                 if self.taki_color is Color.NONE \
                         or card.color is self.taki_color \
                         or card.color is Color.NONE:
@@ -583,9 +599,10 @@ class Game:
         self.process_action(action, card, self.curr)
         finished = len(self.hands[self.curr]) == 0
         if finished and action is Action.PLAY_CARD \
-                and card.type.value not in NUMBER_TYPE_VALUES:
-            # Standard Taki: you may not end the game on an action card. Draw a
-            # penalty card and keep playing (the card's own effect still applies).
+                and card.type.value not in FINISHING_TYPE_VALUES:
+            # Standard Taki: you may not end the game on an action card (the King is the
+            # exception — see FINISHING_TYPE_VALUES). Draw a penalty card and keep playing
+            # (the card's own effect still applies).
             self.draw_card(self.curr, 1)
             # Only truly finished if the deck was exhausted and no card could be drawn.
             finished = len(self.hands[self.curr]) == 0
