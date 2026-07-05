@@ -58,6 +58,17 @@ section is intentionally deferred — we will tune those later.**
    change-direction as a stop/extra-turn with two players. Irrelevant to the 4-player
    experiments; fix only if 2-player play ever matters.
 
+-- King card (added on branch `feature/king-card`): a colorless wild (2 copies, slot 62 /
+   action 62, `State.KING`). It cancels a pending +2 (`draw_num -> 0`, no cards drawn) and
+   grants the player one OPTIONAL follow-up card of any color/type (declined with CLOSE_TAKI,
+   which is reused as the "done" terminator; no DRAW is offered during the King continuation).
+   House rules chosen here: (1) the follow-up card is optional, not mandatory; (2) the King is
+   NOT playable inside an open (Super) TAKI — it is only offered in NORMAL and DRAW_TWO, to keep
+   the "any card after" semantics from tangling with a color-locked TAKI run; (3) Kings chain
+   (a King may be the follow-up to a King, each granting one more card); (4) you cannot win on a
+   King (it is an action card → penalty draw). NOTE: this change bumped the encoding to
+   63/65/205 and invalidated every pre-King checkpoint; the last old-contract commit is 344535a.
+
 
 ## Full project review (2026-07-03) — software + algorithm findings and action items
 

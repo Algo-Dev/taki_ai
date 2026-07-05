@@ -14,6 +14,30 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-05 — FEATURE: King card added (encoding 62/64/201 → 63/65/205)
+
+Added the two King cards to the deck (branch `feature/king-card`), per original Taki: a
+colorless wild that **cancels a pending +2** (`draw_num → 0`, no cards drawn) and grants one
+**optional** follow-up card of any color/type (declined via CLOSE_TAKI; no DRAW during the
+continuation). King = card slot 62 / action 62 / `State.KING`; the colored-block stride is now
+the named constant `TYPES_PER_COLOR` (15), decoupled from `len(Type)` (=16) so the wild-only
+King doesn't shift the colored slots. House rules: follow-up optional, Kings chain, King not
+playable inside an open TAKI, can't win on a King. See PLAN.md for the full interpretation.
+
+**Encoding change → all pre-King checkpoints are unloadable** (obs 201→205, actions 64→65,
+card vector 62→63, `len(State)` 7→8). Last old-contract commit that still loads the pre-King
+models (incl. `checkpoint_colorsym_snap180000`) is **`344535a`** on `master`.
+
+Verification (correctness, not a quality bar):
+- `python -m unittest gametest` → **25/25 pass**, incl. 6 new King tests (cancels +2, legal
+  +2 response, one optional follow-up, decline-via-close, not-in-TAKI, can't-win-on-King) and
+  the updated color-symmetry perm-table tests (tables now (24,205)/(24,65); King slot/action
+  are color-invariant fixed points).
+- Smoke train `--trials 1500 --reward shaped` (color-sym on): ran end-to-end, no shape errors.
+  Eval of the fresh net: **0.873 vs 3 random @ 1000 games** (chance 0.25) — confirms the
+  pipeline still learns with the King in the deck. A proper strong model needs a full retrain
+  (deferred), since every prior checkpoint was invalidated.
+
 ## 2026-07-05 — PROMOTION: new best `checkpoint_colorsym_snap180000` (color-sym)
 
 Promoted the peak snapshot of the 300k color-sym run (`run1783109653.234119_colorsym/snap180000`)
