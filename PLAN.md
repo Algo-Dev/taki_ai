@@ -10,8 +10,6 @@ section is intentionally deferred — we will tune those later.**
 
 -- review again the observation features
 
--- the direction is not really relevant unless I provide the opponents number of card by their turn order. For now let's keep it but reconsider in the future.
-
 -- (future) On-the-fly reward re-labeling for curriculum/reward changes: instead of
    freezing each transition's reward at collection time, store the raw scalars needed to
    recompute it (learner_hand_size, sum_opp, min_opp, won) in remember() [dqn.py] and have
@@ -37,17 +35,6 @@ section is intentionally deferred — we will tune those later.**
 
 
 ## RL design notes (future levers, from the 2026-07-02 review)
-
--- Double DQN: replay() [dqn.py] takes max over the *target* net's Q-values — vanilla DQN's
-   overestimation-prone update. Double DQN (pick argmax with the online net, evaluate it with
-   the target net; keep the legality mask on both) is a ~2-line change in replay() and the
-   cheapest untried structural lever. Worth trying before the bigger network / richer
-   observation work.
-
--- Target-network cadence is aggressive: a hard copy every 100 steps AND at every episode end
-   [train.py]. Episodes average well under 100 learner steps, so the episode-end copy dominates
-   and the target is nearly on-policy. A slower hard update or Polyak (soft) averaging is a
-   cheap stability lever — potentially relevant to the reward-change instability.
 
 -- Replay buffer horizon: 20000 transitions at ~20-35 learner decisions/trial is only ~600-1000
    trials of history. During long runs (100k-1M trials) the buffer is a tiny recent window —
@@ -76,79 +63,11 @@ section is intentionally deferred — we will tune those later.**
 
 ### Software findings
 
--- S1. game.py:415-416 — `if card not in self.hands[agent]: print(...)` on an impossible state
-   just prints and then falls through to `remove()`, which raises `ValueError` anyway. Should be
-   an explicit `raise` (or removed).
-
--- S2. game.py:330-336 — deck construction uses `[Card(t, color)] * 2` / `* 4`, aliasing the same
-   Card object twice/four times in the deck. Currently safe (the only in-place mutation, the CHCOL
-   color reset in draw_card, is a no-op for hand copies) but a landmine; gametest.py already has to
-   work around it when deep-copying for the color-symmetry tests. Construct distinct objects.
-
--- S3. game.py:486-512 (valid_moves) — duplicate hand cards produce duplicate move-list entries,
-   and each CHCOL expands to 4 entries. RandomAgent and epsilon-exploration are therefore uniform
-   over move *instances*, not distinct moves — duplicated cards and CHCOL are picked disproportion-
-   ately often. Not a bug, but means the "vs random" baseline is a specific non-uniform policy;
-   worth knowing when interpreting win-rate numbers.
-
--- S4. Action scalar 60 (colorless CHCOL) is unreachable — valid_moves always expands CHCOL into
-   the 4 colored plays, so scalar 60 is never legal/trained. Harmless dead output unit; worth a
-   comment at game.py:178 so it isn't "fixed" by routing through it later.
-
--- S5. Dead code / unused observation dims: Card.amount() (game.py:98-105, deck construction
-   hardcodes counts instead); State.STOP and State.FINISHED one-hot slots are never seen by a
-   deciding agent.
-
--- S6. eval.py defaults (`--games 500`, `--games-b 150`, eval.py:137-140) contradict the
-   documented "≥3000 games to rank near-equal snapshots" rule — running with defaults reproduces
-   the earlier 1200-game false-plateau mistake. Consider raising the defaults or printing a warning
-   below the precision bar.
-
--- S7. train.py `__main__` hardcodes `trial_len = 300` and `update_target_network = 100`
-   (train.py:101-102) instead of CLI flags recorded in config.txt, unlike `--reward` etc. Promote
-   to flags once any of the target-cadence/trial-length tuning below is attempted.
-
--- S8. No training seed — runs are unseeded, and the log attributes ~0.02 vs-random run-to-run
-   spread partly to this. Add `--seed` to train.py so future A/B replicates are controlled (eval.py
-   already does this correctly).
-
--- Minor: opponent AIAgents in training carry unused 20k replay buffers/target nets; main.py loads
-   the same checkpoint 3x for the demo; agents/human.py uses `from game import *`; per-trial
-   `print` is log spam at 1M-trial scale.
+-- S1–S8 (2026-07-03 review) — **DONE** on branch `review-fixes-s1-s8` (2026-07-04). All eight
+   implemented; the only behavioral change was S3 (`valid_moves` deduplication), which shifted the
+   vs-random baseline to **0.907** (post-dedup). Details in RESEARCH_LOG 2026-07-04.
 
 ### Algorithm findings
-
--- A1. **Target network is effectively disabled.** `target_train()` fires at step 0 of every
-   episode (`step % 100 == 0` triggers at step 0, train.py:204-205) AND again at every episode end
-   (train.py:213). Episodes are ~20-35 learner steps, so the target net is a near-copy of the
-   online net essentially always — the mechanism meant to stabilize bootstrapping isn't doing
-   anything. Plausibly implicated in both the reward-change collapse and the 100k-1M plateau.
-   **Top of the queue.**
-   **TESTED (2026-07-05, exp-dqn-hygiene, with color-sym on):** slow/stepped target
-   (`--target-sync-mode steps 2000`) is **inert** at both 10k and 100k — the near-on-policy
-   target wasn't actually costing much. The real long-run stabilizer turned out to be
-   **color-sym itself** (vanilla replay diverges at ~20k trials; color-sym does not — see
-   RESEARCH_LOG 2026-07-05), which subsumes what A1 was meant to fix.
-
--- A2. **Vanilla max-Q bootstrap (overestimation-prone).** dqn.py:120 takes max over the *target*
-   net. Double DQN (argmax via the online net over `next_valid`, evaluate via the target net) is a
-   ~2-line change; pair with A1 (a slower target only helps once max-bias is also addressed).
-   **TESTED (2026-07-05):** Double DQN + slow target (the "stability pair") is **inert** —
-   pooled head-to-head 0.252, +0.4 SE over 3 seeds at 10k, no edge at 100k either. Not worth
-   adopting on current evidence.
-
--- A3. **Loss/reward scale is hot for plain MSE + Adam(1e-3).** Shaped per-step rewards run to
-   ~±30, the win bonus is `sum(opp)` (can exceed 50), episode returns are -50..-230, so Q-targets
-   live in the ±100s with no clipping (dqn.py:63, dqn.py:78-82). Switch to Huber loss (+ maybe
-   gradient-norm clipping and/or scale rewards ~÷10) — also the cheapest stability lever for any
-   future reward-schedule change (this is exactly what would have damped the win-only collapse).
-   Note the full-64-action MSE means non-taken actions have zero error, so effective per-action lr
-   is ~1/64 of nominal.
-   **TESTED (2026-07-05):** the "scale pair" (`--loss huber --reward-scale 0.1`) is the **only
-   live part** of the hygiene bundle — pooled head-to-head 0.273, +5.1 SE, 3/3 positive at 10k,
-   but only ~+1.5 pt vs-random over color-sym at 100k. Mild robustness bump, not a strategic
-   gain. If pursuing hygiene at all, keep this pair and drop A1/A2. Note a slight negative
-   scale×stability interaction (bundling all four was worse than either pair alone).
 
 -- A4. **Learner always seat 0, always opens.** `Game.reset()` sets `curr = 0` and the learner is
    always seat 0 in train.py — 100% of training games have the learner going first, while eval
@@ -186,42 +105,36 @@ section is intentionally deferred — we will tune those later.**
 
 ### Action items, ranked by expected value / cost
 
-> **RESULT (2026-07-05, exp-dqn-hygiene): items #1–3 have been run and are NOT the
-> plateau-breaker.** The DQN-hygiene bundle (Double DQN + slow target + Huber + reward÷10),
-> A/B'd at 10k and 100k with color-sym on in every arm, adds at most ~+1.5 pt vs-random over
-> plain color-sym and no clear head-to-head edge. Ablation: #2/#1 (Double DQN + slow target)
-> inert; only #3 (Huber + reward-scale) moves the needle, marginally. "Beats the 1M-trial
+> **RESULT (2026-07-05, exp-dqn-hygiene): the DQN-hygiene package (Double DQN + slow/Polyak
+> target + Huber + reward÷10) has been run and is NOT the plateau-breaker — do not re-run it
+> blind.** A/B'd at 10k and 100k with color-sym on in every arm, it adds at most ~+1.5 pt
+> vs-random over plain color-sym and no clear head-to-head edge. Ablation: Double DQN + slow
+> target inert; only Huber + reward-scale moves the needle, marginally. "Beats the 1M-trial
 > champion" is the **color-sym** effect, not these levers. **The lead lever is now structural
-> (#7 richer observation / #8 bigger-dueling network), plus #4 opponent pool.** Do not re-run
-> #1–3 blind. Details in RESEARCH_LOG 2026-07-05.
+> (#4 richer observation / #5 bigger-dueling network), plus #1 opponent pool.** Details in
+> RESEARCH_LOG 2026-07-05.
 
-1. ~~Slow the target network (A1)~~ — **DONE, inert.** remove per-episode syncs; hard update
-   every 1000-5000 *learner* steps, or Polyak tau ~= 0.005 per replay call.
-2. ~~Double DQN (A2)~~ — **DONE, inert.** pairs with #1; keep the `next_valid` mask on the argmax.
-3. ~~Huber loss + gradient-norm clipping, and/or scale rewards ~÷10 (A3)~~ — **DONE, only
-   marginal (+1.5 pt vs-random).** the one live part of the bundle.
-4. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
+1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-5. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
-6. Learn from all four seats (A8) — ~4x data per trial for free.
-7. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
-   Invalidates checkpoints — batch with #8.
-8. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
+2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
+3. Learn from all four seats (A8) — ~4x data per trial for free.
+4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
+   Invalidates checkpoints — batch with #5.
+5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
    advantage) — well-suited since most of the 64 actions are illegal in any given state. Same
-   checkpoint-invalidation caveat as #7.
-9. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
+   checkpoint-invalidation caveat as #4.
+6. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
-10. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
-    the 1000-trial run showed gains concentrated *after* epsilon bottomed out.
-11. LR decay for long runs (1e-3 -> 1e-4 cosine/step) — the faint 100k-1M creep is consistent with
-    bouncing around a minimum at too-large a step size.
-12. Prioritized replay: medium effort, real but smaller expected gain here; do after 1-6.
-13. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
+7. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
+   the 1000-trial run showed gains concentrated *after* epsilon bottomed out.
+8. LR decay for long runs (1e-3 -> 1e-4 cosine/step) — the faint 100k-1M creep is consistent with
+   bouncing around a minimum at too-large a step size.
+9. Prioritized replay: medium effort, real but smaller expected gain here; do after 1-3.
+10. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
     the switch.
 
-Items 1-3 were one package (make DQN actually DQN) and *were* A/B'd together before the
-structural work — result above: marginal at best, not the plateau-breaker. Structural work
-(7-8) and the opponent pool (4) are now the lead, no longer gated behind the hygiene package.
+The structural work (#4-5) and the opponent pool (#1) are now the lead, no longer gated behind
+the (completed, marginal) DQN-hygiene package.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
 
@@ -248,22 +161,23 @@ are float64 now) to halve buffer memory.
 
 ### Recommended process (matches how the color-sym experiment was actually run)
 
-1. Add `--seed` to train.py so replicates are controlled; promote hardcoded knobs (S7) to recorded
-   CLI flags.
+1. ~~Add `--seed` to train.py; promote hardcoded knobs (S7) to recorded CLI flags.~~ **DONE** —
+   `--seed`, `--trial-len`, `--target-sync-every` all present (branch `double-dqn-huber`).
 2. Screen each change at 10k trials, 2-3 seeded pairs, changing **one knob** (or one declared
-   package like Double-DQN+slow-target+Huber) at a time.
+   package) at a time.
 3. Judge on the three readouts that caught color-sym: 3000-game vs-random, head-to-head vs the
    control run's snapshot (the decisive one), and Mode-B progression vs
    `checkpoint_shaped_snap300000`.
 4. Confirm winners at 100k trials before promotion.
 5. Add cheap training-time diagnostics so stability is visible without running full evals: mean
-   |TD error|, mean max-Q on a frozen probe set of ~1k states (drift up = overestimation — would
-   directly show whether A1/A2 are biting), gradient norms. Microseconds of cost; would have
+   |TD error|, mean max-Q on a frozen probe set of ~1k states (drift up = overestimation),
+   gradient norms. Microseconds of cost; would have
    diagnosed the win-only collapse in minutes instead of a 7700-second run.
 
-**Single highest-leverage next experiment:** the DQN-hygiene package (slow target + Double DQN +
-Huber) A/B'd at 10k trials, then rerun the 100k-300k long-run question — the current plateau was
-measured under a setup where the stabilizers were effectively off.
+**Single highest-leverage next experiment:** an opponent pool of past snapshots (#1) — the
+DQN-hygiene package has already been run (marginal, see RESULT above), so the plateau-breaker is
+now expected to be structural (richer observation / bigger network) or a stronger, more diverse
+opponent set rather than more of the same self-play.
 
 
 -- once color-sym is proven to be good, set is as default behaviour and remove the flag, or set the flag is no-color-sym
