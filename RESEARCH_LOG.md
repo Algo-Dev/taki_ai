@@ -14,6 +14,38 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-05 — CHANGE: learn from all four seats (A8) + buffer 20k→80k
+
+Branch `a8-learn-from-all-seats`. The self-play loop in `train.py` now stores **all four
+seats'** transitions in the learner's replay buffer, not just seat 0's. Every seat plays the
+same DQN policy (opponents synced every 5 trials) and the observation is egocentric
+(`observation(agent=i)` / `valid_moves(agent=i)` are seat-relative), so a transition recorded
+from any seat is valid learner training data — DQN is off-policy, so the ε mismatch (learner
+anneals from high, opponents fixed 0.1) is immaterial. **~4× data per trial at ~zero extra
+cost** (the extra work is a few pure-Python `observation`/`valid_moves` calls; the TF
+`replay()` cadence is unchanged).
+
+Implementation: a turn-by-turn loop keeping one *pending* transition per seat, closed when
+that seat is next about to act (`new_state`/reward/`next_valid` measured at that moment) or
+when the round ends (terminal close). This reproduces the old seat-0 transitions with
+identical semantics — including multi-card TAKI/PLUS/KING turns, each still its own
+transition — and adds seats 1–3. Only seat 0 feeds the reward/win plots.
+
+**Replay ratio recomputed (the A8 ask):** collection rises from ~25 → ~100 transitions/trial
+(steady state; early ε=1.0 runs are longer, ~55/seat observed), replay cadence held fixed, so
+the ratio drops **~20 → ~5** (near Atari's ~8) — same gradient budget over 4× more diverse,
+faster-refreshing data. Buffer bumped **20k → 80k** (`agents/dqn.py`) to keep the ~800-trial
+history horizon the 20k buffer gave under seat-0-only collection.
+
+Sanity-checked: `python -m unittest gametest` (27 tests, unaffected — no `game.py` change);
+short seeded runs collect from all seats and run clean on the multi-card and
+opponent-wins-first paths. **Not yet evaluated** — needs the standard 10k-trial screen (2–3
+seeded pairs vs a current-`master` control) on the three readouts (3000-game vs-random,
+head-to-head vs the control snapshot, Mode-B vs `checkpoint_shaped_snap300000`) before any
+promotion.
+
+---
+
 ## 2026-07-05 — FEATURE: King card added (encoding 62/64/201 → 63/65/205)
 
 Added the two King cards to the deck (branch `feature/king-card`), per original Taki: a
