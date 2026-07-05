@@ -14,6 +14,50 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-05 — DQN-hygiene Phase 2: ablation (10k) + full-bundle 100k A/B. Verdict: NOT the plateau-breaker; only the scale pair does anything, and champion-beating is the color-sym effect
+
+Autonomous follow-up to the weak 10k bundle result below. Two stages, all on `exp-dqn-hygiene`,
+thread-capped (`OMP=1`) + `nice -19 ionice`, seeds 0/1/2, `--color-sym` in every arm, 3000-game
+CRN evals (parity 0.25, per-arm SE ≈ 0.0079, pooled-over-3-seeds SE ≈ 0.0046). Runs/logs under
+`models/_hygiene_ab/` (ablation + long100k subdirs, `RESULTS.txt`).
+
+### #2 — 10k ablation: which half of the bundle carries the signal?
+Bundle split into its two coherent pairs vs the Phase-1 color-sym control (head-to-head, parity 0.25):
+- **scale pair** (`--loss huber --reward-scale 0.1`): 0.266 / 0.269 / 0.284 → **pooled 0.273, +5.1 SE, 3/3 positive.**
+- **stability pair** (`--double-dqn --target-sync-mode steps 2000`): 0.246 / 0.254 / 0.256 → pooled 0.252, **+0.4 SE (flat).**
+
+So the entire (weak) Phase-1 head-to-head signal is the **scale pair** (Huber + reward↓); Double DQN
++ slow target do **nothing** at 10k. The full bundle's bad Phase-1 seed-1 (0.239) was worse than
+either half alone → the two pairs interact slightly *negatively*.
+
+### #1 — 100k full-bundle A/B (control = color-sym; treatment = full bundle)
+| metric | seed0 | seed1 | seed2 | pooled |
+|---|---|---|---|---|
+| control vs random | .911 | .918 | .909 | **.913** |
+| treat vs random | .926 | .930 | .928 | **.928** (+1.5 pt, 3/3) |
+| treat vs control (h2h) | .256 | .274 | .240 | .256 (**+1.4 SE**, seed-inconsistent) |
+| treat vs champion `snap300000` | .276 | .277 | .271 | **.275 (+5.4 SE)** |
+| control vs champion `snap300000` | .279 | .266 | .264 | **.270 (+5.2 SE)** |
+
+**The decisive comparison is the last two rows: treat-vs-champ (.275) ≈ control-vs-champ (.270).**
+Both the plain color-sym run and the full bundle beat the current best (`checkpoint_shaped_snap300000`,
+a 300k-snapshot of the 1M-trial run) by the *same* ~+5 SE margin. So **"beats the champion" is the
+color-sym + fresh-100k effect, NOT the hygiene levers.** Over its own control the full bundle is only
+marginal: head-to-head ~parity (+1.4 SE, one seed below), with a small but consistent +1.5 pt
+vs-random edge (.928 vs .913, 3/3 seeds) — a mild robustness bump, not a strategic gain.
+
+### Takeaways
+1. **DQN-hygiene is not the plateau-breaker.** At 100k it adds at most ~+1.5 pt vs-random over
+   color-sym and no clear head-to-head edge. Double DQN + slow target are inert at both 10k and 100k
+   here (the near-on-policy target A1 flagged wasn't actually costing much); only Huber + reward-scaling
+   move the needle, and only slightly.
+2. **Headline is color-sym, again:** a **100k color-sym run beats the 1M-trial champion** head-to-head
+   (~.270, +5 SE) and hits ~0.91–0.93 vs random — corroborating the color-sym A/B. The candidate new
+   best is a color-sym 100k snapshot, not a hygiene one (promotion deferred to the color-sym A/B owner).
+3. If squeezing the hygiene levers further: keep **Huber + reward-scaling** (the only live part), drop
+   Double DQN + slow target, and note the negative scale×stability interaction. But the larger lever
+   remains structural (network capacity / richer observation), per the plateau analysis. Nothing promoted.
+
 ## 2026-07-04 — DQN-hygiene package A/B at 10k trials (branch `exp-dqn-hygiene`): weak, seed-inconsistent; does NOT clear the adopt bar
 
 **Setup.** 3 seeded pairs (seeds 0/1/2), 10k trials, `--reward shaped --color-sym` in **both**
