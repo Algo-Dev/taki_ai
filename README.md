@@ -43,15 +43,18 @@ color is encoded in the colored slots when played), 61 plays a Super TAKI, 62 pl
 draws, and 64 closes an open TAKI.
 
 ## State Space
-The observation is a 205-float concatenation of the following blocks (count features are
-normalised to a bounded scale):
+The observation is a 147-float concatenation of the following blocks (count features are
+normalised to a bounded scale). The full discard pile is deliberately **not** exposed as a
+histogram — only the shown top card is — so the agent gets a coarse card-count sense from the
+unseen-count scalars below rather than a perfect memory of everything played:
 * The hand of the player (63, counts / 4)
-* The discard pile (63, counts / 4)
 * The game state one-hot (8: normal, draw-two, taki, super-taki, finished, plus, stop, king)
 * The amount of 2+ stacked (1 scalar, / 8)
 * The active color of an open (Super) TAKI, one-hot (4)
 * The card shown on the table (63, one-hot)
-* Extra scalars (3): turn direction, next player's hand size / 8, minimum opponent hand size / 8
+* Extra scalars (8): turn direction; the 3 opponents' hand sizes in turn order / 8 (zero-padded
+  when fewer opponents); deck size / 120; unseen +2 / 8, unseen King / 2, unseen Change-Color / 4
+  (unseen = total copies minus those in this hand and the discard pile)
 
 # Using the project
 Requires Python ≤ 3.10 (TensorFlow is pinned `>=2.4,<2.11`, see `requirements.txt`); training

@@ -280,13 +280,38 @@ class GameFlowTest(unittest.TestCase):
         # Shape and dtype: a fixed-size float vector.
         self.assertEqual(obs.shape, (OBSERVATION_SIZE,))
         self.assertTrue(np.issubdtype(obs.dtype, np.floating))
-        # Count features (hand + discard) are rescaled into [0, 1].
-        counts = obs[:CARD_VECTOR_SIZE * 2]
+        # Count features (the hand block) are rescaled into [0, 1].
+        counts = obs[:CARD_VECTOR_SIZE]
         self.assertGreaterEqual(counts.min(), 0.0)
         self.assertLessEqual(counts.max(), 1.0)
         # One-hot blocks stay 0/1: exactly one active state, and a valid colour count.
-        state_block = obs[CARD_VECTOR_SIZE * 2:CARD_VECTOR_SIZE * 2 + len(State)]
+        state_block = obs[CARD_VECTOR_SIZE:CARD_VECTOR_SIZE + len(State)]
         self.assertEqual(state_block.sum(), 1.0)
+
+    def test_unseen_counts_and_turn_order_hand_sizes(self):
+        # Extra-feature tail (indices 139..146): dir, 3 opponent hand sizes in turn order,
+        # deck size, unseen +2 / King / Change-Color. Unseen counts are by card TYPE over
+        # the current hand + discard (robust to a recoloured CHCOL landing in a colored slot).
+        g = self.make_game(players=2)
+        g.curr = 0
+        g.hands[0] = [Card(Type.KING), Card(Type.CHCOL),
+                      Card(Type.PLUSTWO, Color.RED), Card(Type.PLUSTWO, Color.BLUE)]
+        g.hands[1] = [Card(Type.FIVE, Color.RED)]
+        g.discard = [Card(Type.CHCOL, Color.GREEN),     # a played (recoloured) Change Color
+                     Card(Type.PLUSTWO, Color.YELLOW),
+                     Card(Type.THREE, Color.RED)]        # number on top
+        obs = g.observation(agent=0)
+        # +2: total 8, seen = 2 (hand) + 1 (discard) = 3 -> unseen 5/8.
+        self.assertAlmostEqual(obs[144], 5 / 8)
+        # King: total 2, seen = 1 (hand) -> unseen 1/2.
+        self.assertAlmostEqual(obs[145], 1 / 2)
+        # Change-Color: total 4, seen = 1 (hand) + 1 (recoloured, in discard) -> unseen 2/4.
+        self.assertAlmostEqual(obs[146], 2 / 4)
+        # Opponent hand sizes in turn order: seat 1 holds 1 card, then zero-padding for the
+        # two absent opponents in this 2-player game (fixed OPP_HAND_SLOTS slots).
+        self.assertAlmostEqual(obs[140], 1 / INITIAL_HAND_SIZE)
+        self.assertEqual(obs[141], 0.0)
+        self.assertEqual(obs[142], 0.0)
 
     def _take_turn(self, game, action, card):
         """Drive one full turn (action + advancement) the way next_turn would."""
@@ -334,9 +359,9 @@ class ColorSymmetryTest(unittest.TestCase):
             # Colorless actions (CHCOL/SuperTAKI/King/DRAW/CLOSE_TAKI) never move.
             self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63, 64])
             # State one-hot, draw_num and the extra features never move.
-            # Layout: hand(63)+discard(63) -> state one-hot+draw_num at 126..134,
-            # then open-TAKI color(4) + shown card(63), then extra features at 202..204.
-            fixed = list(range(126, 135)) + list(range(202, 205))
+            # Layout: hand(63) -> state one-hot+draw_num at 63..71, then open-TAKI color(4)
+            # + shown card(63), then extra features at 139..146.
+            fixed = list(range(63, 72)) + list(range(139, 147))
             self.assertEqual(list(OBS_PERMS[k][fixed]), fixed)
 
     def test_identity_perm_is_noop(self):
