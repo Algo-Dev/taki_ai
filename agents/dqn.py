@@ -36,7 +36,10 @@ class AIAgent:
         # colors (see the COLOR_PERMS tables in game.py).
         self.color_sym = color_sym
         self.epsilon_min = epsilon_min
-        self.memory = deque(maxlen=20000)
+        # Buffer sized for the all-seats training loop (A8): it collects ~4x more
+        # transitions per trial (all four seats, not just the learner), so 80k keeps the
+        # ~800-trial horizon that 20k gave under seat-0-only collection.
+        self.memory = deque(maxlen=80000)
         self.epsilon_decay = epsilon_decay
         self.learning_rate = learning_rate
         self.batch_size = batch_size
