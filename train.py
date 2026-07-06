@@ -169,6 +169,12 @@ if __name__ == '__main__':
     # epsilon/replay streams, so existing seeded decks stay bit-reproducible.
     seat_rng = random.Random(args.seed)
 
+    # Seat -> agent map for the all-seats collection (A8). Every seat plays the same DQN
+    # policy (opponents synced to the learner every OPPONENT_SYNC_EVERY trials), and the
+    # observation is egocentric, so every seat's transitions are valid learner training
+    # data. They all feed the learner's single replay buffer.
+    agents = [dqn_agent, *opponents]
+
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
         # Reward-anneal schedule for this trial (constant within the trial). p ramps 0->1 over
@@ -181,69 +187,96 @@ if __name__ == '__main__':
             alpha = ALPHA_MAX * p
             if trial % 500 == 0:
                 print(f"  [anneal] p={p:.3f} step_coef={step_coef:.3f} alpha={alpha:.3f}")
-        start = seat_rng.randrange(num_of_players)   # random opener; learner stays index 0
-        game.reset(start_seat=start)
-        episode_reward = 0
-        # If the learner isn't the opener, advance opponents up to its first turn. If an
-        # opponent somehow finishes the round before the learner ever acts, done is already
-        # True and the step loop is skipped (this trial contributes no learner transition).
-        done = False
-        while not done and game.curr != 0:
-            done, _ = game.next_turn()
-        for step in range(trial_len):
-            if done:
-                break
-            # At the top of each step it is the learner's (seat 0) turn.
-            done, _ = game.next_turn()                 # learner acts via play()
-            state = dqn_agent.last_state
-            action = dqn_agent.last_action
-            learner_won = done and len(game.hands[0]) == 0
-            # Fast-forward the opponents until it is the learner's turn again.
-            while not done and game.curr != 0:
-                done, _ = game.next_turn()
-
-            new_state = game.observation(agent=0)
+        def seat_reward(seat, won):
+            # Reward for `seat`'s transition, generalised from the seat-0-only rewards to any
+            # seat (the shaped/win/anneal shaping is seat-symmetric — everyone wants fewer
+            # cards / to win). `won` is True only when the game just ended with `seat`'s hand
+            # empty. step_coef/alpha are this trial's anneal schedule (constants here).
             if args.reward == 'anneal':
                 # Curriculum: dense per-step penalty scaled by step_coef (1.0 -> floor), and on
                 # a win the end reward blends from the original opponents'-card-sum toward the
                 # clipped min-opponent reward (alpha 0 -> ALPHA_MAX). At p=0 this is exactly the
                 # 'shaped' reward; at p=1 it is almost the 'win' reward (tiny dense floor).
-                reward = step_coef * (-len(game.hands[0]))
-                if learner_won:
-                    opp = [len(h) for i, h in enumerate(game.hands) if i != 0]
-                    reward += (1.0 - alpha) * sum(opp) + alpha * min(min(opp), 4)
-            elif args.reward == 'win':
+                r = step_coef * (-len(game.hands[seat]))
+                if won:
+                    opp = [len(h) for i, h in enumerate(game.hands) if i != seat]
+                    r += (1.0 - alpha) * sum(opp) + alpha * min(min(opp), 4)
+                return r
+            if args.reward == 'win':
                 # Win-only: no per-step / loss signal (so the agent isn't punished for
                 # strategically taking a card). On a win, reward = the fewest cards any
                 # opponent still holds, clipped to 4 -> a decisive win against even the
                 # best-placed opponent scores highest, capped so blowouts don't dominate.
-                reward = 0
-                if learner_won:
-                    reward = min(min(len(h) for i, h in enumerate(game.hands) if i != 0), 4)
-            else:
-                # Shaped (default): minus the cards the learner holds after its turn,
-                # plus the sum of the opponents' cards if the learner wins.
-                reward = -len(game.hands[0])
-                if learner_won:
-                    reward += sum(len(h) for i, h in enumerate(game.hands) if i != 0)
+                if won:
+                    return min(min(len(h) for i, h in enumerate(game.hands) if i != seat), 4)
+                return 0
+            # Shaped (default): minus the cards the seat holds after its turn, plus the sum of
+            # the opponents' cards if it wins.
+            r = -len(game.hands[seat])
+            if won:
+                r += sum(len(h) for i, h in enumerate(game.hands) if i != seat)
+            return r
 
-            # When the episode continues it is again the learner's turn (curr == 0),
-            # so these are exactly the actions it may pick next — used to mask the
-            # bootstrap target in replay().
-            next_valid = None if done else [action_to_scalar(*m)
-                                            for m in game.valid_moves(agent=0)]
-            dqn_agent.remember(state, action, reward, new_state, done, next_valid)
-            # replay()/target_train() cadence is kept as-is: it pairs reasonably with the
-            # larger replay buffer, and the slow predict/fit makes more frequent replay costly.
-            if step % 4 == 0:
-                dqn_agent.replay()
-            if step % update_target_network == 0:
-                dqn_agent.target_train()
-            episode_reward += reward
+        start = seat_rng.randrange(num_of_players)   # random opener; learner stays index 0
+        game.reset(start_seat=start)
+        episode_reward = 0
+        # All-seats collection (A8): one open transition per seat, closed when that seat is
+        # about to act again (below) or when the game ends (terminal loop after the round).
+        # This reproduces the old seat-0 transitions exactly and adds the other three seats.
+        pending = [None] * num_of_players            # pending[i] = (state, action)
+        learner_steps = 0                            # counts seat-0 decisions (replay cadence)
+        done = False
+        # Turn-by-turn loop over whichever seat is to act. A seat may act several times in a
+        # row (open TAKI / PLUS / KING keep curr), each captured as its own transition — same
+        # as the old loop treated the learner's multi-card turns.
+        while not done and learner_steps < trial_len:
+            seat = game.curr
+            if pending[seat] is not None:
+                # This seat is about to act again: close its previous transition. new_state /
+                # reward / next_valid are measured at this same moment the old loop used.
+                s, a = pending[seat]
+                nxt = [action_to_scalar(*m) for m in game.valid_moves(agent=seat)]
+                r = seat_reward(seat, won=False)
+                dqn_agent.remember(s, a, r, game.observation(agent=seat), False, nxt)
+                if seat == 0:
+                    episode_reward += r
+                pending[seat] = None
+            done, _ = game.next_turn()               # seat acts via play() (one card)
+            ag = agents[seat]
+            pending[seat] = (ag.last_state, ag.last_action)
+            if seat == 0:
+                # replay()/target_train() cadence kept as-is (keyed to learner decisions): the
+                # slow predict/fit makes more frequent replay costly, and with ~4x the data per
+                # trial the replay ratio already drops from ~20 to ~5 (near the Atari ~8).
+                if learner_steps % 4 == 0:
+                    dqn_agent.replay()
+                if learner_steps % update_target_network == 0:
+                    dqn_agent.target_train()
+                learner_steps += 1
+
+        # Round over (a win) or cut off by trial_len — close every still-open transition.
+        for i in range(num_of_players):
+            if pending[i] is None:
+                continue
+            s, a = pending[i]
             if done:
-                if learner_won:
-                    total_wins += 1
-                break
+                won = len(game.hands[i]) == 0
+                r = seat_reward(i, won)
+                # Terminal: new_state is unused (target == reward), next_valid None.
+                dqn_agent.remember(s, a, r, game.observation(agent=i), True, None)
+                if i == 0:
+                    episode_reward += r
+                    if won:
+                        total_wins += 1
+            else:
+                # trial_len cutoff (very rare at 300 learner steps): close non-terminally so no
+                # acted transition is dropped. new_state at the current position is a slightly
+                # approximate next-state, acceptable on this rare path.
+                nxt = [action_to_scalar(*m) for m in game.valid_moves(agent=i)]
+                r = seat_reward(i, won=False)
+                dqn_agent.remember(s, a, r, game.observation(agent=i), False, nxt)
+                if i == 0:
+                    episode_reward += r
 
         dqn_agent.replay()
         dqn_agent.target_train()
