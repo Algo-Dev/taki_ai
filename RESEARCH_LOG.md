@@ -14,6 +14,79 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-06 — PROMOTION: new best `checkpoint_a8_snap455000` (A8)
+
+Promoted from the 500k-trial A8 run (`models/run1783298662.882489`, seed 1) after screening
+its snapshot progression for a peak, since the *final* snapshot is not reliably the
+strongest one (precedent: `checkpoint_colorsym_snap180000` beat its own run's later
+snapshots too).
+
+**Screening process:**
+1. Broad scan, `eval.py` Mode B, stride 25000 (21 snapshots), 500 games each, vs random and
+   vs `checkpoint_a4a7_snap550000` baseline (test agent always seat 0 vs baseline at seats
+   1-3 — confounded by the seat-0 effect below, but *consistently* so across all snapshots,
+   which keeps the **relative ranking** valid even though the absolute numbers are inflated).
+   Top region: snap180000-225000 and snap450000-500000.
+2. Fine scan, stride 5000 (101 snapshots), same setup. Top 5 by vs-baseline win rate:
+   snap365000 (0.304), snap285000 (0.302), snap455000 (0.298), snap315000 (0.296),
+   snap180000 (0.294) — all within noise of each other at 500 games (SE ≈ 0.022).
+3. **Seat-swap-controlled head-to-head** (the decisive step — see next section) at 3000
+   games for these 5 candidates vs `checkpoint_a4a7_snap550000`: each pair run twice
+   (candidate at seat 0 / baseline at seats 1-3, then swapped) so each model gets equal
+   exposure to the advantaged and disadvantaged seat positions; final score is the average
+   of each model's seat-0 rate and its seats-1-3 rate.
+
+| Snapshot | Candidate avg per-seat | Master avg per-seat | Edge |
+|---|---|---|---|
+| **snap455000** | **0.278** | 0.241 | **+3.68 pts** |
+| snap285000 | 0.274 | 0.243 | +3.03 pts |
+| snap315000 | 0.269 | 0.243 | +2.60 pts |
+| snap365000 | 0.269 | 0.247 | +2.18 pts |
+| snap180000 | 0.267 | 0.247 | +2.00 pts |
+
+`snap455000` won by the largest and most consistent margin (strong in both the solo-seat-0
+role, 0.306, and the 3-seat-minority role, 0.250 avg) and is promoted to
+`models/checkpoint_a8_snap455000`. Confirming vs-random eval on the copied checkpoint:
+**0.912** @ 500 games (456/500, seed 0) — bit-identical to the fine-scan reading for the same
+snapshot, confirming the copy is correct.
+
+**vs current-best comparison:**
+- vs random (500 games): A8 snap455000 0.912 vs master 0.909 (near parity; not the
+  discriminating readout here)
+- head-to-head (seat-swap-controlled, 3000 games x2 directions): **+3.7 points** — the
+  decisive signal, consistent with the color-sym precedent where head-to-head, not
+  vs-random, was the readout that actually separated near-equal snapshots.
+
+Caveat: the swap-control only cancels the seat-0 confound for a **homogeneous-opponent**
+table (1 model vs 3 copies of the other, in both directions) — it does not test a mixed
+4-model table, which hasn't been run.
+
+## 2026-07-06 — DISCOVERY: seat-0 first-mover advantage confounds naive head-to-head evals
+
+While running head-to-head comparisons of the 500k A8 run's final checkpoint against
+`checkpoint_a4a7_snap550000`, found that `Game.reset()` ([game.py:392](game.py#L392))
+defaults `start_seat=0` and **every** eval game uses that default — so the "test agent"
+seat (always seat 0 in both `eval.py`'s `play_match` and the first head-to-head script) has
+a real, model-independent scoring advantage. Confirmed across 14 seat configurations
+(solo-seat sweep at all 4 seats, all 3 distinct 2v2 partitions in both directions): seat 0
+was the single highest-scoring seat in nearly every run, **regardless of which model
+occupied it** — e.g. Master-at-seat-0 outscored A8-at-seats-1-3 even in configurations where
+A8 is the stronger model by every other measure.
+
+Fix: `eval_headtohead.py` (new script) takes an explicit `--team1-seats` seat list so any
+assignment can be scripted; comparing two checkpoints fairly requires running **both seat
+assignments** for the pair being compared and averaging same-seat, swapped-occupant win
+rates (or a full seat-permutation set). This is now documented in CLAUDE.md's "Evaluation
+discipline" section as a standing eval requirement, and was the method used for the A8
+snapshot-promotion screen above.
+
+Not yet fixed: `eval.py`'s Mode A/B `play_match` still always seats the test agent at seat
+0 — fine for a single model's vs-random rate (no second model to be biased against) or for
+*relative* ranking within one run (bias is constant across snapshots), but any one-off
+Mode-B `--baseline` head-to-head number should be read as inflated in the test agent's favor
+until `eval.py` itself is updated to swap or randomize seats (not done; tracked as a PLAN.md
+follow-up).
+
 ## 2026-07-05 — CHANGE: learn from all four seats (A8) + buffer 20k→80k
 
 Branch `a8-learn-from-all-seats`. The self-play loop in `train.py` now stores **all four

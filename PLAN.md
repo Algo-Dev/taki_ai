@@ -42,6 +42,14 @@ section is intentionally deferred — we will tune those later.**
    per eval). High ROI for Mode B progression evals (20+ snapshots) and future screening.
    Implement as --parallel N flag in eval.py.
 
+-- Fix seat-0 bias in eval.py's play_match (Mode A/B): the test agent is always seated at
+   seat 0, which has a real, model-independent scoring edge (see RESEARCH_LOG.md
+   2026-07-06 "seat-0 first-mover advantage" entry). Harmless for a single model's
+   vs-random rate or for relative ranking across snapshots of the same run (bias is
+   constant), but any one-off Mode-B --baseline head-to-head number is inflated in the test
+   agent's favor. Fix: rotate/randomize the test agent's seat across games, or report a
+   swap-controlled average like eval_headtohead.py does.
+
 ## RL design notes (future levers, from the 2026-07-02 review)
 
 -- Replay buffer horizon: 20000 transitions at ~20-35 learner decisions/trial is only ~600-1000
