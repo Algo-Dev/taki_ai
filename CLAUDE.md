@@ -43,6 +43,7 @@ Three layers with a strict encoding contract between them:
 - **Training win rate is meaningless** (self-play is symmetric → sits near 1/N regardless of skill); always measure with `eval.py`.
 - `eval.py` implements common random numbers: per-game deck seed (`seed+g`), deterministic seating, and per-game opponent reseed (`RandomAgent.reseed(f'{seed}:{g}:opp')`). Any (model, seed, games) result is bit-reproducible and independent of sweep composition. Preserve this invariant when touching eval code.
 - Ranking near-equal snapshots requires **≥3000 games** (SE ≈ ±0.008); 1200 games is too noisy for the typical 2–3 pt gaps.
+- **Head-to-head evals need seat-swap controls.** `Game.reset()` defaults `start_seat=0`, and seat 0 (the first to act) wins measurably more regardless of which model occupies it — confirmed across 14 seat configurations (every seat-position, every 2v2 partition) comparing `checkpoint_a4a7_snap550000` vs an A8-trained checkpoint: seat 0 was the top-scoring seat in nearly every run *independent of occupant*. A raw "model A at seat 0 vs model B at seats 1-3" result is therefore confounded and not a valid skill comparison. To compare two checkpoints head-to-head: run **both seat assignments** (A at seats X, then B at seats X, same partition) and compare **same-seat, swapped-occupant** win rates, or average across a full seat-swap set — see `eval_headtohead.py` (ad hoc script, not committed as of this writing) for the pattern (`--team1-seats` takes explicit seat indices so any assignment/swap can be scripted).
 
 ## Conventions & gotchas
 
