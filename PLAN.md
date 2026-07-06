@@ -85,9 +85,6 @@ section is intentionally deferred — we will tune those later.**
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
 2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
-3. ~~Learn from all four seats (A8) — ~4x data per trial for free.~~ **DONE** (branch
-   `a8-learn-from-all-seats`): all-seats collection + buffer 20k→80k; replay ratio ~20→~5.
-   See RESEARCH_LOG.md; not yet A/B-screened.
 4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
    Invalidates checkpoints — batch with #5.
 5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
@@ -132,8 +129,6 @@ for long runs). Store observations as float32 (they are float64 now) to halve bu
 
 ### Recommended process (matches how the color-sym experiment was actually run)
 
-1. ~~Add `--seed` to train.py; promote hardcoded knobs (S7) to recorded CLI flags.~~ **DONE** —
-   `--seed`, `--trial-len`, `--target-sync-every` all present (branch `double-dqn-huber`).
 2. Screen each change at 10k trials, 2-3 seeded pairs, changing **one knob** (or one declared
    package) at a time.
 3. Judge on the three readouts that caught color-sym: 3000-game vs-random, head-to-head vs the
