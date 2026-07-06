@@ -35,20 +35,12 @@ section is intentionally deferred — we will tune those later.**
 
 ## Infrastructure / evaluation optimizations (future)
 
--- Parallelize eval.py game loop: each game has a deterministic per-game seed (seed+g),
-   so games are independent across processes. Shard games across N workers (e.g., 4-6
-   matching core count) and aggregate win counts. Current single-threaded eval at 3000
-   games takes ~50 min at ~20% CPU; parallelization could cut to ~15 min (saving ~35 min
-   per eval). High ROI for Mode B progression evals (20+ snapshots) and future screening.
-   Implement as --parallel N flag in eval.py.
+-- Parallelize eval.py's game loop across processes (games are independent, deterministically
+   seeded) — cut eval wall-clock ~3-4x. Worth it for Mode B / screening.
 
--- Fix seat-0 bias in eval.py's play_match (Mode A/B): the test agent is always seated at
-   seat 0, which has a real, model-independent scoring edge (see RESEARCH_LOG.md
-   2026-07-06 "seat-0 first-mover advantage" entry). Harmless for a single model's
-   vs-random rate or for relative ranking across snapshots of the same run (bias is
-   constant), but any one-off Mode-B --baseline head-to-head number is inflated in the test
-   agent's favor. Fix: rotate/randomize the test agent's seat across games, or report a
-   swap-controlled average like eval_headtohead.py does.
+-- Fix seat-0 bias in eval.py's play_match (Mode A/B) — see RESEARCH_LOG.md 2026-07-06
+   "seat-0 first-mover advantage" entry for the finding and CLAUDE.md's Evaluation
+   discipline section for the current workaround (eval_headtohead.py).
 
 ## RL design notes (future levers, from the 2026-07-02 review)
 
@@ -84,23 +76,20 @@ section is intentionally deferred — we will tune those later.**
 
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-2. Randomize starting seat in training (A4) — trivial, removes a train/eval mismatch.
-4. Richer observation (A7): opponent hand sizes in turn order, deck size, unseen-cards vector.
-   Invalidates checkpoints — batch with #5.
-5. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
-   advantage) — well-suited since most of the 64 actions are illegal in any given state. Same
-   checkpoint-invalidation caveat as #4.
-6. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
+2. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
+   advantage) — well-suited since most of the 64 actions are illegal in any given state.
+   Invalidates checkpoints.
+3. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
-7. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
+4. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
    the 1000-trial run showed gains concentrated *after* epsilon bottomed out.
-8. LR decay for long runs (1e-3 -> 1e-4 cosine/step) — the faint 100k-1M creep is consistent with
+5. LR decay for long runs (1e-3 -> 1e-4 cosine/step) — the faint 100k-1M creep is consistent with
    bouncing around a minimum at too-large a step size.
-9. Prioritized replay: medium effort, real but smaller expected gain here; do after 1-3.
-10. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
-    the switch.
+6. Prioritized replay: medium effort, real but smaller expected gain here; do after 1-3.
+7. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
+   the switch.
 
-The structural work (#4-5) and the opponent pool (#1) are now the lead, no longer gated behind
+The bigger-network work (#2) and the opponent pool (#1) are now the lead, no longer gated behind
 the (completed, marginal) DQN-hygiene package.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
