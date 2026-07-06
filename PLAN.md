@@ -5,11 +5,6 @@ demo harness). Items are grouped by category. **Correctness, observability, rule
 fidelity, and code hygiene are being fixed now. The "RL / training design issues"
 section is intentionally deferred — we will tune those later.**
 
-
--- Check out the game replays, maybe more are needed? understand the replay frequency, its part vs. updates from current game. Understand when exploration epsilon is reset.
-
--- review again the observation features
-
 -- (future) On-the-fly reward re-labeling for curriculum/reward changes: instead of
    freezing each transition's reward at collection time, store the raw scalars needed to
    recompute it (learner_hand_size, sum_opp, min_opp, won) in remember() [dqn.py] and have
@@ -62,7 +57,11 @@ section is intentionally deferred — we will tune those later.**
    win-only collapse (a collapsing learner got copied into its own opponents, locking the whole
    table). Try an opponent *pool* (past snapshots + occasionally a RandomAgent seat) — standard
    fictitious-self-play fix, likely the best lever to break the ~0.90 plateau since "more of the
-   same self-play" is already established as exhausted.
+   same self-play" is already established as exhausted. notice that if we increase OPPONENT_SYNC_EVERY, at some point it will be to big for us to learn also from the opponents seats.
+   Tension with A8 (learn from all seats): a stale/weak pool member (esp. a RandomAgent seat)
+   would feed A8's buffer with off-distribution transitions — not a correctness problem for
+   Q-learning, but a dilution risk. Mitigation if implemented: keep the pool recent (last
+   10-20 sync intervals, not full history) and skip A8 collection for RandomAgent seats.
 
 -- A9. **Reward design, if ever revisited:** the gentler middle ground PLAN.md's "penalize only net
    hand growth" idea gropes toward is **potential-based shaping** — `r' = r_win + gamma*phi(s') -
