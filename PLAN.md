@@ -33,6 +33,14 @@ section is intentionally deferred — we will tune those later.**
    real levers are structural: bigger network / richer observation features, stronger or more
    diverse opponents. Use normalization + n-step/MC only if/when we revisit changing the reward.
 
+## Infrastructure / evaluation optimizations (future)
+
+-- Parallelize eval.py game loop: each game has a deterministic per-game seed (seed+g),
+   so games are independent across processes. Shard games across N workers (e.g., 4-6
+   matching core count) and aggregate win counts. Current single-threaded eval at 3000
+   games takes ~50 min at ~20% CPU; parallelization could cut to ~15 min (saving ~35 min
+   per eval). High ROI for Mode B progression evals (20+ snapshots) and future screening.
+   Implement as --parallel N flag in eval.py.
 
 ## RL design notes (future levers, from the 2026-07-02 review)
 
