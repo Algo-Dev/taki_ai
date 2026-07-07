@@ -55,8 +55,17 @@ class AIAgent:
                 loaded = keras.models.load_model(load_model)
             except Exception as e:
                 raise RuntimeError(f"could not load model from '{load_model}': {e}") from e
-            self.model.set_weights(loaded.get_weights())
-            self.target_model.set_weights(loaded.get_weights())
+            try:
+                self.model.set_weights(loaded.get_weights())
+                self.target_model.set_weights(loaded.get_weights())
+            except ValueError:
+                # Shape mismatch against today's create_model() -- this checkpoint predates
+                # an architecture change (see CLAUDE.md). Can't warm-start training across
+                # that boundary, but for eval (epsilon=0, no replay/optimizer use) it's fine
+                # to just adopt the checkpoint's own saved architecture directly, so old and
+                # new snapshots can still be compared/played against each other in-process.
+                self.model = loaded
+                self.target_model = keras.models.load_model(load_model)
 
     def create_model(self):
         model = keras.Sequential()
