@@ -14,6 +14,59 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-08 — RESULT: bigger network (A10) does not beat `checkpoint_a8_snap455000`
+
+Branch `a10-bigger-network`. `create_model()` widened `147->124->64->65` ->
+`147->256->128->64->65` (30,577 -> 83,265 params, 2.72x), isolated from the deferred
+dueling-head idea so the capacity effect isn't confounded with it (dueling remains open,
+see PLAN.md). All other hyperparameters held constant (lr 1e-3, batch 64, buffer 80k, reward
+shaped, color-sym on) per single-variable methodology.
+
+3 seeds x 550,000 trials (snapshot_every 25,000), cold start (no `--model`). A mid-run power
+outage killed all three processes at seed-dependent points between trial ~456k-471k; all
+snapshots through `snap450000` were confirmed intact and reloadable, so each run resumed
+from `snap450000` with `--epsilon-start 0.1` (epsilon had already decayed to its floor at
+trial 440,000 = `0.8 * 550000`, so this continues the original schedule exactly, not an
+approximation) for the remaining 100,000 trials.
+
+**Side finding, fixed in-branch:** loading `checkpoint_a8_snap455000` (or any pre-A10
+checkpoint) crashed under the new architecture — `AIAgent.__init__` always rebuilds via
+today's `create_model()` and force-applies the loaded weights, so any shape mismatch threw
+an unguarded `ValueError` from `set_weights()`. This blocked comparing new snapshots against
+the old baseline entirely (`eval.py` and `eval_headtohead.py` alike), not just `train.py`'s
+warm-start path. Fixed by falling back to the checkpoint's own saved architecture on a shape
+mismatch — safe for eval (epsilon=0, no replay/optimizer use); same-shape loads (the normal
+warm-start case) are unaffected.
+
+**Screening** (Mode B, stride 25000, games-b 500, vs random and vs `checkpoint_a8_snap455000`,
+66 snapshots total across 3 seeds): vs-baseline win rate clustered in a flat 0.22-0.29 band
+around the 0.25 parity line for essentially every snapshot — no candidate separated from the
+pack. Top 6 by point estimate (including seed 2's best, which never exceeded 0.258, to check
+replication) were shortlisted for the swap-controlled gate.
+
+**Seat-swap-controlled head-to-head** (3000 games x2 orientations) vs `checkpoint_a8_snap455000`:
+
+| Candidate (seed, true trial) | Edge (pts/seat) |
+|---|---|
+| seed 0, snap100000 | -1.40 |
+| seed 0, snap550000 | -0.35 |
+| seed 1, snap175000 | +0.35 |
+| seed 1, snap325000 | +0.05 |
+| seed 1, snap550000 | +0.65 |
+| seed 2, snap300000 | -1.75 |
+
+Best candidate: +0.65 pts/seat (seed 1, snap550000) — well below the +2.0 pt/seat promotion
+bar (the smallest margin ever actually promoted on, `checkpoint_colorsym_snap180000`'s +2.00).
+Not promoted. Notably, the mildly promising-looking raw seat-0 numbers from the un-swapped
+comparison (0.26-0.28, i.e. above the 0.25 parity line) mostly evaporated once seat-swapped —
+consistent with CLAUDE.md's standing seat-0-confound finding, not a real skill edge.
+
+Current best remains `checkpoint_a8_snap455000`. Caveat: this tests capacity alone, holding
+lr/batch/buffer fixed — it's possible a bigger network needs those retuned (e.g. a lower LR,
+larger buffer) to actually benefit from the extra capacity, so this doesn't rule out capacity
+as a lever, only this specific unchanged-hyperparameters version of it. Dueling head (state-value
++ advantage streams) remains a separate, untested follow-up idea in PLAN.md.
+
 ## 2026-07-06 — PROMOTION: new best `checkpoint_a8_snap455000` (A8)
 
 Promoted from the 500k-trial A8 run (`models/run1783298662.882489`, seed 1) after screening

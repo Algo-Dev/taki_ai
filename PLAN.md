@@ -75,9 +75,12 @@ section is intentionally deferred — we will tune those later.**
 
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-2. Bigger/dueling network: 201->124->64->64 is tiny; try 256-256, and a dueling head (state-value +
-   advantage) — well-suited since most of the 64 actions are illegal in any given state.
-   Invalidates checkpoints.
+2. Dueling head (state-value + advantage streams) (A11) — well-suited since most of the 65
+   actions are illegal in any given state. Capacity alone (A10: widening 147->124->64->65 to
+   147->256->128->64->65) was tested in isolation first and did NOT beat
+   `checkpoint_a8_snap455000` (see RESEARCH_LOG.md, 2026-07-08) — dueling remains untested as
+   a separate lever, and per that result may need lr/batch/buffer retuning to pay off rather
+   than architecture alone. Invalidates checkpoints.
 3. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
 4. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
@@ -88,8 +91,9 @@ section is intentionally deferred — we will tune those later.**
 7. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
    the switch.
 
-The bigger-network work (#2) and the opponent pool (#1) are now the lead, no longer gated behind
-the (completed, marginal) DQN-hygiene package.
+The opponent pool (#1) is now the lead, no longer gated behind the (completed, marginal)
+DQN-hygiene package — capacity alone (#2's first half) is done and negative; dueling (#2's
+remaining half) is a smaller, less-certain bet than #1.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
 
