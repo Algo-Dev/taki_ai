@@ -87,6 +87,11 @@ class AIAgent:
                 # new snapshots can still be compared/played against each other in-process.
                 self.model = loaded
                 self.target_model = keras.models.load_model(load_model, custom_objects=custom)
+        # Whether self.model is the two-input dueling net (obs + legality mask) or a legacy
+        # single-input net adopted via the fallback above. act() must call each with the
+        # input signature it expects, so a dueling agent can still play/eval against old
+        # flat checkpoints (the fallback path) and vice-versa.
+        self.dueling = len(self.model.inputs) == 2
 
     def create_model(self):
         # Dueling head: the 124->64 trunk feeds a scalar state-value V(s) and a per-action
@@ -206,9 +211,12 @@ class AIAgent:
         # Direct model() call (not model.predict) — this runs once per turn for every
         # agent, so its per-call overhead dominates the self-play loop.
         x = state[np.newaxis, :].astype(np.float32)
-        mask = np.zeros((1, ACTION_SIZE), dtype=np.float32)      # legality mask for the dueling head
-        mask[0, actions] = 1.0
-        q_values = self.model([x, mask], training=False).numpy()[0]      # (ACTION_SIZE,)
+        if self.dueling:
+            mask = np.zeros((1, ACTION_SIZE), dtype=np.float32)  # legality mask for the dueling head
+            mask[0, actions] = 1.0
+            q_values = self.model([x, mask], training=False).numpy()[0]  # (ACTION_SIZE,)
+        else:
+            q_values = self.model(x, training=False).numpy()[0]          # legacy single-input net
         return actions[int(np.argmax(q_values[actions]))]
 
     def play(self, game):
