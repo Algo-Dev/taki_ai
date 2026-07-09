@@ -223,7 +223,7 @@ if __name__ == '__main__':
         # All-seats collection (A8): one open transition per seat, closed when that seat is
         # about to act again (below) or when the game ends (terminal loop after the round).
         # This reproduces the old seat-0 transitions exactly and adds the other three seats.
-        pending = [None] * num_of_players            # pending[i] = (state, action)
+        pending = [None] * num_of_players            # pending[i] = (state, action, cur_valid)
         learner_steps = 0                            # counts seat-0 decisions (replay cadence)
         done = False
         # Turn-by-turn loop over whichever seat is to act. A seat may act several times in a
@@ -234,16 +234,17 @@ if __name__ == '__main__':
             if pending[seat] is not None:
                 # This seat is about to act again: close its previous transition. new_state /
                 # reward / next_valid are measured at this same moment the old loop used.
-                s, a = pending[seat]
+                s, a, cv = pending[seat]
                 nxt = [action_to_scalar(*m) for m in game.valid_moves(agent=seat)]
                 r = seat_reward(seat, won=False)
-                dqn_agent.remember(s, a, r, game.observation(agent=seat), False, nxt)
+                dqn_agent.remember(s, a, r, game.observation(agent=seat), False, nxt,
+                                   cur_valid=cv)
                 if seat == 0:
                     episode_reward += r
                 pending[seat] = None
             done, _ = game.next_turn()               # seat acts via play() (one card)
             ag = agents[seat]
-            pending[seat] = (ag.last_state, ag.last_action)
+            pending[seat] = (ag.last_state, ag.last_action, ag.last_valid)
             if seat == 0:
                 # replay()/target_train() cadence kept as-is (keyed to learner decisions): the
                 # slow predict/fit makes more frequent replay costly, and with ~4x the data per
@@ -258,12 +259,13 @@ if __name__ == '__main__':
         for i in range(num_of_players):
             if pending[i] is None:
                 continue
-            s, a = pending[i]
+            s, a, cv = pending[i]
             if done:
                 won = len(game.hands[i]) == 0
                 r = seat_reward(i, won)
                 # Terminal: new_state is unused (target == reward), next_valid None.
-                dqn_agent.remember(s, a, r, game.observation(agent=i), True, None)
+                dqn_agent.remember(s, a, r, game.observation(agent=i), True, None,
+                                   cur_valid=cv)
                 if i == 0:
                     episode_reward += r
                     if won:
@@ -274,7 +276,8 @@ if __name__ == '__main__':
                 # approximate next-state, acceptable on this rare path.
                 nxt = [action_to_scalar(*m) for m in game.valid_moves(agent=i)]
                 r = seat_reward(i, won=False)
-                dqn_agent.remember(s, a, r, game.observation(agent=i), False, nxt)
+                dqn_agent.remember(s, a, r, game.observation(agent=i), False, nxt,
+                                   cur_valid=cv)
                 if i == 0:
                     episode_reward += r
 
