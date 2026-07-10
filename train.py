@@ -101,6 +101,14 @@ if __name__ == '__main__':
     # or pass a checkpoint from a current-architecture run to continue training.
     parser.add_argument('--model', default=None,
                         help='checkpoint to warm-start the learner and opponents from')
+    parser.add_argument('--opponent-model', default=None,
+                        help='checkpoint for the 3 opponent seats (default: same as --model). '
+                             'With --freeze-opponents this is the fixed policy the learner is '
+                             'trained to best-respond to.')
+    parser.add_argument('--freeze-opponents', action='store_true',
+                        help='exploitability probe: never sync the learner into the opponents, '
+                             'and collect transitions from the learner seat only. Turns '
+                             'self-play into best-response training against a fixed policy.')
     parser.add_argument('--trials', type=int, default=100)
     parser.add_argument('--epsilon-start', type=float, default=1.0,
                         help='initial exploration rate (default 1.0). Lower it (down to '
@@ -133,6 +141,12 @@ if __name__ == '__main__':
                         help='display the training plot interactively (otherwise only saved to PNG)')
     args = parser.parse_args()
 
+    # Resolve the opponents' checkpoint once. Best-responding to a frozen *untrained* network
+    # measures nothing, so require one explicitly.
+    opponent_model = args.opponent_model or args.model
+    if args.freeze_opponents and opponent_model is None:
+        parser.error('--freeze-opponents needs --opponent-model (or --model)')
+
     # Seed everything the run touches so replicate runs are bit-reproducible: Python's random
     # (agent epsilon draws, replay sampling), NumPy (color-sym permutation draws, act()), TF
     # (network weight initialisation — set before the AIAgents build their models below), and
@@ -142,8 +156,13 @@ if __name__ == '__main__':
         np.random.seed(args.seed)
         tf.random.set_seed(args.seed)
 
-    print(f'Training a DQN agent via self-play against 3 opponents '
-          f'(reward={args.reward}, color_sym={args.color_sym})')
+    if args.freeze_opponents:
+        print(f'Exploitability probe: training a best response against 3 FROZEN seats '
+              f'({opponent_model}) — no opponent sync, learner-seat collection only '
+              f'(reward={args.reward}, color_sym={args.color_sym})')
+    else:
+        print(f'Training a DQN agent via self-play against 3 opponents '
+              f'(reward={args.reward}, color_sym={args.color_sym})')
     trials = args.trials
     trial_len = args.trial_len
     update_target_network = args.target_sync_every
@@ -161,7 +180,12 @@ if __name__ == '__main__':
     # already equals epsilon_min the ratio is 1, so epsilon stays flat (a near-greedy continue).
     dqn_agent.epsilon_decay = (dqn_agent.epsilon_min / args.epsilon_start) ** (
         1.0 / (EPSILON_DECAY_FRACTION * trials))
-    opponents = [AIAgent(epsilon=0.1, epsilon_min=0.1, load_model=args.model)
+    # Frozen opponents play greedily: exploitability is the best response to the champion's
+    # actual (greedy) policy, which is also the policy eval.py measures. The 0.1 floor used in
+    # self-play exists to keep the moving opponents exploring, and has no purpose here.
+    opp_epsilon = 0.0 if args.freeze_opponents else 0.1
+    opponents = [AIAgent(epsilon=opp_epsilon, epsilon_min=opp_epsilon,
+                         load_model=opponent_model)
                  for _ in range(num_of_players - 1)]
     game = Game([dqn_agent, *opponents], seed=args.seed)
 
@@ -172,6 +196,8 @@ if __name__ == '__main__':
     os.makedirs('./models', exist_ok=True)
     timestamp = datetime.now().timestamp()
     tag = '' if args.color_sym else '_nocolorsym'
+    if args.freeze_opponents:
+        tag += '_bestresponse'   # never a self-play checkpoint; don't let it be promoted by mistake
     run_dir = f'./models/run{timestamp}{tag}'
     os.makedirs(run_dir, exist_ok=True)
     with open(f'{run_dir}/config.txt', 'w') as f:
@@ -201,6 +227,13 @@ if __name__ == '__main__':
     # observation is egocentric, so every seat's transitions are valid learner training
     # data. They all feed the learner's single replay buffer.
     agents = [dqn_agent, *opponents]
+
+    # Which seats' transitions enter the learner's replay buffer. A8's all-seats collection
+    # is only sound because every seat runs the learner's own (recently synced) policy. Under
+    # --freeze-opponents the other three seats run a fixed foreign policy, so their
+    # transitions are off-policy actions the learner would never take — collecting them would
+    # train it to imitate A8 rather than to best-respond to it. Learner seat only.
+    collect_seats = {0} if args.freeze_opponents else set(range(num_of_players))
 
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
@@ -270,7 +303,8 @@ if __name__ == '__main__':
                 pending[seat] = None
             done, _ = game.next_turn()               # seat acts via play() (one card)
             ag = agents[seat]
-            pending[seat] = (ag.last_state, ag.last_action)
+            if seat in collect_seats:
+                pending[seat] = (ag.last_state, ag.last_action)
             if seat == 0:
                 # replay()/target_train() cadence kept as-is (keyed to learner decisions): the
                 # slow predict/fit makes more frequent replay costly, and with ~4x the data per
@@ -312,8 +346,9 @@ if __name__ == '__main__':
         wins.append(total_wins)
 
         # Real self-play: periodically promote the learner's weights into the
-        # opponents so it keeps facing a stronger version of itself.
-        if (trial + 1) % OPPONENT_SYNC_EVERY == 0:
+        # opponents so it keeps facing a stronger version of itself. Skipped entirely
+        # under --freeze-opponents, which is the whole point of the probe.
+        if not args.freeze_opponents and (trial + 1) % OPPONENT_SYNC_EVERY == 0:
             learner_weights = dqn_agent.model.get_weights()
             for opp in opponents:
                 opp.model.set_weights(learner_weights)
