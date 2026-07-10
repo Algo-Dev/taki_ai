@@ -1,5 +1,7 @@
 from collections import deque
 
+import os
+
 import numpy as np
 import random
 
@@ -8,9 +10,14 @@ import tensorflow as tf
 # thread pools (one op spread over every core) just thrash — system time and context
 # switches dwarf the actual compute. A small pool is markedly faster here. Must be set
 # before any TF op runs; harmless if the context is already initialised.
+# TAKI_INTRA_OP/TAKI_INTER_OP shrink the pools further so a run can be squeezed onto a
+# box that is already busy with other trainings (3 saturating TF processes wedge this
+# WSL2 VM).
 try:
-    tf.config.threading.set_intra_op_parallelism_threads(4)
-    tf.config.threading.set_inter_op_parallelism_threads(2)
+    tf.config.threading.set_intra_op_parallelism_threads(
+        int(os.environ.get('TAKI_INTRA_OP', '4')))
+    tf.config.threading.set_inter_op_parallelism_threads(
+        int(os.environ.get('TAKI_INTER_OP', '2')))
 except RuntimeError:
     pass
 from tensorflow import keras
