@@ -156,13 +156,6 @@ if __name__ == '__main__':
         np.random.seed(args.seed)
         tf.random.set_seed(args.seed)
 
-    if args.freeze_opponents:
-        print(f'Exploitability probe: training a best response against 3 FROZEN seats '
-              f'({opponent_model}) — no opponent sync, learner-seat collection only '
-              f'(reward={args.reward}, color_sym={args.color_sym})')
-    else:
-        print(f'Training a DQN agent via self-play against 3 opponents '
-              f'(reward={args.reward}, color_sym={args.color_sym})')
     trials = args.trials
     trial_len = args.trial_len
     update_target_network = args.target_sync_every
@@ -204,6 +197,14 @@ if __name__ == '__main__':
         f.write(f'{vars(args)!r}\n')
     sys.stdout = _Tee(sys.stdout, f'{run_dir}/train.log')
     print(f'run_dir: {run_dir}  (progress mirrored to {run_dir}/train.log)')
+    # Printed after the tee is installed, so the run's own log records what it was.
+    if args.freeze_opponents:
+        print(f'Exploitability probe: best response against 3 FROZEN greedy seats '
+              f'({opponent_model}) — no opponent sync, learner-seat collection only '
+              f'(reward={args.reward}, color_sym={args.color_sym})')
+    else:
+        print(f'Training a DQN agent via self-play against 3 opponents '
+              f'(reward={args.reward}, color_sym={args.color_sym})')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
