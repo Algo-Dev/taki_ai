@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import sys
 import numpy as np
 from datetime import datetime
 import matplotlib
@@ -10,6 +11,30 @@ from matplotlib import pyplot as plt
 from agents.dqn import AIAgent  # configures TF threading on import; keep before tensorflow use
 import tensorflow as tf
 from game import Game, action_to_scalar
+
+class _Tee:
+    """Mirror stdout into run_dir/train.log so a run's progress survives the process.
+
+    Runs take hours and have twice been lost to a WSL2 VM wedge; a shell redirect into
+    /tmp did not survive, because systemd-tmpfiles empties /tmp at boot (`D /tmp ...`).
+    Writing beside the snapshots keeps the log for the post-mortem. Flushed per write:
+    a killed run must leave its last trial number on disk, not in a buffer.
+    """
+
+    def __init__(self, stream, path):
+        self.stream = stream
+        self.file = open(path, 'a', buffering=1)
+
+    def write(self, data):
+        self.stream.write(data)
+        self.file.write(data)
+        self.file.flush()
+        return len(data)
+
+    def flush(self):
+        self.stream.flush()
+        self.file.flush()
+
 
 # How often (in trials) to copy the learner's weights into the opponents so that
 # self-play actually faces a progressively stronger version of itself. The cadence
@@ -151,6 +176,8 @@ if __name__ == '__main__':
     os.makedirs(run_dir, exist_ok=True)
     with open(f'{run_dir}/config.txt', 'w') as f:
         f.write(f'{vars(args)!r}\n')
+    sys.stdout = _Tee(sys.stdout, f'{run_dir}/train.log')
+    print(f'run_dir: {run_dir}  (progress mirrored to {run_dir}/train.log)')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
