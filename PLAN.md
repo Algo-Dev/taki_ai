@@ -75,17 +75,16 @@ section is intentionally deferred — we will tune those later.**
 
 1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
    break the ~0.90 plateau.
-2. Dueling head (A11) — **built and evaluated; result INCONCLUSIVE (parity)**. See
-   RESEARCH_LOG.md 2026-07-10 and branch `a11-dueling-head`. `Q = V + (A - mean_legal(A))`,
-   advantage centred over legal actions only. Best snapshot +1.40 pts/seat vs
-   `checkpoint_a8_snap455000`, under the +2.0 bar; screening showed a flat band around parity
-   with no trend across training. **But the run never reached the epsilon floor** (died at
-   ~375k of 550k; floor at 440k), so the post-floor phase that carried A8's gains was never
-   trained — this is *not* a clean negative like A10's capacity test.
-   **Cheapest next step: rerun with `--trials 450000`** (floor moves to 360k) so the run
-   actually completes with ~90k post-floor trials and lands next to A8's own `snap455000`.
-   Run at most 2 seeds concurrently and log outside `/tmp` — 3 concurrent TF processes wedge
-   the WSL2 VM ~5h in. Invalidates checkpoints (two-input dueling contract).
+2. ~~Dueling head (A11)~~ — **DONE, NEGATIVE. Closed.** See RESEARCH_LOG.md 2026-07-11 and
+   branch `a11-dueling-head`. `Q = V + (A - mean_legal(A))` at parity with
+   `checkpoint_a8_snap455000`: best swap-controlled edge **+1.00 pts/seat** (bar is +2.0),
+   and the top post-floor snapshot replicated across 3 seeds gave **mean +0.25** once seat-swapped.
+   The 450k rerun *did* train ~90k post-floor trials (the one caveat of the earlier inconclusive
+   result), so this is now a clean negative. **Both halves of the architecture lever are now
+   closed** — neither width (A10) nor dueling beats A8 with hyperparameters held fixed.
+   Watch-out recorded there: Mode B screening seats the test agent at seat 0, so its vs-baseline
+   numbers above 0.25 are confounded and inflated *uniformly* — they looked like a replicating
+   post-floor effect and were not. Rank with Mode B; decide only with the swap-controlled gate.
 3. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
 4. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
@@ -96,10 +95,11 @@ section is intentionally deferred — we will tune those later.**
 7. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
    the switch.
 
-The opponent pool (#1) is now the lead, no longer gated behind the (completed, marginal)
-DQN-hygiene package — capacity alone (A10) is done and negative; dueling (A11) is built and
-sits at parity, but its verdict is confounded by never reaching the epsilon floor. Finishing
-A11 as a 450k-trial run is cheap and would settle it; absent that, #1 remains the better bet.
+The opponent pool (#1) is now clearly the lead. The architecture lever is exhausted: capacity
+(A10) and dueling (A11) are both done and both negative, with hyperparameters held fixed. That
+makes the remaining candidates *algorithmic* (n-step, epsilon floor, LR decay, prioritized
+replay) or *opponent-distributional* (#1) — and the standing evidence is that "more of the same
+self-play" is the binding constraint, which is exactly what #1 attacks.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
 
