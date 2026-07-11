@@ -1,5 +1,32 @@
 # Taki AI — Review Findings & Fix Plan
 
+## THE TARGET (read first — it reranks everything below)
+
+**The goal is not the strongest possible Taki player.** It is to find the best moves available
+**under a human information set**, and then to **interrogate the resulting policy's strategy** —
+to discover what optimal play looks like *for a human*, in concrete scenarios a human can actually
+reason about.
+
+Two consequences, and most of this file predates them:
+
+1. **The observation is a deliberate model of what a human sees and remembers** — it is a design
+   constraint, not a limitation to be engineered away. A7's removal of the discard-pile histogram
+   was **on purpose**: humans do not perfectly card-count a played pile. Any proposal that widens
+   the information set beyond human reach (full discard histogram, exact deck composition, a
+   63-slot unseen-count vector, opponents' hands) is **OFF-GOAL and must be rejected** — it buys
+   win rate by granting superhuman memory, which defeats the point of the project. See CLAUDE.md.
+2. **The win-rate plateau is not a wall — it is plausibly the finish line.** A10/A11 (capacity),
+   A12 (a dedicated best-response cannot exploit A8), and R1 (an exact 9!-symmetry augmentation
+   moved nothing) are converging evidence that the agent is at **the ceiling of its information
+   set**. That is the design working. The right question has shifted from *"is it stronger yet?"*
+   to **"is it strong enough to interrogate — and what does it say?"**
+
+So the strength-chasing items below are now **means, not ends**: worth doing only insofar as they
+make the policy a more trustworthy oracle to question. The **behavioural probes (B-series) are the
+actual deliverable.**
+
+---
+
 Findings from a full review of the project (rules engine, DQN agent, training loop,
 demo harness). Items are grouped by category. **Correctness, observability, rules
 fidelity, and code hygiene are being fixed now. The "RL / training design issues"
@@ -224,21 +251,50 @@ cheap agents would recalibrate everything:
   us whether the remaining 0.09 is winnable at all, which determines whether vs-random should be
   retired as a metric entirely.
 
-**R4. Belief-state features — reconsider what A7 removed.**
-Taki is a POMDP and the DQN is a reactive policy on a single frame. A7 *removed* the discard-pile
-histogram, deliberately trading card memory for hand-size/deck features — which worked, but it
-deleted the agent's ability to count cards, leaving only 3 coarse unseen counts. The principled
-version of "richer observation" is the **belief state**, and two cheap approximations exist:
-- The full **63-slot unseen-count vector** (total - my hand - discard = what opponents+deck could
-  hold). This is the sufficient statistic for the hidden deal, it's a few lines in `observation()`,
-  and it is strictly more informative than the current 3 counts. It is symmetric under both color
-  and rank perms, so it composes with R1.
-- **Per-opponent color-void flags**: when a player draws (or plays off-color) with color X showing,
-  they likely lack X — the core human-level inference in UNO-family games, currently invisible to
-  the net because it requires history. The env can maintain 3x4 "hasn't shown color X since last
-  draw-on-X" bits at ~zero cost.
+**R4. Belief-state features — SPLIT by the target. One half is off-goal, one half is on-goal.**
+Written before the project target was recorded; the two bullets it proposed are now on opposite
+sides of the line.
+- ~~The full **63-slot unseen-count vector**~~ — **REJECTED, OFF-GOAL.** It is exactly perfect card
+  counting: "total - my hand - everything I have seen played". No human tracks 63 running counters.
+  It would raise the win rate by handing the agent a memory no human has, which is the one thing the
+  project exists *not* to do. Do not implement. (This is precisely the trap the target section warns
+  about — the idea is attractive on strength grounds and wrong on goal grounds.)
+- **Per-opponent color-void flags — KEEP, and it is now arguably the most on-goal feature idea in
+  the file.** When a player draws (or plays off-color) with color X showing, they likely lack X.
+  This is *the* core human-level inference in UNO-family games — a human absolutely does notice
+  "Dana hasn't played green all game" — and it is currently invisible to the net because it requires
+  history. 3x4 "hasn't shown color X since last draw-on-X" bits, ~zero cost. This does not widen the
+  information set beyond human reach; it *closes a gap* where the net is currently **sub**-human, and
+  is therefore legitimate. Invalidates checkpoints — batch with the next contract break.
 
-Both invalidate checkpoints, so batch them with whatever the next contract-breaking change is.
+**B-series. Behavioural probes — THE DELIVERABLE.**
+Interrogate a trained policy's strategy in constructed positions: build the position directly, dump
+Q-values over the legal moves, and compare against the strategically correct line. Needs no new
+training — runnable against A8 today. Requires a small harness (construct a `Game` at an arbitrary
+state, ask an agent for its Q-vector, pretty-print the ranking); `gametest.py`'s hand-built states
+and `main.py`'s greedy demo already show every piece needed.
+
+- **B1. The colored-TAKI hoard.** With a colored TAKI plus several cards of that color, the whole
+  group discharges in a **single turn** (RULES.md), so hoarding it is nearly free and guarantees a
+  fast finish. Does the policy *keep* them, or dump the TAKI greedily the moment it is playable?
+  **Sharpened by a real wrinkle:** a hand may only *end* on a number or the King
+  (`FINISHING_TYPE_VALUES`), so the run must be planned to close on a legal finisher or it eats a
+  penalty draw. A greedy policy plays the TAKI on sight; a policy that understands the endgame holds
+  it *and* sequences the run. This single scenario cleanly separates the two.
+- **B2. Holding cards back.** The shaped reward pays for shedding cards every turn, so the policy is
+  *trained* to be greedy about hand size. Does it ever nonetheless play **fewer** cards now for a
+  better end-game win chance (e.g. keeping a +2 or a STOP as a tempo weapon, or keeping a wild for
+  the finish)? If it never does, that is a real finding about the shaped reward's bias, and it is
+  the strongest argument yet for R6 (the missing loss signal) — as a *fidelity* fix, not a strength
+  one.
+- **B3. Scenario battery + human-readable output.** Generalize B1/B2 into a small suite of named
+  positions with an expected/interesting line each, and report the policy's Q-ranking per scenario.
+  This is what "testing optimal scenarios for human players" ultimately produces: not a win rate, but
+  a set of **statements about how to play Taki well**, each backed by the model's own valuation.
+
+Open question worth settling early: **is A8 strong enough to be a trustworthy oracle?** R3's
+heuristic/oracle yardsticks are the honest way to find out, and they matter more now — a probe is
+only as credible as the policy it interrogates.
 
 **R5. Use the simulator we own — search as measurement, then maybe as a method.**
 The whole line so far is model-free, yet `game.py` is a perfect, fast simulator. The cheapest
@@ -354,15 +410,36 @@ the established next tier is NFSP / PPO-with-league-play (population-based, a la
 with Deep CFR almost certainly overkill at this scale. This is a rewrite, not a lever; nothing in the
 current evidence forces it yet.
 
-### Suggested priority order (from this review)
+### Suggested priority order — SUPERSEDED (2026-07-11), kept for the record
 
-1. **Exploitability probe** (R2) — cheapest, resolves the central question, reuses the loop.
-2. **Rank-symmetry augmentation** (R1) — same class as the project's biggest win, near-free.
-3. **Lower/earlier epsilon floor** (R11) — one flag, three runs' worth of supporting evidence.
-4. **Opponent pool** (R10 / #1 above) — shaped by the probe's result.
-5. **Belief features package** (R4 + R6, batched as one contract break) — unseen-count vector,
-   color-void flags, loss signal.
-6. **Round-robin + heuristic/oracle yardsticks** (R3, R9) — recalibrates the whole eval frame.
-7. **Rollout-improvement measurement** (R5) — decides whether search is the long-term path.
-8. Background: A11 450k completion, diagnostics before the next long run, promotion-bar replication
-   rule.
+The original list is below, struck through. Its top two items are **done** (R2 and R1, both 2026-07-11,
+both negative), and it was written before the project target was recorded — so it ranks strength levers
+above the actual deliverable. Items 3-8 remain live but are now *means*, not ends.
+
+~~1. Exploitability probe (R2) — DONE, negative (A8 near-unexploitable).~~
+~~2. Rank-symmetry augmentation (R1) — DONE, negative (parity).~~
+~~3-8. epsilon floor / opponent pool / belief features / round-robin / rollout / background.~~
+
+### Priority order (2026-07-11, target-aware)
+
+1. **B-series behavioural probes (B1 the TAKI hoard, B2 holding cards back)** — **the deliverable.**
+   No new training, runnable against A8 today, and directly answers the question the project exists to
+   ask. Everything below is only worth doing if it makes this more trustworthy.
+2. **Heuristic/oracle yardsticks** (R3) — how good *is* A8 in absolute terms? A probe is only as
+   credible as the policy it interrogates, so this now gates the interpretation of every B-result.
+3. **Color-void flags + loss signal** (R4-second-bullet + R6, one contract break) — the two remaining
+   changes that are *fidelity* fixes rather than strength hacks: one closes a sub-human gap in what the
+   net can infer, the other fixes a reward that never punishes losing. Note this invalidates checkpoints
+   and requires a retrain, so it is the one strength-adjacent item worth its cost.
+4. **Rollout-improvement measurement** (R5) — reframed: not "is search the path to a stronger bot" but
+   **"is A8's value function self-consistent enough to trust as an oracle?"** A large improvement gap
+   would mean its Q-values are a shaky basis for the B-series verdicts.
+5. Background / opportunistic: epsilon floor (R11), opponent pool (R10), round-robin (R9), training
+   diagnostics (R14).
+
+**No longer needed:** the promotion-bar replication rule (old item 8) — **done 2026-07-11**. sigma is
+measured at **0.5-0.7 pts** (3 seeds, pre-committed final snapshot), so A8's +3.7 was ~5.7 sigma and the
++2.0 bar is ~3 sigma. Both sound; nothing in the log needs retracting. The live hazard is **snapshot
+argmax**, not seed luck (within-run snapshot SD 1.25 pts vs seed-to-seed 0.51) — see R8, now partially
+answered: pre-commit the snapshot before the confirming head-to-head, and never report the max of a
+selection set as the edge.
