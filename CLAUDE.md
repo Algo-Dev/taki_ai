@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project goal (read this before proposing any change to the observation)
+
+The goal is **not** the strongest possible Taki player. It is to find the best moves **using the
+information a human actually has** — and then to *interrogate the resulting policy's strategy*.
+
+1. **The observation is a deliberate model of a human information set.** It encodes what an
+   intelligent, reasonable human would see and remember. The full discard-pile histogram was
+   **removed on purpose** in A7 (only the shown top card remains, plus coarse unseen
+   +2/King/CHCOL counts) because a human does not perfectly card-count a played pile. It is a
+   design constraint, **not an oversight and not an ablation to undo**. Never propose widening
+   the information set (full discard histogram, exact deck composition, opponents' hands) — it
+   would buy win rate by granting superhuman memory, which defeats the purpose.
+2. **The payoff is behavioural analysis, not the win-rate number.** Once the model is good
+   enough, the point is to probe *what it learned* in concrete scenarios and see whether it
+   discovered real Taki strategy. Open questions of this kind:
+   - Does it ever **hold cards back** — playing fewer cards now for a better end-game win chance
+     — rather than greedily dumping the most cards each turn?
+   - With a **colored TAKI plus several cards of that color**, does it learn to *keep* them to the
+     end? A colored TAKI opens a run in which that whole color group discharges in a **single
+     turn** (RULES.md), so hoarding it costs little and guarantees a fast finish. Sharpened by a
+     real wrinkle: a hand may only *end* on a number or the King (`FINISHING_TYPE_VALUES`), so
+     the run must be planned to close on a legal finisher — does the policy handle that, or does
+     it dump the TAKI greedily the moment it is playable?
+   This reframes the plateau: A10/A11 (capacity), A12 (near-unexploitable), and R1 (rank-sym,
+   parity) are converging evidence the agent is at the **ceiling of its information set** — i.e.
+   the project working as designed, not a wall to break through.
+
 ## Project
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
