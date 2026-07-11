@@ -68,9 +68,20 @@ problem. The remaining lever with real headroom is the *observation* — what th
 
 **Caveats.** Single seed (seed 1). A8's checkpoint was itself the max of a 101-snapshot screen,
 so the control is a selection-maximum while the treatment's candidates were screened the same
-way — symmetric in protocol, but both are optimistic. Nothing here says rank-sym *hurts*; it
-says it is inert, so it stays off by default (`--rank-sym` opt-in, code kept: it is exact,
-free, and a useful null to have on the shelf).
+way — symmetric in protocol, but both are optimistic.
+
+**No snapshot promoted.** `snap225000`'s +1.60 is the *max* of 5 candidates whose mean is -0.14,
+i.e. ~2 SE of selection noise; promoting it would launder a null into a fake win. Precedent: A10's
+`snap375000` was the top post-floor snapshot in all three seeds at screening and then failed its
+gate. **`checkpoint_a8_snap455000` remains the champion.**
+
+**Default flipped to ON anyway (2026-07-11), on principle rather than evidence.** Nothing here says
+rank-sym *hurts* — it says it is inert. Since the symmetry is exact and costs ~100us/batch, leaving
+it off would mean deliberately keeping a rank-labelling bias that the rules do not contain, so
+`--rank-sym` became `--no-rank-sym` (default on; ablation runs tag `_noranksym`). **Read the default
+as bias removal at measured parity, NOT as a win** — and note the consequence: the no-flag recipe is
+no longer bit-identical to the one that produced A8, so future A/B controls drift to color+rank,
+which itself has only been validated at parity on one seed.
 
 ## 2026-07-11 — RESULT: A8 is near-unexploitable in this function class (A12 exploitability probe)
 
