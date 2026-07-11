@@ -14,6 +14,53 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-11 — RESULT (NEGATIVE): dueling head (A11) does not beat `checkpoint_a8_snap455000`, post-floor included
+
+Supersedes the 2026-07-10 INCONCLUSIVE entry below. That entry's sole caveat was that no A11 run
+had ever trained past the epsilon floor. **This run did, and the verdict does not change: dueling
+is at parity. A11 is now a genuine negative result, not an open question.**
+
+**Setup.** Same architecture as below (`Q = V + (A - mean_legal(A))`, advantage centred over legal
+actions only, heads split off the 64-wide trunk with no per-stream hidden layer, so params stay
+~equal to the flat net). Only change: **`--trials 450000`** instead of 550000, which moves the
+epsilon floor to **360,000** (`0.8 * 450000`) so a run *completes* with ~90k post-floor trials
+inside the window this box stays up for. 3 seeds, cold start, snapshot_every 25000, reward shaped,
+color-sym on. Seeds 0 and 2 reached `snap450000`; seed 1 was killed by a VM wedge at trial 442,890
+(last snapshot `snap425000`) — irrelevant to the verdict, since its post-floor snapshots
+(375k/400k/425k) all exist.
+
+**Screening** (Mode B, stride 25000, games-b 500, vs `checkpoint_a8_snap455000`, 53 snapshots):
+the post-floor snapshots looked genuinely promising — vs-baseline mean **0.273** (10 of 11 above
+the 0.25 parity line, range 0.246-0.288) versus a pre-floor mean of 0.263 in a noisy band straddling
+parity. Better still, `snap375000` was the **top post-floor snapshot in all three seeds
+independently** (0.288 / 0.286 / 0.282), which looks like replication rather than a lucky draw.
+
+**Seat-swap-controlled head-to-head** (3000 games x2 orientations, duel @ seats {0,1} then {2,3},
+so every occupant covers all four seats) vs `checkpoint_a8_snap455000`:
+
+| Candidate | Edge (pts/seat) |
+|---|---|
+| seed 0, snap425000 | +1.00 |
+| seed 2, snap375000 | +0.95 |
+| seed 0, snap375000 | +0.15 |
+| seed 1, snap375000 | -0.35 |
+
+**The screening signal evaporated under swap control.** `snap375000`, the apparent 3-seed
+replication, gives **+0.15 / -0.35 / +0.95 — mean +0.25 pts/seat**, straddling zero. Best candidate
+overall is +1.00, below the **+2.0** promotion bar and within ~1 SE (~1 pt/seat at 3000 games) of
+zero. Not promoted.
+
+**The lesson is the seat-0 confound, again.** The post-floor "lift" to 0.273 in screening was an
+artifact: `eval.py`'s Mode B always seats the test agent at seat 0, which wins more regardless of
+occupant (see the 2026-07-06 discovery entry). It inflated *every* post-floor snapshot uniformly,
+which is exactly why it looked like a consistent, replicating effect. Only the swap-controlled gate
+separates skill from seat. **Do not read Mode B vs-baseline numbers above 0.25 as evidence of an
+edge** — they are confounded by construction; they are useful for *ranking*, not for deciding.
+
+Current best remains `checkpoint_a8_snap455000`. Combined with A10 (capacity, negative), the
+architecture lever is now closed on both halves: neither more width nor a dueling parametrization
+beats A8 with hyperparameters held fixed. PLAN.md's opponent-pool item (A5) is the remaining lead.
+
 ## 2026-07-10 — INCONCLUSIVE: dueling head (A11) reaches parity, does not beat `checkpoint_a8_snap455000`
 
 Branch `a11-dueling-head`. `create_model()` split the `124->64` trunk into a scalar state-value
