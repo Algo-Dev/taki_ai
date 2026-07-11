@@ -129,6 +129,11 @@ if __name__ == '__main__':
                              'four colors (24 TAKI color symmetries); learner only. Off = '
                              'vanilla replay, which diverges on long runs (see RESEARCH_LOG.md)')
     parser.set_defaults(color_sym=True)
+    parser.add_argument('--rank-sym', action='store_true',
+                        help='additionally augment replay with rank symmetry (off by default): '
+                             'the nine number cards ONE..NINE are interchangeable, so each '
+                             'replayed transition also gets a random relabeling of the ranks '
+                             '(9! perms, composing with the 24 color perms). Learner only.')
     parser.add_argument('--trial-len', type=int, default=300,
                         help='max learner steps per episode before the trial is cut off (default 300)')
     parser.add_argument('--target-sync-every', type=int, default=100,
@@ -163,9 +168,9 @@ if __name__ == '__main__':
 
     # The learner sits at list index 0; the opener is randomised per trial (A4), so the learner
     # no longer goes first 100% of the time. The opponents play mostly-greedily on their own nets.
-    # color_sym only affects replay(), which only the learner runs.
+    # The symmetry augmentations only affect replay(), which only the learner runs.
     dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model,
-                        color_sym=args.color_sym)
+                        color_sym=args.color_sym, rank_sym=args.rank_sym)
     if not dqn_agent.epsilon_min <= args.epsilon_start <= 1.0:
         parser.error(f'--epsilon-start must be in [{dqn_agent.epsilon_min}, 1.0]')
     # Per-episode decay sized to the run: epsilon falls from epsilon_start to epsilon_min over
@@ -189,6 +194,8 @@ if __name__ == '__main__':
     os.makedirs('./models', exist_ok=True)
     timestamp = datetime.now().timestamp()
     tag = '' if args.color_sym else '_nocolorsym'
+    if args.rank_sym:
+        tag += '_ranksym'
     if args.freeze_opponents:
         tag += '_bestresponse'   # never a self-play checkpoint; don't let it be promoted by mistake
     run_dir = f'./models/run{timestamp}{tag}'
@@ -201,10 +208,10 @@ if __name__ == '__main__':
     if args.freeze_opponents:
         print(f'Exploitability probe: best response against 3 FROZEN greedy seats '
               f'({opponent_model}) — no opponent sync, learner-seat collection only '
-              f'(reward={args.reward}, color_sym={args.color_sym})')
+              f'(reward={args.reward}, color_sym={args.color_sym}, rank_sym={args.rank_sym})')
     else:
         print(f'Training a DQN agent via self-play against 3 opponents '
-              f'(reward={args.reward}, color_sym={args.color_sym})')
+              f'(reward={args.reward}, color_sym={args.color_sym}, rank_sym={args.rank_sym})')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
