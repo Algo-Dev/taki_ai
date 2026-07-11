@@ -23,8 +23,8 @@ except RuntimeError:
 from tensorflow import keras
 from tensorflow.keras import layers
 
-from game import (action_to_scalar, scalar_to_action,
-                  OBSERVATION_SIZE, ACTION_SIZE, OBS_PERMS, ACT_PERMS)
+from game import (action_to_scalar, scalar_to_action, sym_tables,
+                  OBSERVATION_SIZE, ACTION_SIZE)
 
 # I would like to thank https://towardsdatascience.com/reinforcement-learning-w-keras-openai-dqns-1eed3a5338c
 # for making an easy to read tutorial on DQN with Keras, I didn't know how to implement this and it really helped.
@@ -34,14 +34,16 @@ class AIAgent:
 
     def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
                  epsilon_decay=0.995, learning_rate=0.001, load_model=None,
-                 color_sym=False):
+                 color_sym=False, rank_sym=False):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
-        # Replay-time color-symmetry augmentation: TAKI's colors are interchangeable,
-        # so each sampled transition is trained under a random relabeling of the four
-        # colors (see the COLOR_PERMS tables in game.py).
+        # Replay-time symmetry augmentation: each sampled transition is trained under a
+        # random relabeling of the four colors (color_sym, 24 perms) and/or of the nine
+        # number ranks (rank_sym, 9! perms). Both are exact symmetries of TAKI's dynamics
+        # and they compose; see sym_tables in game.py.
         self.color_sym = color_sym
+        self.rank_sym = rank_sym
         self.epsilon_min = epsilon_min
         # Buffer sized for the all-seats training loop (A8): it collects ~4x more
         # transitions per trial (all four seats, not just the learner), so 80k keeps the
@@ -107,25 +109,26 @@ class AIAgent:
         samples = random.sample(self.memory, self.batch_size)
         states = np.array([s[0] for s in samples], dtype=np.float32)       # (batch, OBS)
         next_states = np.array([s[3] for s in samples], dtype=np.float32)  # (batch, OBS)
-        if self.color_sym:
-            # One uniformly-random color relabeling per transition (identity included);
-            # state, new_state, action and next_valid all get the SAME permutation, so
-            # each row stays a genuine environment transition (reward/done are
-            # color-invariant). Must happen BEFORE the model() calls below: the target
-            # rows are the predictions on the augmented states, so the 63 untouched
-            # entries keep target == prediction (zero gradient). The buffer keeps the
-            # originals — states/next_states are fresh copies and take_along_axis
+        augment = self.color_sym or self.rank_sym
+        if augment:
+            # One uniformly-random relabeling per transition (identity included); state,
+            # new_state, action and next_valid all get the SAME permutation, so each row
+            # stays a genuine environment transition (reward/done depend only on hand sizes,
+            # so they are invariant under both relabelings). Must happen BEFORE the model()
+            # calls below: the target rows are the predictions on the augmented states, so
+            # the untouched entries keep target == prediction (zero gradient). The buffer
+            # keeps the originals — states/next_states are fresh copies and take_along_axis
             # allocates new arrays.
-            ks = np.random.randint(len(OBS_PERMS), size=self.batch_size)
-            states = np.take_along_axis(states, OBS_PERMS[ks], axis=1)
-            next_states = np.take_along_axis(next_states, OBS_PERMS[ks], axis=1)
+            obs_gather, act_fwd = sym_tables(self.batch_size, self.color_sym, self.rank_sym)
+            states = np.take_along_axis(states, obs_gather, axis=1)
+            next_states = np.take_along_axis(next_states, obs_gather, axis=1)
         # Direct model() calls instead of model.predict() — far less per-call overhead
         # for batches this small.
         targets = self.model(states, training=False).numpy()       # (batch, ACTION_SIZE)
         next_q = self.target_model(next_states, training=False).numpy()
         for i, (_, action, reward, _, done, next_valid) in enumerate(samples):
-            if self.color_sym:
-                act_f = ACT_PERMS[ks[i]]
+            if augment:
+                act_f = act_fwd[i]
                 action = act_f[action]
                 # Keep next_valid a Python list: the `if next_valid` mask below relies
                 # on list truthiness (None / [] -> unmasked max).
