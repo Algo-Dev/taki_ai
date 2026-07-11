@@ -284,48 +284,120 @@ def color_to_vector(color):
     return vec
 
 
-# --- Color-symmetry tables (used by the DQN replay augmentation, agents/dqn.py) -------
-# TAKI's four play colors are interchangeable: relabeling colors by any permutation maps
-# a legal game onto a legal game with identical dynamics and (hand-size-based) rewards.
-#   COLOR_PERMS[k]  : the k-th permutation pi as a tuple; pi[c-1] is the new color of c.
-#                     itertools order is lexicographic, so index 0 is the identity.
-#   ACT_PERMS[k][a] : FORWARD map — what old action scalar a is called after recoloring.
-#   OBS_PERMS[k]    : GATHER indices — recolored_obs = obs[OBS_PERMS[k]].
+# --- Symmetry tables (used by the DQN replay augmentation, agents/dqn.py) -------------
+# The dynamics have two independent relabeling symmetries. Under either, a legal game maps
+# onto a legal game with identical dynamics and (hand-size-based) rewards, so a relabeled
+# transition is a genuine transition rather than noise:
+#   COLOR: the four play colors are interchangeable (24 permutations).
+#   RANK:  the nine number cards ONE..NINE are interchangeable (9! = 362,880 permutations).
+#          Matching is "same color or same type", the deck holds 2 copies of every rank in
+#          every color, and the two rules that mention ranks at all are set-membership tests
+#          (the round must OPEN on a number, NUMBER_TYPE_VALUES; it may END on a number or
+#          the King, FINISHING_TYPE_VALUES). No rule branches on a *specific* rank, so any
+#          global relabeling of the nine ranks preserves the dynamics exactly.
+# The two commute — a color perm moves whole colored blocks; a rank perm permutes the same
+# nine slots inside every block — so they compose into ~8.7M relabelings (see sym_tables).
+#
+# Both are expressed with one pair of tables, in one convention:
+#   act forward map:  act_f[a] = what old action scalar a is called after the relabeling.
+#   obs gather array: relabeled_obs = obs[obs_gather].
 # Direction matters: aug[forward[i]] = orig[i]  <=>  aug[j] = orig[forward^-1[j]], so the
 # observation table is the INVERSE of the forward map (built by inverting obs_f below).
 COLOR_PERMS = tuple(itertools.permutations(range(1, NUM_PLAY_COLORS + 1)))
+# Rank slots within one colored block: ONE..NINE sit at type-value offsets 1..9. TAKI (0)
+# and STOP/CHDIR/PLUSTWO/PLUS/CHCOL (10..14) are not ranks and never move, nor do the three
+# colorless slots (CHCOL 60, Super TAKI 61, King 62).
+RANK_OFFSETS = np.array(sorted(NUMBER_TYPE_VALUES), dtype=np.intp)
+NUM_RANKS = len(RANK_OFFSETS)                            # 9
+# Offset of the open-TAKI color one-hot, and of the two card-vector blocks in the
+# observation: hand, shown (the discard histogram is not part of the observation).
+_TAKI_COLOR_OFF = CARD_VECTOR_SIZE + len(State) + 1      # 72
+_CARD_BLOCK_OFFS = (0, _TAKI_COLOR_OFF + NUM_PLAY_COLORS)
 
 
-def _build_color_perm_tables():
-    obs_perms, act_perms = [], []
-    ntypes = TYPES_PER_COLOR                             # 15, the card-block stride
-    color_off = CARD_VECTOR_SIZE + len(State) + 1        # 72: open-TAKI color one-hot
-    # Offsets of the two card-vector blocks in the observation: hand, shown (the discard
-    # histogram is not part of the observation).
-    card_blocks = (0, color_off + NUM_PLAY_COLORS)
-    for pi in COLOR_PERMS:
-        # Forward map on the 62 card slots; colorless slots 60/61 stay fixed.
-        card_f = np.arange(CARD_VECTOR_SIZE, dtype=np.intp)
-        for c in range(1, NUM_PLAY_COLORS + 1):
-            card_f[(c - 1) * ntypes:c * ntypes] = np.arange(
-                (pi[c - 1] - 1) * ntypes, pi[c - 1] * ntypes)
-        # Forward action map: card slots 0-59; 60-63 (CHCOL/SuperTAKI/DRAW/CLOSE) fixed.
-        act_f = np.arange(ACTION_SIZE, dtype=np.intp)
-        act_f[:60] = card_f[:60]
-        act_perms.append(act_f)
-        # Forward observation map, then inverted into a gather array.
-        obs_f = np.arange(OBSERVATION_SIZE, dtype=np.intp)
-        for off in card_blocks:
-            obs_f[off:off + CARD_VECTOR_SIZE] = off + card_f
-        for c in range(1, NUM_PLAY_COLORS + 1):
-            obs_f[color_off + c - 1] = color_off + pi[c - 1] - 1
-        gather = np.empty(OBSERVATION_SIZE, dtype=np.intp)
-        gather[obs_f] = np.arange(OBSERVATION_SIZE)
-        obs_perms.append(gather)
-    return np.array(obs_perms), np.array(act_perms)
+def _tables_from_card_maps(card_f, color_f=None):
+    """Turn forward permutation(s) of the 63 card slots into (obs gathers, act forwards).
+
+    card_f is (n, CARD_VECTOR_SIZE); color_f, if given, is the matching (n, NUM_PLAY_COLORS)
+    forward map of the open-TAKI color one-hot (rank relabelings leave it alone).
+    """
+    n = len(card_f)
+    # Action slots 0-59 mirror the colored card slots; 60-64 (CHCOL / Super TAKI / King /
+    # DRAW / CLOSE_TAKI) are colorless and rankless, so they are fixed under both symmetries.
+    act_f = np.tile(np.arange(ACTION_SIZE, dtype=np.intp), (n, 1))
+    act_f[:, :60] = card_f[:, :60]
+    # Forward observation map, then inverted into a gather array.
+    obs_f = np.tile(np.arange(OBSERVATION_SIZE, dtype=np.intp), (n, 1))
+    for off in _CARD_BLOCK_OFFS:
+        obs_f[:, off:off + CARD_VECTOR_SIZE] = off + card_f
+    if color_f is not None:
+        obs_f[:, _TAKI_COLOR_OFF:_TAKI_COLOR_OFF + NUM_PLAY_COLORS] = _TAKI_COLOR_OFF + color_f
+    # Everything else — the state one-hot, draw_num, and the extra features (turn direction,
+    # opponent hand sizes, deck size, unseen +2/King/CHCOL counts) — is invariant under both
+    # relabelings and stays at its own index.
+    gather = np.empty((n, OBSERVATION_SIZE), dtype=np.intp)
+    np.put_along_axis(gather, obs_f, np.tile(np.arange(OBSERVATION_SIZE), (n, 1)), axis=1)
+    return gather, act_f
 
 
-OBS_PERMS, ACT_PERMS = _build_color_perm_tables()        # shapes (24, 147) and (24, 65)
+def color_perm_tables(color_perms):
+    """(obs gathers, act forwards) for color relabelings; rows of COLOR_PERMS."""
+    color_perms = np.asarray(color_perms, dtype=np.intp)          # (n, 4), 1-based colors
+    n = len(color_perms)
+    card_f = np.tile(np.arange(CARD_VECTOR_SIZE, dtype=np.intp), (n, 1))
+    for c in range(NUM_PLAY_COLORS):
+        # Colored block c moves wholesale to block color_perms[:, c] - 1.
+        new_base = (color_perms[:, c, None] - 1) * TYPES_PER_COLOR
+        card_f[:, c * TYPES_PER_COLOR:(c + 1) * TYPES_PER_COLOR] = (
+            new_base + np.arange(TYPES_PER_COLOR))
+    return _tables_from_card_maps(card_f, color_f=color_perms - 1)
+
+
+def rank_perm_tables(rank_perms):
+    """(obs gathers, act forwards) for rank relabelings.
+
+    rank_perms is (n, NUM_RANKS); row r is a permutation of range(NUM_RANKS) meaning the
+    rank at block offset RANK_OFFSETS[i] is relabeled to RANK_OFFSETS[rank_perms[r, i]].
+    The same permutation is applied inside every colored block — a rank relabeling is
+    global, not per-color (a per-color one would not preserve same-type matching).
+    """
+    rank_perms = np.asarray(rank_perms, dtype=np.intp)            # (n, 9)
+    n = len(rank_perms)
+    card_f = np.tile(np.arange(CARD_VECTOR_SIZE, dtype=np.intp), (n, 1))
+    new_offs = RANK_OFFSETS[rank_perms]                           # (n, 9)
+    for c in range(NUM_PLAY_COLORS):
+        base = c * TYPES_PER_COLOR
+        card_f[:, base + RANK_OFFSETS] = base + new_offs
+    return _tables_from_card_maps(card_f)
+
+
+OBS_PERMS, ACT_PERMS = color_perm_tables(COLOR_PERMS)     # shapes (24, 147) and (24, 65)
+
+
+def sym_tables(n, color_sym=True, rank_sym=False):
+    """Draw n independent relabelings; return (obs gathers, act forwards), or (None, None).
+
+    One relabeling per row, drawn uniformly from whichever symmetry groups are enabled (the
+    identity is included in both, so a row may be a no-op). With both on, the two are
+    composed into a single gather/forward pair — they commute, so the order is immaterial.
+    """
+    obs_g = act_f = None
+    if color_sym:
+        # The 24 color tables are precomputed; index them rather than rebuilding.
+        ks = np.random.randint(len(OBS_PERMS), size=n)
+        obs_g, act_f = OBS_PERMS[ks], ACT_PERMS[ks]
+    if rank_sym:
+        # 9! is far too large to precompute, so the rank tables are built per batch. Uniform
+        # random permutations via argsort of uniform noise.
+        r_obs, r_act = rank_perm_tables(np.argsort(np.random.rand(n, NUM_RANKS), axis=1))
+        if obs_g is None:
+            obs_g, act_f = r_obs, r_act
+        else:
+            # Composition, in the two conventions: obs[Gc][Gr] == obs[Gc[Gr]] for gathers,
+            # and a -> rank_f[color_f[a]] for the forward action maps.
+            obs_g = np.take_along_axis(obs_g, r_obs, axis=1)
+            act_f = np.take_along_axis(r_act, act_f, axis=1)
+    return obs_g, act_f
 
 
 class Game:
