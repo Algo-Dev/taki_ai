@@ -68,6 +68,128 @@ per-snapshot numbers in `models/run1783692871.878205_bestresponse/eval_exploitab
 
 ---
 
+## 2026-07-11 — RESULT (NEGATIVE): dueling head (A11) does not beat `checkpoint_a8_snap455000`, post-floor included
+
+Supersedes the 2026-07-10 INCONCLUSIVE entry below. That entry's sole caveat was that no A11 run
+had ever trained past the epsilon floor. **This run did, and the verdict does not change: dueling
+is at parity. A11 is now a genuine negative result, not an open question.**
+
+**Setup.** Same architecture as below (`Q = V + (A - mean_legal(A))`, advantage centred over legal
+actions only, heads split off the 64-wide trunk with no per-stream hidden layer, so params stay
+~equal to the flat net). Only change: **`--trials 450000`** instead of 550000, which moves the
+epsilon floor to **360,000** (`0.8 * 450000`) so a run *completes* with ~90k post-floor trials
+inside the window this box stays up for. 3 seeds, cold start, snapshot_every 25000, reward shaped,
+color-sym on. Seeds 0 and 2 reached `snap450000`; seed 1 was killed by a VM wedge at trial 442,890
+(last snapshot `snap425000`) — irrelevant to the verdict, since its post-floor snapshots
+(375k/400k/425k) all exist.
+
+**Screening** (Mode B, stride 25000, games-b 500, vs `checkpoint_a8_snap455000`, 53 snapshots):
+the post-floor snapshots looked genuinely promising — vs-baseline mean **0.273** (10 of 11 above
+the 0.25 parity line, range 0.246-0.288) versus a pre-floor mean of 0.263 in a noisy band straddling
+parity. Better still, `snap375000` was the **top post-floor snapshot in all three seeds
+independently** (0.288 / 0.286 / 0.282), which looks like replication rather than a lucky draw.
+
+**Seat-swap-controlled head-to-head** (3000 games x2 orientations, duel @ seats {0,1} then {2,3},
+so every occupant covers all four seats) vs `checkpoint_a8_snap455000`:
+
+| Candidate | Edge (pts/seat) |
+|---|---|
+| seed 0, snap425000 | +1.00 |
+| seed 2, snap375000 | +0.95 |
+| seed 0, snap375000 | +0.15 |
+| seed 1, snap375000 | -0.35 |
+
+`snap375000`, the apparent 3-seed replication, gives **+0.15 / -0.35 / +0.95 — mean +0.25
+pts/seat**, straddling zero. Best candidate overall is +1.00, below the **+2.0** promotion bar and
+within ~1 SE (~1 pt/seat at 3000 games) of zero. Not promoted.
+
+**Why screening read higher than the gate — and what it is NOT.** The first version of this entry
+claimed the 0.273 post-floor screening figure was a seat-0 artifact. **That was wrong and is
+corrected here.** `eval.py`'s `play_match` **shuffles seating per game**
+([eval.py:81](eval.py#L81), `seat_rng.shuffle(order)`), so the test agent occupies the advantaged
+opening seat in only ~25% of games — its parity share. **Mode B `--baseline` numbers are fair in
+expectation, not inflated.** This confirms review item **R7** in PLAN.md. (Note: the 2026-07-06
+entry below and CLAUDE.md both still assert `play_match` "always seats the test agent at seat 0" —
+that claim is false and needs its own correction. The seat-0 *discovery* is real, but it applies to
+`eval_headtohead.py`, which genuinely takes fixed seats.)
+
+The real explanation is duller: **the two numbers measure different things.** Mode B is a
+**1-vs-3** win rate (one dueling net vs three A8 copies, parity 0.25); the gate is a **2v2**
+per-seat rate. A modest edge does not map between them one-for-one, so "0.273 vs +1.00 pts/seat"
+was never an apples-to-apples contradiction needing a confound to explain it. Both readings agree
+on the substance: **slightly above parity, comfortably below the +2.0 bar.** The screening signal
+was real but small — and small is not enough to promote. See R8 (winner's curse) for why the top
+of 53 screened snapshots is expected to overstate.
+
+Current best remains `checkpoint_a8_snap455000`. Combined with A10 (capacity, negative), the
+**architecture lever is now closed on both halves**: neither more width nor a dueling
+parametrization beats A8 with hyperparameters held fixed. Read alongside **A12** (same day: a best
+response trained against frozen A8 never reached parity, so A8 is near-unexploitable in this
+function class), the two results point the same way — the ~0.91 plateau looks like the ceiling of
+the current *representation*, and neither a richer head nor a better opponent distribution moves
+it. The next lever is the function class itself (PLAN.md R1/R4: rank-symmetry augmentation,
+belief features).
+
+## 2026-07-10 — INCONCLUSIVE: dueling head (A11) reaches parity, does not beat `checkpoint_a8_snap455000`
+
+Branch `a11-dueling-head`. `create_model()` split the `124->64` trunk into a scalar state-value
+`V(s)` and a per-action advantage `A(s,a)`, recombined as **`Q = V + (A - mean_legal(A))`** — the
+mean taken over the **legal actions only**, not all 65, since most actions are illegal in any
+given state and full-vector centring would fold untrained illegal-action advantages into every
+legal Q. The heads split directly off the 64-wide trunk with **no per-stream hidden layer**, so
+params stay ~equal to the old flat net (+65 for the V head): this isolates the dueling
+*parametrization* from width, which A10 tested separately and found negative. All other
+hyperparameters held constant (lr 1e-3, batch 64, buffer 80k, reward shaped, color-sym on).
+
+Implementation note: the net gained a **second input**, a 65-slot legality mask consumed by a new
+`DuelingAggregation` layer, threaded through `act()`, `replay()` (masks for both current and next
+states, remapped under color-sym) and a new `cur_valid` transition field. Architecture change ->
+invalidates every prior checkpoint; trained from scratch.
+
+**Caveat that dominates this entry: no run ever reached the epsilon floor.** Three separate
+550,000-trial attempts died at trial ~375k-402k — twice because 3 concurrent CPU-bound TF
+processes wedged the WSL2 VM (~5h in; CPU pegged, snapshots stop, VSCode can't attach). Epsilon
+bottoms out at 440,000 (`0.8 * 550000`), so **the post-epsilon-floor phase — where A8's gains were
+concentrated — was never trained.** Everything below is from pre-floor snapshots.
+
+**Screening** (Mode B, stride 25000, games-b 500, vs random and vs `checkpoint_a8_snap455000`,
+48 snapshots across 3 seeds, all ending at `snap375000`): vs-random saturates at 0.90-0.93 by
+`snap25000` and stays flat. vs-baseline clustered in a flat **0.234-0.306** band around the 0.25
+parity line with **no upward trend across training** — the same shape A10 produced. Top point
+estimates came from *mid*-training snapshots (75k, 225k, 350k), not the latest, which is the
+signature of noise (SE ~= 0.019 at 500 games; 48 snapshots screened).
+
+**Seat-swap-controlled head-to-head** (3000 games x2 orientations, duel @ seats {0,1} then {2,3},
+so each occupant covers all four seats) vs `checkpoint_a8_snap455000`:
+
+| Candidate (seed, trial) | Edge (pts/seat) |
+|---|---|
+| seed 2, snap350000 | +1.40 |
+| seed 1, snap225000 | +0.20 |
+| seed 0, snap75000  | +0.02 |
+
+Best candidate **+1.40 pts/seat**, below the **+2.0 pts/seat** promotion bar (the smallest margin
+ever actually promoted on, `checkpoint_colorsym_snap180000`'s +2.00). Not promoted. Two reasons
+the +1.40 is weaker than it looks: it was the top of 48 screened snapshots (selection bias), and
+the edge's SE is ~1 pt/seat at this sample size, so it sits ~1.4 SE from zero. The seat-0 confound
+was clearly present and correctly cancelled (seat 0 scored ~0.27-0.28 in *both* orientations
+regardless of occupant).
+
+An earlier interrupted attempt's `snap400000` (seed 1) scored **-0.65 pts/seat** under the same
+swap-controlled protocol — consistent with parity. (Those run dirs were deleted before a relaunch,
+so that checkpoint no longer exists; only the number survives.)
+
+Current best remains `checkpoint_a8_snap455000`. **Verdict: parity, not a negative result.** Unlike
+A10 (which ran to completion), A11 never trained through the phase most likely to matter. The
+cheap follow-up is `--trials 450000` (moving the epsilon floor to 360k) so a run actually
+*completes* with ~90k post-floor trials and lands next to A8's own `snap455000` — see PLAN.md.
+
+**Side finding, fixed in-branch:** `act()` unconditionally passed the new two-input `[obs, mask]`
+signature, which crashed with `Layer sequential expects 1 input(s), but it received 2` whenever a
+dueling agent played a legacy single-input checkpoint adopted via the shape-mismatch load fallback
+— i.e. *every* head-to-head against `checkpoint_a8_snap455000`. Fixed by tracking `self.dueling`
+from the resolved model's input count and branching the forward call (commit `8a49d04`).
+
 ## 2026-07-08 — RESULT: bigger network (A10) does not beat `checkpoint_a8_snap455000`
 
 Branch `a10-bigger-network`. `create_model()` widened `147->124->64->65` ->

@@ -33,10 +33,6 @@ section is intentionally deferred — we will tune those later.**
 -- Parallelize eval.py's game loop across processes (games are independent, deterministically
    seeded) — cut eval wall-clock ~3-4x. Worth it for Mode B / screening.
 
--- Fix seat-0 bias in eval.py's play_match (Mode A/B) — see RESEARCH_LOG.md 2026-07-06
-   "seat-0 first-mover advantage" entry for the finding and CLAUDE.md's Evaluation
-   discipline section for the current workaround (eval_headtohead.py).
-
 ## RL design notes (future levers, from the 2026-07-02 review)
 
 -- Replay buffer horizon: 20000 transitions at ~20-35 learner decisions/trial is only ~600-1000
@@ -77,17 +73,20 @@ section is intentionally deferred — we will tune those later.**
    below): a best response trained specifically against frozen A8 never reached parity with it,
    so self-play is not obviously leaving an exploit on the table. Still the best of the
    training-scheme levers, but a training-scheme lever is now the less likely fix.
-2. Dueling head (A11) — **built and evaluated; result INCONCLUSIVE (parity)**. See
-   RESEARCH_LOG.md 2026-07-10 and branch `a11-dueling-head`. `Q = V + (A - mean_legal(A))`,
-   advantage centred over legal actions only. Best snapshot +1.40 pts/seat vs
-   `checkpoint_a8_snap455000`, under the +2.0 bar; screening showed a flat band around parity
-   with no trend across training. **But the run never reached the epsilon floor** (died at
-   ~375k of 550k; floor at 440k), so the post-floor phase that carried A8's gains was never
-   trained — this is *not* a clean negative like A10's capacity test.
-   **Cheapest next step: rerun with `--trials 450000`** (floor moves to 360k) so the run
-   actually completes with ~90k post-floor trials and lands next to A8's own `snap455000`.
-   Run at most 2 seeds concurrently and log outside `/tmp` — 3 concurrent TF processes wedge
-   the WSL2 VM ~5h in. Invalidates checkpoints (two-input dueling contract).
+2. ~~Dueling head (A11)~~ — **DONE, NEGATIVE. Closed.** See RESEARCH_LOG.md 2026-07-11 and branch
+   `a11-dueling-head` (code kept there; it invalidates checkpoints via a two-input obs+mask
+   contract, so it is deliberately not on master). `Q = V + (A - mean_legal(A))`, advantage
+   centred over legal actions only, heads split off the existing trunk so capacity is unchanged.
+   The 450k rerun (epsilon floor at 360k) *did* train ~90k post-floor trials — the one caveat
+   that made the first attempt inconclusive — and the verdict held: best swap-controlled edge
+   **+1.00 pts/seat** vs a **+2.0** bar, with the top post-floor snapshot replicating across
+   3 seeds at **mean +0.25** once seat-swapped. **Both halves of the architecture lever (A10
+   capacity, A11 dueling) are now closed and negative.**
+   (Worth remembering: A11's screening *looked* promising — post-floor mean 0.273 vs 0.25 parity,
+   same snapshot topping all 3 seeds — and did not survive the gate. **Not** a seat-0 artifact, as
+   an earlier draft of the log wrongly claimed: **R7 below is correct, `play_match` shuffles seats
+   and Mode B is fair in expectation.** Mode B is simply a 1v3 win rate while the gate is a 2v2
+   per-seat rate. A live instance of R8's winner's curse — top-of-53 overstates.)
 3. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
 4. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —
@@ -260,17 +259,26 @@ far are all about the win-side/step-side terms.
 
 ### Reconsiderations of existing results and plans
 
-**R7. The eval.py seat-0-bias claim looks wrong — re-derive before acting on it.**
+**R7. The eval.py seat-0-bias claim is wrong — CONFIRMED 2026-07-11, re-derived against the source.**
 The 2026-07-06 RESEARCH_LOG entry states `play_match` "always seats the test agent at seat 0", and
-the "Infrastructure / evaluation optimizations" section above carries a "fix seat-0 bias in eval.py"
-item. But `play_match` has had per-game seeded seat shuffling since the *original* eval harness
-commit (`e5feaa8`) — [eval.py:81](eval.py#L81) shuffles seating, so the test agent occupies the
-advantaged opening seat in ~25% of games, exactly its parity share. If that's right: (a) Mode-B
-`--baseline` numbers are *fair in expectation*, not inflated as the log caveats claim; (b) the
-"fix seat-0 bias" item targets a non-bug. The seat-swap protocol for `eval_headtohead.py` remains
-fully valid (that script really does take explicit fixed seats), and no ranking conclusion changes —
-but the standing "read Mode-B head-to-heads as inflated" guidance in the log and CLAUDE.md deserves
-a re-check.
+the "Infrastructure / evaluation optimizations" section above used to carry a "fix seat-0 bias in
+eval.py" item. But `play_match` has had per-game seeded seat shuffling since the *original* eval
+harness commit (`e5feaa8`) — [eval.py:81](eval.py#L81) `seat_rng.shuffle(order)` — so the test agent
+occupies the advantaged opening seat in ~25% of games, exactly its parity share. **Verified directly
+in the source. R7 is correct:** (a) Mode-B `--baseline` numbers are *fair in expectation*, not
+inflated as the log caveats claim; (b) the "fix seat-0 bias" item targeted a non-bug and **has now
+been deleted** from the section above. The seat-swap protocol for `eval_headtohead.py` remains fully
+valid (that script really does take explicit fixed seats), and no ranking conclusion changes.
+
+This bit for real during A11: the 2026-07-11 entry's first draft blamed a "seat-0 artifact" for the
+gap between screening (0.273) and the gate (+1.00 pts/seat). That explanation was false and has been
+corrected in the log. The true reason is mundane — **Mode B is a 1v3 win rate, the gate is a 2v2
+per-seat rate**; different quantities, no confound needed.
+
+**STILL OPEN (the remaining half of R7):** the 2026-07-06 RESEARCH_LOG entry and **CLAUDE.md's
+Evaluation-discipline section still assert the false "test agent always seat 0" claim** about
+`play_match`. Both need correcting — CLAUDE.md especially, since it is loaded into every session and
+currently mis-steers the reading of every Mode B number.
 
 **R8. The promotion pipeline has a winner's-curse problem, and the +2.0 bar is thin.**
 A10 screened 66 snapshots, A11 screened 48, each taking the max of a ~+/-2 pt noise band into a
