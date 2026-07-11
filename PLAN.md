@@ -180,18 +180,22 @@ suggestions below are organized around resolving that.
 
 ### New suggestions (not previously in this file)
 
-**R1. Rank-symmetry augmentation — the direct sequel to color-sym.**
-Verified in `game.py`: the nine number ranks (ONE..NINE) are *fully interchangeable*. The deck has
-2 copies of each per color, matching is "same color or same type", the opening rule (must open on a
-number) and finishing rule (numbers + King) are rank-set-invariant, and no rule branches on a
-specific rank. So any global relabeling of the 9 ranks is an exact symmetry of the dynamics — a
-group of 9! = 362,880 permutations, composable with the 24 color perms (~8.7M total relabelings).
-Same trick as color-sym, implementable with the same `OBS_PERMS`/`ACT_PERMS` machinery (permute the
-9 rank slots within each color block + shown-card block; the unseen-count features track only
-+2/King/CHCOL, which are rank-invariant). Given that color-sym is the single largest gain the
-project has ever produced, and that the one strong empirical regularity is "data-side symmetries
-pay", this is the highest-prior cheap experiment on the board. Ranks do carry a strategic role
-(same-rank cross-color chaining), but relabeling preserves it exactly.
+**R1. Rank-symmetry augmentation — DONE (2026-07-11), NEGATIVE. The highest-prior idea on the
+board was inert.**
+Shipped as `--rank-sym` (branch `r1-rank-sym`; RESEARCH_LOG.md 2026-07-11). The symmetry is real
+and exact — 9! rank relabelings composing with the 24 color perms, ~8.7M in total, verified
+against the rules engine — but a 500k-trial run at A8's exact config landed at **parity with A8**
+(mean edge -0.14 pts across the 5 screened candidates in seat-swap-controlled head-to-heads; best
++1.6, which is a max-of-5 and does not clear the +2.0 bar A10/A11 already failed). Kept in the code,
+off by default.
+
+**The important consequence: "data-side symmetries pay" is dead as a guiding heuristic.** This was
+its cleanest possible test — an exact symmetry, a 15,000x larger group than color-sym, the same
+machinery — and it moved nothing. So color-sym's win was not augmentation-as-such; it most likely
+acted as a *stabilizer* (its ablation diverges on long runs). Everything below that was motivated by
+"add more exact relabelings / more augmentation" should be **down-weighted accordingly**, and the
+open question shifts to the **information set** (see R3/observation items): what the agent can *see*
+is now the only untested lever with obvious headroom — notably the discard histogram A7 removed.
 
 **R2. Exploitability probe (best-response training) — DONE (2026-07-11), the second branch fired.**
 Ran as A12 (`train.py --freeze-opponents`, merged to master; RESEARCH_LOG.md 2026-07-11). A fresh

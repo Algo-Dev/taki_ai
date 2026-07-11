@@ -414,5 +414,152 @@ class ColorSymmetryTest(unittest.TestCase):
             np.testing.assert_array_equal(batched[i], m[i][OBS_PERMS[ks[i]]])
 
 
+def _rank_perms(n, seed=0):
+    """n random rank permutations, with the identity first."""
+    rng = np.random.RandomState(seed)
+    return np.vstack([np.arange(NUM_RANKS),
+                      np.argsort(rng.rand(n - 1, NUM_RANKS), axis=1)])
+
+
+class RankSymmetryTest(unittest.TestCase):
+    """Same contract as ColorSymmetryTest, for the nine interchangeable number ranks:
+    relabeling the ranks of a real game and re-encoding it must equal permuting the
+    original encoding with rank_perm_tables. 9! perms is too many to enumerate, so the
+    game-level equivariance is checked on a random sample (plus the identity)."""
+
+    def _relabeled(self, g, rho):
+        """A deep copy of g with every number card's rank relabeled by rho: the rank at
+        block offset RANK_OFFSETS[i] becomes RANK_OFFSETS[rho[i]]. Non-number cards (TAKI,
+        STOP, CHDIR, +2, +, CHCOL, King) are untouched, as are all colors. Builds new Card
+        objects for the same aliasing reason as _recolored above."""
+        ranks = [int(r) for r in RANK_OFFSETS]
+        relabel = {ranks[i]: ranks[int(rho[i])] for i in range(NUM_RANKS)}
+
+        def pt(cardtype):
+            return Type(relabel[cardtype.value]) if cardtype.value in relabel else cardtype
+
+        g2 = copy.deepcopy(g)
+        g2.hands = [[Card(pt(c.type), c.color) for c in h] for h in g.hands]
+        g2.discard = [Card(pt(c.type), c.color) for c in g.discard]
+        g2.deck = [Card(pt(c.type), c.color) for c in g.deck]
+        return g2
+
+    def _assert_equivariant(self, g, n=16):
+        """Relabeled observation == gathered observation, and relabeled valid-move scalars
+        == forward-mapped original scalars, for a sample of rank perms."""
+        obs = g.observation(agent=0)
+        scalars = [action_to_scalar(*m) for m in g.valid_moves(agent=g.curr)]
+        rhos = _rank_perms(n)
+        for rho, gobs, gact in zip(rhos, *rank_perm_tables(rhos)):
+            g2 = self._relabeled(g, rho)
+            np.testing.assert_array_equal(g2.observation(agent=0), obs[gobs])
+            scalars2 = [action_to_scalar(*m) for m in g2.valid_moves(agent=g.curr)]
+            self.assertEqual(sorted(scalars2), sorted(int(gact[a]) for a in scalars))
+
+    def test_tables_are_bijections_with_correct_fixed_points(self):
+        rhos = _rank_perms(24)
+        obs_perms, act_perms = rank_perm_tables(rhos)
+        # Slots that a RANK relabeling must never move: inside each colored block, TAKI (0)
+        # and STOP/CHDIR/+2/+/CHCOL (10-14); the three colorless card slots (60/61/62); and
+        # every non-card feature (state one-hot, draw_num, open-TAKI color, extras).
+        fixed_card = [c * TYPES_PER_COLOR + t
+                      for c in range(NUM_PLAY_COLORS) for t in (0, 10, 11, 12, 13, 14)]
+        fixed_card += [60, 61, 62]
+        fixed_obs = sorted([off + s for off in (0, 76) for s in fixed_card]
+                           + list(range(63, 76)) + list(range(139, 147)))
+        for k in range(len(rhos)):
+            self.assertEqual(sorted(obs_perms[k]), list(range(OBSERVATION_SIZE)))
+            self.assertEqual(sorted(act_perms[k]), list(range(ACTION_SIZE)))
+            # Rankless actions (CHCOL/SuperTAKI/King/DRAW/CLOSE_TAKI) never move.
+            self.assertEqual(list(act_perms[k][60:]), [60, 61, 62, 63, 64])
+            self.assertEqual(list(obs_perms[k][fixed_obs]), fixed_obs)
+
+    def test_identity_perm_is_noop(self):
+        obs_perms, act_perms = rank_perm_tables([np.arange(NUM_RANKS)])
+        np.testing.assert_array_equal(obs_perms[0], np.arange(OBSERVATION_SIZE))
+        np.testing.assert_array_equal(act_perms[0], np.arange(ACTION_SIZE))
+
+    def test_known_swap_values(self):
+        # ONE <-> TWO swap (rank offsets 1 and 2), applied in EVERY color block.
+        rho = [1, 0, 2, 3, 4, 5, 6, 7, 8]
+        (gobs,), (gact,) = rank_perm_tables([rho])
+        self.assertEqual(gact[1], 2)     # red one   (1)  -> red two    (2)
+        self.assertEqual(gact[2], 1)     # red two   (2)  -> red one    (1)
+        self.assertEqual(gact[31], 32)   # green one (31) -> green two  (32)
+        self.assertEqual(gact[0], 0)     # red taki: not a rank, fixed
+        self.assertEqual(gact[3], 3)     # red three: not swapped
+        self.assertEqual(gact[60], 60)   # colorless CHCOL: fixed
+        self.assertEqual(gobs[2], 1)     # the augmented red-two slot reads the red-one slot
+
+    def test_observation_and_action_equivariance(self):
+        # Real games at several stages of play, driven by seeded random agents.
+        for seed in range(4):
+            for turns in (0, 5, 20, 60):
+                g = Game([RandomAgent(seed=i) for i in range(4)], seed=seed)
+                for _ in range(turns):
+                    if g.done():
+                        break
+                    g.next_turn()
+                if not g.done():
+                    self._assert_equivariant(g)
+
+    def test_equivariance_in_taki_and_chcol_states(self):
+        # The tricky slots for a RANK relabeling: rankless cards that must not move (CHCOL,
+        # Super TAKI, King, +2), number cards spread across colors, an open TAKI, and a
+        # discard top that is a color-carrying CHCOL (no rank at all).
+        g = Game([RandomAgent(seed=i) for i in range(4)], seed=0)
+        g.curr = 0
+        g.hands[0] = [Card(Type.CHCOL), Card(Type.TAKI), Card(Type.KING),
+                      Card(Type.THREE, Color.GREEN), Card(Type.NINE, Color.GREEN),
+                      Card(Type.ONE, Color.RED), Card(Type.PLUSTWO, Color.BLUE)]
+        g.discard = [Card(Type.FIVE, Color.RED), Card(Type.CHCOL, Color.GREEN)]
+        g.state = State.TAKI
+        g.taki_color = Color.GREEN
+        self._assert_equivariant(g)
+
+    def test_composes_with_color_sym(self):
+        # The whole point of sym_tables: color and rank relabelings commute and compose into
+        # one gather/forward pair. Check the composed tables against a game that has been
+        # BOTH recolored and rank-relabeled, in both application orders.
+        g = Game([RandomAgent(seed=i) for i in range(4)], seed=3)
+        for _ in range(12):
+            g.next_turn()
+        self.assertFalse(g.done())
+        obs = g.observation(agent=0)
+        scalars = [action_to_scalar(*m) for m in g.valid_moves(agent=g.curr)]
+        recolor = ColorSymmetryTest()._recolored
+        relabel = self._relabeled
+        for pi, rho in zip(COLOR_PERMS[1:9], _rank_perms(8, seed=1)):
+            k = COLOR_PERMS.index(pi)
+            (r_obs,), (r_act,) = rank_perm_tables([rho])
+            # Exactly the composition sym_tables performs.
+            c_obs = OBS_PERMS[k][r_obs]
+            c_act = r_act[ACT_PERMS[k]]
+            for g2 in (relabel(recolor(g, pi), rho), recolor(relabel(g, rho), pi)):
+                np.testing.assert_array_equal(g2.observation(agent=0), obs[c_obs])
+                scalars2 = [action_to_scalar(*m) for m in g2.valid_moves(agent=g.curr)]
+                self.assertEqual(sorted(scalars2), sorted(int(c_act[a]) for a in scalars))
+
+    def test_sym_tables_draws_valid_permutations(self):
+        # sym_tables is what replay() calls; every row must be a genuine permutation, and
+        # the toggles must select the right group (color-only rows come from OBS_PERMS;
+        # disabling both yields no tables at all).
+        np.random.seed(0)
+        for color, rank in ((True, False), (False, True), (True, True)):
+            obs_g, act_f = sym_tables(32, color_sym=color, rank_sym=rank)
+            self.assertEqual(obs_g.shape, (32, OBSERVATION_SIZE))
+            self.assertEqual(act_f.shape, (32, ACTION_SIZE))
+            for row in obs_g:
+                self.assertEqual(sorted(row), list(range(OBSERVATION_SIZE)))
+            for row in act_f:
+                self.assertEqual(sorted(row), list(range(ACTION_SIZE)))
+            if not rank:
+                # Color-only must still be exactly the precomputed color tables (the A8
+                # recipe is the control arm of the rank-sym A/B — it must not drift).
+                for row in obs_g:
+                    self.assertTrue(any(np.array_equal(row, p) for p in OBS_PERMS))
+        self.assertEqual(sym_tables(4, color_sym=False, rank_sym=False), (None, None))
+
+
 if __name__ == '__main__':
     unittest.main()
