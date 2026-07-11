@@ -14,6 +14,60 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-11 — RESULT: A8 is near-unexploitable in this function class (A12 exploitability probe)
+
+Branch `a12-exploitability-probe`. **Best-response training**: a fresh learner (same
+architecture as A8, cold start) trained for **200,000 trials against 3 *frozen* greedy
+`checkpoint_a8_snap455000` seats** — `train.py --freeze-opponents --opponent-model
+checkpoint_a8_snap455000`. No opponent sync (the frozen seats never update), and transitions
+are collected from the learner seat only (A8's all-seats collection is sound only when every
+seat runs the learner's own policy; here the other three run a fixed foreign policy, so their
+transitions would train the learner to *imitate* A8, not exploit it). Frozen seats play greedy
+(epsilon=0) — exploitability is the best response to the champion's *actual* policy, which is
+also what `eval.py` measures. Reward shaped, color-sym on, seed 0. This directly asks: **is the
+~0.91 plateau a self-play equilibrium trap, or the ceiling of this function class?**
+
+Evaluated all 21 snapshots (snap0000..snap200000, stride 10k) at **3000 games** each vs A8 and
+vs random, sharded across 3 thread-capped workers (`eval_shard.py`; reuses `eval.py`'s
+common-random-numbers `play_match`, which shuffles seating every game so the seat-0 advantage
+averages out — vs-A8 above 0.25 would be a genuine win). SE ≈ 0.008 per point.
+
+**Headline: the best response never reaches parity against A8.** vs-A8 win rate climbs from
+0.007 (untrained) and plateaus from ~trial 70k onward, **peaking at 0.236 (snap180000) — 0.014,
+or 1.8 SE, *below* the 0.25 parity line** — and ending at 0.213 (snap200000). Trained
+specifically to beat A8 for 200k trials, it cannot even match it, let alone clear the +0.25 bar
+that would signal real headroom. The same nets sit at ~0.89 vs random (vs A8's own 0.91),
+confirming they are competent policies, just not superior ones.
+
+| trial | vs A8 | vs random |   | trial | vs A8 | vs random |
+|------:|------:|----------:|---|------:|------:|----------:|
+| 0     | 0.007 | 0.068     |   | 110k  | 0.228 | 0.893 |
+| 10k   | 0.132 | 0.840     |   | 120k  | 0.227 | 0.902 |
+| 20k   | 0.136 | 0.850     |   | 130k  | 0.229 | 0.909 |
+| 40k   | 0.146 | 0.870     |   | 140k  | 0.216 | 0.893 |
+| 50k   | 0.178 | 0.874     |   | 150k  | 0.229 | 0.905 |
+| 60k   | 0.204 | 0.888     |   | 160k  | 0.226 | 0.899 |
+| 70k   | 0.218 | 0.900     |   | 170k  | 0.223 | 0.899 |
+| 90k   | 0.218 | 0.899     |   | 180k  | **0.236** | 0.897 |
+| 100k  | 0.227 | 0.894     |   | 200k  | 0.213 | 0.894 |
+
+**Interpretation.** This is evidence for the *ceiling* hypothesis over the *equilibrium-trap*
+hypothesis: a dedicated best-response cannot exploit A8, so the plateau is closer to the limit
+of this representation + information set than an artifact of self-play failing to find the
+exploit. It aligns with the flat parity bands seen in A10 (capacity) and A11 (dueling) — all
+different function forms, all landing at 0.21–0.30 vs A8. **Implication for PLAN.md:** demotes
+the opponent-pool / training-scheme levers (#1) relative to *representation* (belief/memory
+features — the A7 obs dropped the full discard histogram) and *search*, which change the
+function class rather than search harder within it.
+
+**Caveats.** Single seed; 200k trials, not A8's 450–500k protocol (so the best response had
+less training than its target) — but vs-A8 is flat from ~70k to 200k, so more trials are
+unlikely to break 0.25 by a meaningful margin. A best response could in principle overfit to
+A8's specific weaknesses and still miss a *general* improvement; here it found neither. Raw
+per-snapshot numbers in `models/run1783692871.878205_bestresponse/eval_exploitability_*.tsv`.
+
+---
+
 ## 2026-07-08 — RESULT: bigger network (A10) does not beat `checkpoint_a8_snap455000`
 
 Branch `a10-bigger-network`. `create_model()` widened `147->124->64->65` ->
