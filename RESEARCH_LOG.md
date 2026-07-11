@@ -108,10 +108,11 @@ claimed the 0.273 post-floor screening figure was a seat-0 artifact. **That was 
 corrected here.** `eval.py`'s `play_match` **shuffles seating per game**
 ([eval.py:81](eval.py#L81), `seat_rng.shuffle(order)`), so the test agent occupies the advantaged
 opening seat in only ~25% of games — its parity share. **Mode B `--baseline` numbers are fair in
-expectation, not inflated.** This confirms review item **R7** in PLAN.md. (Note: the 2026-07-06
-entry below and CLAUDE.md both still assert `play_match` "always seats the test agent at seat 0" —
-that claim is false and needs its own correction. The seat-0 *discovery* is real, but it applies to
-`eval_headtohead.py`, which genuinely takes fixed seats.)
+expectation, not inflated.** This confirms review item **R7** in PLAN.md. (The false claim
+originated in the 2026-07-06 entry below and had spread to CLAUDE.md; `git log -S` shows the shuffle
+landed in `e5feaa8`, the *original* eval-harness commit, a week **before** that entry — so it was
+wrong when written. **Both have since been corrected and R7 is closed.** The seat-0 *discovery* is
+real, but it applies to `eval_headtohead.py`, which genuinely takes fixed seats.)
 
 The real explanation is duller: **the two numbers measure different things.** Mode B is a
 **1-vs-3** win rate (one dueling net vs three A8 copies, parity 0.25); the gate is a **2v2**
