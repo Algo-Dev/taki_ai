@@ -73,8 +73,10 @@ section is intentionally deferred — we will tune those later.**
 
 ### Action items, ranked by expected value / cost
 
-1. Opponent pool of past snapshots (+ occasional random seat) (A5) — likely the best lever to
-   break the ~0.90 plateau.
+1. Opponent pool of past snapshots (+ occasional random seat) (A5) — **demoted by A12** (see
+   below): a best response trained specifically against frozen A8 never reached parity with it,
+   so self-play is not obviously leaving an exploit on the table. Still the best of the
+   training-scheme levers, but a training-scheme lever is now the less likely fix.
 2. Dueling head (A11) — **built and evaluated; result INCONCLUSIVE (parity)**. See
    RESEARCH_LOG.md 2026-07-10 and branch `a11-dueling-head`. `Q = V + (A - mean_legal(A))`,
    advantage centred over legal actions only. Best snapshot +1.40 pts/seat vs
@@ -96,10 +98,17 @@ section is intentionally deferred — we will tune those later.**
 7. If revisiting reward: potential-based shaping (A9), high epsilon + fixed opponent set during
    the switch.
 
-The opponent pool (#1) is now the lead, no longer gated behind the (completed, marginal)
-DQN-hygiene package — capacity alone (A10) is done and negative; dueling (A11) is built and
-sits at parity, but its verdict is confounded by never reaching the epsilon floor. Finishing
-A11 as a 450k-trial run is cheap and would settle it; absent that, #1 remains the better bet.
+**The A12 exploitability probe (2026-07-11) reorders this list.** A best response trained for
+200k trials against 3 *frozen* A8 seats peaked at **0.236 vs A8 — never reaching the 0.25 parity
+line** (RESEARCH_LOG.md 2026-07-11). A8 is therefore near-unexploitable within this function
+class: the ~0.91 plateau looks like the ceiling of the current representation, not a self-play
+equilibrium trap that a better opponent distribution would escape. That is evidence *against*
+the whole training-scheme family (#1 opponent pool, and by extension #3-#6, which all search
+harder within the same function class) and *for* changing the function class itself — i.e.
+**representation** (belief/memory features; note the A7 observation dropped the full discard
+histogram, so the net has no memory of what has been played) and **search**. Rank-symmetry
+augmentation (R1 below) also survives this argument, since it is a data lever of the kind that
+has actually worked here (color-sym, A8), not a training-scheme variation.
 
 ### Tuning guide: replay frequency, buffer size, and related knobs
 
@@ -185,20 +194,18 @@ project has ever produced, and that the one strong empirical regularity is "data
 pay", this is the highest-prior cheap experiment on the board. Ranks do carry a strategic role
 (same-rank cross-color chaining), but relabeling preserves it exactly.
 
-**R2. Exploitability probe (best-response training) — the highest information-per-cost experiment.**
-Train a fresh learner against **3 frozen `checkpoint_a8_snap455000` seats** — no opponent sync, no
-self-play. This directly measures how exploitable the champion is:
-- If the best-response climbs well above parity against A8, there is real headroom in the current
-  architecture, self-play is the bottleneck, and the opponent-pool work (#1 above) is strongly
-  justified.
-- If it can't beat A8 by more than a couple of points, A8 is near-unexploitable within this function
-  class, and further effort should go to representation (belief features) or search, not to training
-  scheme variations.
+**R2. Exploitability probe (best-response training) — DONE (2026-07-11), the second branch fired.**
+Ran as A12 (`train.py --freeze-opponents`, merged to master; RESEARCH_LOG.md 2026-07-11). A fresh
+learner trained 200k trials against 3 frozen `checkpoint_a8_snap455000` seats **peaked at 0.236 vs
+A8 and never reached the 0.25 parity line** (ended 0.213; flat from ~trial 70k). It could not even
+match the champion, let alone exploit it.
 
-Reuses the existing loop almost verbatim (disable `OPPONENT_SYNC_EVERY`; skip A8-style collection
-from the frozen seats to keep the buffer on-policy-ish). The flat parity bands in A10/A11 screening
-— different architectures, different seeds, all landing at 0.23-0.30 against A8 — are consistent
-with *either* hypothesis; this experiment separates them.
+**Verdict: A8 is near-unexploitable within this function class** — the second of the two branches
+this experiment was designed to separate. Effort should go to **representation** (belief/memory
+features) and **search**, not to training-scheme variations; see the reordered action items above.
+Consistent with the flat parity bands in A10/A11 (different architectures, same ~0.21-0.30 wall).
+Caveats: single seed, 200k trials (vs A8's 450-500k protocol), though the long flat plateau makes a
+late breakout unlikely.
 
 **R3. Estimate the skill ceiling with an oracle and a heuristic baseline.**
 The project currently has only two external yardsticks: random opponents and its own lineage. Two
