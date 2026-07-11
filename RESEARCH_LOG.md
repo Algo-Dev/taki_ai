@@ -14,6 +14,51 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-11 — CALIBRATION: run-to-run sigma is ~0.5-0.7 pts — the promotion history holds up
+
+The project had never measured **run-to-run variance**, yet every promotion was adjudicated
+against a ±2.0-point bar on a single seed. Without sigma, no bar means anything, and A8's +3.7
+could in principle have been noise we narrated as signal. This run settles it.
+
+**Setup.** Two fresh 500k-trial runs at the current default recipe (color+rank sym), seeds 2 and
+3 (`models/run1783774662.463957`, `models/run1783774663.490516`), joining the R1 run (seed 1). All
+three are the *same* recipe, so their true edge vs A8 should be ~0; the **spread** of their edges
+is sigma. **Pre-committed selection rule, fixed in writing before any result was seen:** evaluate
+`snap500000`, the **final** snapshot, of each seed — no screening, no argmax. Seat-swap-controlled
+head-to-head vs `checkpoint_a8_snap455000`, 3000 games x 2 seat assignments.
+
+| Seed | cand avg per-seat | A8 avg per-seat | Edge |
+|---|---|---|---|
+| 1 (R1) | 0.260 | 0.258 | +0.15 |
+| 2 | 0.264 | 0.256 | +0.85 |
+| 3 | 0.264 | 0.253 | +1.15 |
+
+**sigma = 0.51 pts** (sample SD, n=3). Pure *eval* noise alone predicts an SE of **0.65 pts** per
+edge (3000 games; seat-0 rate + 3-seat average). The observed seed spread is **below** the
+measurement floor — seed-to-seed variance is not even detectable above eval noise. Take
+**sigma_total ~ 0.5-0.7 pts**.
+
+**Consequences — every past verdict survives:**
+
+| Result | In sigma |
+|---|---|
+| A8's promotion (+3.7) | **~5.7 sigma** — real |
+| The +2.0 promotion bar | ~3.1 sigma — a sound bar |
+| R1 best-of-5 (+1.6) | ~2.5 sigma, but a *max of 5* — correctly not promoted |
+| R1 mean (-0.14) | ~-0.2 sigma — parity, as reported |
+
+**The sharper lesson: the hazard is snapshot choice, not seed choice.** Spread across the 5
+screened snapshots *within* the R1 run was **1.25 pts SD** — 2.5x the seed-to-seed spread of the
+final snapshot (0.51). Argmax-over-snapshots is where the winner's curse actually enters, and it is
+exactly the leak that would have sold `snap225000` (+1.60) as a win. **Standing rule going forward:
+pre-commit the snapshot (the final one, or an average of post-floor snapshots) before the confirming
+head-to-head, and never report the max of a selection set as the edge.**
+
+**Footnote, honestly reported:** the 3 seeds' mean edge is **+0.72 ± 0.38** (~1.9 sigma) — a weak
+hint that the current default at snap500000 sits a touch above A8. It is below the +2.0 bar, it is
+confounded (A8 is snap455000 of a color-only run), and R1's own wider 5-snapshot sample said -0.14.
+**Read as parity. Nothing promoted; `checkpoint_a8_snap455000` remains the champion.**
+
 ## 2026-07-11 — NEGATIVE: rank-symmetry augmentation is inert on top of color-sym (R1)
 
 Branch `r1-rank-sym`. The nine number cards ONE..NINE are *exactly* interchangeable in TAKI
