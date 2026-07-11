@@ -292,6 +292,25 @@ table (1 model vs 3 copies of the other, in both directions) — it does not tes
 
 ## 2026-07-06 — DISCOVERY: seat-0 first-mover advantage confounds naive head-to-head evals
 
+> ### ⚠ CORRECTION (2026-07-11): the `play_match` half of this entry was WRONG WHEN WRITTEN.
+> This entry asserts that `eval.py`'s Mode A/B `play_match` "always seats the test agent at seat 0".
+> **It does not, and never did.** `play_match` has shuffled seating per game
+> (`seat_rng.shuffle(order)`, [eval.py:81](eval.py#L81)) since the *original* eval-harness commit
+> `e5feaa8` (2026-06-29) — a week **before** this entry was written. The test agent occupies the
+> advantaged opening seat in ~25% of games, exactly its parity share, so **Mode A/B numbers —
+> including Mode-B `--baseline` head-to-heads — are fair in expectation, NOT inflated.**
+> The "Not yet fixed" paragraph at the end of this entry is therefore void, and the PLAN.md
+> follow-up it spawned ("fix seat-0 bias in eval.py") targeted a non-bug and has been deleted
+> (see PLAN.md **R7**).
+>
+> **The seat-0 discovery itself is real and unaffected.** Seat 0 does win more regardless of
+> occupant; it bites `eval_headtohead.py`, which genuinely takes explicit *fixed* seats. The
+> seat-swap protocol remains mandatory there, and every promotion decision made with it stands.
+>
+> This error was not harmless: on 2026-07-11 it was used to wrongly dismiss A11's screening
+> signal as a "seat-0 artifact" (see that entry's own correction). Original text kept below,
+> uncorrected, as the historical record.
+
 While running head-to-head comparisons of the 500k A8 run's final checkpoint against
 `checkpoint_a4a7_snap550000`, found that `Game.reset()` ([game.py:392](game.py#L392))
 defaults `start_seat=0` and **every** eval game uses that default — so the "test agent"

@@ -275,10 +275,13 @@ gap between screening (0.273) and the gate (+1.00 pts/seat). That explanation wa
 corrected in the log. The true reason is mundane — **Mode B is a 1v3 win rate, the gate is a 2v2
 per-seat rate**; different quantities, no confound needed.
 
-**STILL OPEN (the remaining half of R7):** the 2026-07-06 RESEARCH_LOG entry and **CLAUDE.md's
-Evaluation-discipline section still assert the false "test agent always seat 0" claim** about
-`play_match`. Both need correcting — CLAUDE.md especially, since it is loaded into every session and
-currently mis-steers the reading of every Mode B number.
+**R7 is now fully CLOSED (2026-07-11).** Established via `git log -S`: the shuffle landed in
+`e5feaa8` (2026-06-29), the *original* eval-harness commit — a week **before** the 2026-07-06 entry
+that denies it. So the claim was **wrong when written**, not merely stale. All three carriers are
+fixed: the non-bug item is deleted from the section above; the 2026-07-06 RESEARCH_LOG entry now
+carries a prominent correction (original text preserved); and CLAUDE.md now states positively that
+Mode A/B seating is shuffled and its numbers are fair, plus that Mode B (1-vs-N win rate) and
+`eval_headtohead.py` (per-seat rate) are different quantities that should not be compared directly.
 
 **R8. The promotion pipeline has a winner's-curse problem, and the +2.0 bar is thin.**
 A10 screened 66 snapshots, A11 screened 48, each taking the max of a ~+/-2 pt noise band into a
