@@ -14,6 +14,64 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-11 — NEGATIVE: rank-symmetry augmentation is inert on top of color-sym (R1)
+
+Branch `r1-rank-sym`. The nine number cards ONE..NINE are *exactly* interchangeable in TAKI
+(deck holds 2 copies of every rank in every color; matching is "same color or same type"; the
+only two rules that mention ranks — must OPEN on a number, may END on a number or the King —
+are set-membership tests, so no rule branches on a specific rank). That makes any global
+relabeling of the nine ranks an exact symmetry of the dynamics: a group of 9! = 362,880 perms
+that commutes with the 24 color perms, for ~8.7M composed relabelings. R1 was the direct
+sequel to color-sym — the single largest gain the project ever produced — and carried the
+highest prior on the board ("data-side symmetries pay").
+
+**It bought nothing.**
+
+**Setup.** `train.py --trials 500000 --seed 1 --snapshot-every 5000 --rank-sym`
+(`models/run1783752040.164939_ranksym`) — A8's exact config, with rank-sym as the only
+difference, so the promoted `checkpoint_a8_snap455000` (color-sym only, same seed) is the
+paired control. Rank-sym is *additive*: color-sym stays on, and each replayed transition gets
+a single relabeling composed from both groups. Cost ~100us per replay batch — invisible next
+to the TF step.
+
+**Screening** (Mode B, stride 25000, 500 games, vs `checkpoint_a8_snap455000`): vs-baseline
+ranged 0.246-0.294 across all 21 snapshots with **no trend and no standout** — the whole
+spread is inside noise at 500 games (SE ~= 0.022). vs-random saturates at 0.88-0.93, the same
+plateau as A8's 0.912.
+
+**Seat-swap-controlled head-to-head** (the decisive step; top 5 screened snapshots vs A8,
+3000 games x 2 seat assignments each, per CLAUDE.md's evaluation discipline):
+
+| Snapshot | rank-sym avg per-seat | A8 avg per-seat | Edge |
+|---|---|---|---|
+| snap225000 | 0.264 | 0.247 | **+1.60** |
+| snap500000 | 0.260 | 0.258 | +0.15 |
+| snap475000 | 0.258 | 0.258 | +0.00 |
+| snap75000 | 0.257 | 0.263 | -0.60 |
+| snap150000 | 0.251 | 0.269 | -1.85 |
+
+**Mean edge across the 5 candidates: -0.14 pts — i.e. exact parity.** The best (+1.60) is a
+max-of-5 and so is selection-inflated; it does not clear the +2.0 bar that A10 and A11 already
+failed, let alone A8's +3.7. Read as parity, not as a small win.
+
+**Why this matters more than a normal null.** The "data-side symmetries pay" regularity was
+the project's one reliable guide, and this is its cleanest possible test — an *exact* symmetry,
+a 15,000x larger augmentation group than color-sym, implemented with the same machinery, and
+it moved nothing. So color-sym's gain was **not** "augmentation as such": more likely it was
+acting as a *stabilizer* (the `--no-color-sym` ablation diverges on long runs) and the color
+axis was the one the net was actually wasting capacity on. Once training is stable, piling on
+more exact relabelings is not the bottleneck. Combined with A12 (a dedicated best response
+could not exploit A8) and A10/A11 (capacity levers inert), the plateau increasingly looks like
+a **ceiling of this information set**, not a self-play equilibrium trap or a data-efficiency
+problem. The remaining lever with real headroom is the *observation* — what the agent can see
+(the discard histogram was deliberately removed in A7) — not how its data is relabeled.
+
+**Caveats.** Single seed (seed 1). A8's checkpoint was itself the max of a 101-snapshot screen,
+so the control is a selection-maximum while the treatment's candidates were screened the same
+way — symmetric in protocol, but both are optimistic. Nothing here says rank-sym *hurts*; it
+says it is inert, so it stays off by default (`--rank-sym` opt-in, code kept: it is exact,
+free, and a useful null to have on the shelf).
+
 ## 2026-07-11 — RESULT: A8 is near-unexploitable in this function class (A12 exploitability probe)
 
 Branch `a12-exploitability-probe`. **Best-response training**: a fresh learner (same
