@@ -82,9 +82,11 @@ section is intentionally deferred — we will tune those later.**
    The 450k rerun *did* train ~90k post-floor trials (the one caveat of the earlier inconclusive
    result), so this is now a clean negative. **Both halves of the architecture lever are now
    closed** — neither width (A10) nor dueling beats A8 with hyperparameters held fixed.
-   Watch-out recorded there: Mode B screening seats the test agent at seat 0, so its vs-baseline
-   numbers above 0.25 are confounded and inflated *uniformly* — they looked like a replicating
-   post-floor effect and were not. Rank with Mode B; decide only with the swap-controlled gate.
+   (En route, A11's screening *looked* promising — post-floor mean 0.273 vs 0.25 parity, with the
+   same snapshot topping all 3 seeds. It did not survive the gate. Not a seat-0 artifact, as an
+   earlier draft of the log wrongly claimed — **R7 is right, `play_match` shuffles seats and Mode B
+   is fair in expectation**; Mode B is simply a 1v3 win rate while the gate is a 2v2 per-seat rate,
+   and the effect was real but small. A live example of R8's winner's curse: top-of-53 overstates.)
 3. n-step returns (n=3-5): shortens the bootstrap chain; large contributor in Rainbow ablations
    even with dense rewards. Cheap to implement in the buffer.
 4. Lower epsilon floor late in training (0.1 -> 0.02-0.05, or decay to floor by ~50% of trials) —

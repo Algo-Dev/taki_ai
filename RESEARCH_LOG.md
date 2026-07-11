@@ -45,17 +45,27 @@ so every occupant covers all four seats) vs `checkpoint_a8_snap455000`:
 | seed 0, snap375000 | +0.15 |
 | seed 1, snap375000 | -0.35 |
 
-**The screening signal evaporated under swap control.** `snap375000`, the apparent 3-seed
-replication, gives **+0.15 / -0.35 / +0.95 — mean +0.25 pts/seat**, straddling zero. Best candidate
-overall is +1.00, below the **+2.0** promotion bar and within ~1 SE (~1 pt/seat at 3000 games) of
-zero. Not promoted.
+`snap375000`, the apparent 3-seed replication, gives **+0.15 / -0.35 / +0.95 — mean +0.25
+pts/seat**, straddling zero. Best candidate overall is +1.00, below the **+2.0** promotion bar and
+within ~1 SE (~1 pt/seat at 3000 games) of zero. Not promoted.
 
-**The lesson is the seat-0 confound, again.** The post-floor "lift" to 0.273 in screening was an
-artifact: `eval.py`'s Mode B always seats the test agent at seat 0, which wins more regardless of
-occupant (see the 2026-07-06 discovery entry). It inflated *every* post-floor snapshot uniformly,
-which is exactly why it looked like a consistent, replicating effect. Only the swap-controlled gate
-separates skill from seat. **Do not read Mode B vs-baseline numbers above 0.25 as evidence of an
-edge** — they are confounded by construction; they are useful for *ranking*, not for deciding.
+**Why screening read higher than the gate — and what it is NOT.** The first version of this entry
+claimed the 0.273 post-floor screening figure was a seat-0 artifact. **That was wrong and is
+corrected here.** `eval.py`'s `play_match` **shuffles seating per game**
+([eval.py:81](eval.py#L81), `seat_rng.shuffle(order)`), so the test agent occupies the advantaged
+opening seat in only ~25% of games — its parity share. **Mode B `--baseline` numbers are fair in
+expectation, not inflated.** This confirms review item **R7** in PLAN.md. (Note: the 2026-07-06
+entry below and CLAUDE.md both still assert `play_match` "always seats the test agent at seat 0" —
+that claim is false and needs its own correction. The seat-0 *discovery* is real, but it applies to
+`eval_headtohead.py`, which genuinely takes fixed seats.)
+
+The real explanation is duller: **the two numbers measure different things.** Mode B is a
+**1-vs-3** win rate (one dueling net vs three A8 copies, parity 0.25); the gate is a **2v2**
+per-seat rate. A modest edge does not map between them one-for-one, so "0.273 vs +1.00 pts/seat"
+was never an apples-to-apples contradiction needing a confound to explain it. Both readings agree
+on the substance: **slightly above parity, comfortably below the +2.0 bar.** The screening signal
+was real but small — and small is not enough to promote. See R8 (winner's curse) for why the top
+of 53 screened snapshots is expected to overstate.
 
 Current best remains `checkpoint_a8_snap455000`. Combined with A10 (capacity, negative), the
 architecture lever is now closed on both halves: neither more width nor a dueling parametrization
