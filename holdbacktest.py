@@ -128,3 +128,37 @@ class CensusControlTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WeaponTimingScenarioTest(unittest.TestCase):
+    """scenarios_b2: delta(k) is only interpretable if k is the ONLY thing that changes.
+    If the legal set or the deck/unseen features drifted across k, the sweep would be
+    measuring the drift instead of the opponent-hand-size feature."""
+
+    def _games(self):
+        from scenarios_b2 import b2_weapon, KS
+        from probe import _Dummy
+        return [b2_weapon(k).build([_Dummy()] * 4, seed=0) for k in KS]
+
+    def test_legal_set_is_identical_for_every_k(self):
+        sets = [sorted(map(str, g.valid_moves())) for g in self._games()]
+        for s in sets[1:]:
+            self.assertEqual(s, sets[0])
+
+    def test_only_the_opponent_hand_size_feature_varies(self):
+        import numpy as np
+        obs = [g.observation(0) for g in self._games()]
+        diff = np.array([np.flatnonzero(o != obs[0]) for o in obs[1:]], dtype=object)
+        changed = sorted({int(i) for idx in diff for i in idx})
+        # obs[139:147] = dir, 3 opponent hand sizes (turn order), deck size, unseen counts.
+        # Only the FIRST opponent slot (the next player) may move.
+        self.assertEqual(changed, [140], f'unexpected features drifted across k: {changed}')
+
+    def test_both_candidate_plays_shed_exactly_one_card(self):
+        """The whole point: the shaped reward is INDIFFERENT between them, so any
+        preference the net shows was not paid for by the reward."""
+        from scenarios_b2 import b2_weapon
+        from probe import _Dummy
+        g = b2_weapon(1).build([_Dummy()] * 4, seed=0)
+        for card in (Card(Type.PLUSTWO, Color.RED), Card(Type.FIVE, Color.RED)):
+            self.assertEqual(max_shed(g, 0, (A.PLAY_CARD, card)).shed, 1, str(card))
