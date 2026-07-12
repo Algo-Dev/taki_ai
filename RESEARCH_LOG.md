@@ -14,6 +14,65 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-12 — RULES BUG: the finishing rule was wrong. Fixed, B1 half-retracted, A8 retraining
+
+**Not an experiment — a correctness fix that invalidates a result and a champion.** Branch
+`fix-finishing-rule` (worktree `/home/orih/taki-rules`).
+
+**The bug.** `game.py` allowed a hand to END only on a number or the King:
+
+    FINISHING_TYPE_VALUES = NUMBER_TYPE_VALUES | {Type.KING.value}      # WRONG
+
+Every other card — TAKI, STOP, CHDIR, +2, Change Color, Super TAKI — emptied the hand but drew a
+penalty and play continued. **The real rule: you may finish on any card EXCEPT PLUS.** PLUS is the
+unique exception because it obliges you to put another card, which an empty hand cannot do; every
+other card's effect lands on someone else and is coherent as a final play.
+
+    FINISHING_TYPE_VALUES = frozenset(t.value for t in Type) - {Type.PLUS.value}   # correct
+
+**This was never a house rule.** It is absent from RULES.md's house-rule section; the code comment
+asserted the King exception was "standard Taki"; and `gametest.py` had a
+`test_cannot_win_on_action_card` *encoding the bug*, which is why the suite stayed green for the
+whole project. A test can only protect the behaviour it describes. One enforcement site
+(`next_turn`), no contract change — `OBSERVATION_SIZE`/`ACTION_SIZE` untouched, so checkpoints
+still load. RULES.md now has a dedicated **Finishing** section.
+
+**Fallout 1 — B1's sequencing half is RETRACTED** (see the banner on the entry below). B1a's whole
+premise was "the only finisher in hand is the red 5, so the run must end on it." Under the real
+rule the red STOP and red +2 are finishers too: **every ordering wins**, and there was never a
+trap. A8's deferral of the 5 was *real behaviour* — the DiD control genuinely separated it from
+random-init nets — but it was skill at a game that isn't Taki. **"Statement about Taki #1" is
+withdrawn.** B1's hoarding half (b1c) never touches finishing (no hand there can empty) and
+survives as reasoning, though its numbers came from a policy trained on the buggy game.
+
+**Fallout 2 — the interesting one.** With PLUS the *only* card that cannot end a hand, **there is
+almost nothing to sequence in Taki**. A TAKI run needs planning only when it contains a PLUS;
+otherwise dump the color group in any order and the last card wins. B1 assumed a rich sequencing
+skill and found the policy had it; the corrected game says the skill barely exists. *That absence
+is itself a finding*, and any redone sequencing probe must put a PLUS in hand to have a real trap.
+
+**Fallout 3 — the champion is stale.** `checkpoint_a8_snap455000` optimised a game the engine no
+longer plays, so probing it now would measure a policy on rules it never trained under. **Retrain
+launched** (tmux `retrain_a9`, `nice -n 19`): `train.py --trials 500000 --seed 1
+--snapshot-every 5000 --reward shaped` — A8's recipe on the corrected engine, but with the current
+**rank-sym default left ON** (color-sym + rank-sym; R1 measured rank-sym at parity, so this is not
+expected to move the number, and it re-tests rank-sym on the corrected game for free). ~6–7 h. On
+completion: screen with `eval.py` Mode B, confirm with seat-swap-controlled `eval_headtohead.py`,
+promote a new champion, then **redo B1** (hoarding first; sequencing needs a new PLUS-based
+design) before B2.
+
+**Caveat for anyone comparing across this line:** every win rate recorded *above* this entry was
+measured under the buggy rule. They are not comparable to anything measured after it. The rule
+change makes hands end sooner and more often on action cards, so absolute win rates vs random may
+shift on their own.
+
+Tests: 56 green (`gametest` + `probetest`). The old `test_cannot_win_on_action_card` is inverted
+into per-card finishing coverage (STOP/CHDIR/+2/TAKI/Super TAKI/CHCOL/King all win) plus
+`test_cannot_win_on_plus`; probetest's two B1A engine-fact tests now pin the *corrected* behaviour
+and the one surviving constraint (you cannot finish on a PLUS inside a TAKI).
+
+---
+
 ## 2026-07-12 — B1: A8 sequences a TAKI run correctly, but dumps the TAKI too eagerly (behavioural probe)
 
 > **⚠️ HALF RETRACTED same day — see the finishing-rule entry above.** The engine's finishing rule was
