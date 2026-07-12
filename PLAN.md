@@ -274,13 +274,20 @@ training — runnable against A8 today. Requires a small harness (construct a `G
 state, ask an agent for its Q-vector, pretty-print the ranking); `gametest.py`'s hand-built states
 and `main.py`'s greedy demo already show every piece needed.
 
-- **B1. The colored-TAKI hoard — DONE (2026-07-12). A8 splits the two halves.**
-  **Sequencing: PASS.** It plans the run backwards from its finisher, and the control shows it is
-  *detecting the win-now condition* rather than reflexively avoiding low numbers (difference-in-
-  differences **+15.6**, vs ~0.0 for five random-init nets; replicates at +7.8 in the a4a7 lineage).
-  Worth **+0.40 win rate** — and once it opens a run it finishes it correctly **1.000** of the time.
-  **Hoarding: FAIL, and the failure is legible.** It correctly keeps a weakly-backed TAKI (sheds at
-  ≤1 backers) but dumps from 2 backers up — while the rollouts say **dumping never beats keeping at
+- **B1. The colored-TAKI hoard — HALF RETRACTED (2026-07-12), REDO after the retrain.**
+  **Sequencing: RETRACTED — the finishing rule was a bug.** The engine only let a hand end on a
+  number or the King; the real rule is **any card except PLUS**. So B1a's "the run must end on the
+  red 5" was false — the STOP and the +2 are finishers too, every ordering wins, and the scenario
+  had no trap in it. A8's deferral of the 5 was real behaviour, but it was skill at a game that
+  isn't Taki, so the "plans the run backwards from its finisher" claim (DiD +15.6, worth +0.40 win
+  rate) is **withdrawn, not merely re-measured**. Rebuilding it needs a **PLUS in hand** — that is
+  now the only card that constrains a run's last play, which makes "sequencing skill" a much
+  thinner concept than B1 assumed. *That thinness is itself a finding: in real Taki there is
+  almost nothing to sequence.*
+  **Hoarding: FAIL — and this half SURVIVES the rule fix** (b1c never touched finishing: no hand
+  in the sweep can empty, so no finisher is ever chosen). Still must be **re-run against the
+  retrained champion**, since A8 itself learned the wrong game. As measured: it correctly keeps a
+  weakly-backed TAKI (sheds at ≤1 backers) but dumps from 2 backers up — while the rollouts say **dumping never beats keeping at
   any backing level, against either opponent pool**; at 4 backers a five-card turn wins *less* often
   than a one-card turn (−0.033 ± 0.011). **This file's own premise — "hoarding is nearly free" — is
   confirmed by measurement, and the policy is what doesn't fully believe it.** Cause: the shaped
