@@ -378,10 +378,21 @@ B2 split this cleanly:
   it thinks a near-winning opponent is **good news** — and therefore **declines to block** a one-card
   opponent, which rollout prices at **+0.050 +/- 0.017** for blocking. It is right at every opponent hand size
   except the one that matters, and most confident precisely there.
-- **The fix and the pre-registered prediction:** add a terminal loss penalty (ideally potential-based,
-  per A9). B2's `scenarios_b2.py` sweep is the acceptance test — `delta(k) = Q(+2) - Q(number)` must
-  flip sign at k=1, and the census's refusal rate must NOT rise (that would mean the fix broke the
-  good half). Training is cheap now: the A9 run was flat after 25k trials.
+- **The fix — IMPLEMENTED and RUNNING (2026-07-13).** `train.py --loss-penalty X` adds a penalty to
+  the TERMINAL transition of a seat that did not win. `seat_reward` previously could not tell a losing
+  terminal from an ordinary step (both passed `won=False`), which is *why* the signal was missing; a
+  `terminal` flag now distinguishes them. Default 0.0, so the pre-B2 behaviour is bit-identical unless
+  asked for. The pinning test states the defect in one line: **with no penalty, losing scores exactly
+  the same as playing on** (-4 == -4).
+- **Pre-registered acceptance test** (`r6_accept.py`, written BEFORE the runs finished, able to fail):
+  1. `delta(k=1) = Q(+2) - Q(number)` must **flip sign** — the agent must want to block a one-card
+     opponent. (Rollout: blocking is worth +0.050 +/- 0.017 at k=1 and -0.04..-0.05 at k>=2, so a
+     correct policy's delta crosses zero between k=1 and k=2.)
+  2. **Guard-rail:** the census's REFUSAL rate must NOT rise. The `-len(hand)` term is what teaches
+     "never refuse to play" (~13 pts). If the loss penalty broke that, R6 is a regression regardless
+     of what it did for defence.
+  Runs in flight: 100k trials, seed 1, `--loss-penalty 10` and `20` (the win bonus is ~15, so these
+  bracket "a loss costs about what a win pays"). Training is cheap now — the A9 run was flat after 25k.
 
 Original note follows (its diagnosis was right; only its "defensive play is under-incentivised"
 framing needed the evidence B2 now supplies).
