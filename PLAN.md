@@ -462,3 +462,10 @@ measured at **0.5-0.7 pts** (3 seeds, pre-committed final snapshot), so A8's +3.
 argmax**, not seed luck (within-run snapshot SD 1.25 pts vs seed-to-seed 0.51) — see R8, now partially
 answered: pre-commit the snapshot before the confirming head-to-head, and never report the max of a
 selection set as the edge.
+
+
+-- possibly try a rewrite in pytorch. First as if there is advantage
+   and train + test vs. random.
+
+-- create a new github repo which is mine with all the commits and same dates. the project has strayed significantly from the original.
+
