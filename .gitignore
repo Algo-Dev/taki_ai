@@ -9,3 +9,8 @@ __pycache__/
 # Keep models/.gitkeep so the directory stays in the tree.
 /models/*
 !/models/.gitkeep
+
+# Run logs dropped at the repo root (train/eval stdout). Regenerable and huge — a 500k-trial
+# training log is ~10 MB of "Trial n/N". Root-level only: probes/*.log are deliberate artefacts
+# of a probe write-up and stay tracked.
+/*.log
