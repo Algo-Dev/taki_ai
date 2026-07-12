@@ -16,6 +16,14 @@ Definitions used throughout:
 
 ## 2026-07-12 — B1: A8 sequences a TAKI run correctly, but dumps the TAKI too eagerly (behavioural probe)
 
+> **⚠️ HALF RETRACTED same day — see the finishing-rule entry above.** The engine's finishing rule was
+> a bug (finish only on a number/King; the real rule is *any card except PLUS*). That makes the
+> **sequencing half degenerate**: in B1a's hand the STOP and +2 are finishers too, so every ordering
+> wins, there was never a trap, and **"Statement about Taki #1" is withdrawn** — A8's deferral of the
+> 5 is real behaviour at a game that isn't Taki. The **hoarding half (b1c) survives the rule fix** (no
+> hand there can empty), but its numbers came from a policy trained on the buggy game, so it must be
+> re-measured after the retrain. Details in `probes/b1_colored_taki_hoard.md`.
+
 The first B-series probe (PLAN.md), and the first result in this log that is **not a win rate**: it is
 a pair of statements about how to play Taki, each backed by the champion's own valuation and then
 adjudicated by rollout. No training. Harness: `probe.py` (+ `probetest.py`, 14 tests). Full write-up:

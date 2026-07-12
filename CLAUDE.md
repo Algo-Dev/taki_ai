@@ -21,10 +21,12 @@ information a human actually has** — and then to *interrogate the resulting po
      — rather than greedily dumping the most cards each turn?
    - With a **colored TAKI plus several cards of that color**, does it learn to *keep* them to the
      end? A colored TAKI opens a run in which that whole color group discharges in a **single
-     turn** (RULES.md), so hoarding it costs little and guarantees a fast finish. Sharpened by a
-     real wrinkle: a hand may only *end* on a number or the King (`FINISHING_TYPE_VALUES`), so
-     the run must be planned to close on a legal finisher — does the policy handle that, or does
-     it dump the TAKI greedily the moment it is playable?
+     turn** (RULES.md), so hoarding it costs little and guarantees a fast finish. Does the policy
+     see that, or does it dump the TAKI greedily the moment it is playable? (There is *almost* no
+     sequencing wrinkle to go with it: a hand may end on **any card except PLUS**
+     (`FINISHING_TYPE_VALUES`, RULES.md), so a run only has to be planned around a last card when
+     it contains a PLUS. The engine formerly restricted finishing to numbers and the King — that
+     was a **bug**, fixed 2026-07-12, and it invalidated the sequencing half of B1.)
    This reframes the plateau: A10/A11 (capacity), A12 (near-unexploitable), and R1 (rank-sym,
    parity) are converging evidence the agent is at the **ceiling of its information set** — i.e.
    the project working as designed, not a wall to break through.
@@ -32,6 +34,14 @@ information a human actually has** — and then to *interrogate the resulting po
 ## Project
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
+
+> **STALE CHAMPION (2026-07-12).** The finishing rule was wrong until today: the engine let a hand
+> end only on a number or the King, when the real rule is **any card except PLUS** (RULES.md).
+> Every checkpoint below — A8 included — was trained on that other game, so its numbers describe a
+> game the engine no longer plays. The observation/action contract is unchanged, so they still
+> *load*; they are simply no longer trustworthy. A8 is being retrained; until a new champion is
+> screened and promoted, treat the win rates in this section as historical.
+
 Current best model: `models/checkpoint_a8_snap455000` (A8, the 500k-run seed1/snap455000 — **0.912** vs 3 random opponents at 3000 games; beats the previous best `checkpoint_a4a7_snap550000` head-to-head by **+3.7 points per-seat** in a seat-swap-controlled comparison (0.278 vs 0.241), the largest and most consistent edge among the top-5 candidate snapshots screened from the run). A8 = self-play training collects transitions from all four seats, not just the learner's, via `train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k). Same 147-float observation as A4+A7 (opener randomized per trial, A4; opponent hand sizes/deck size/unseen counts, A7) — checkpoints remain cross-loadable with `checkpoint_a4a7_snap550000`. Color-sym and rank-sym replay augmentation are both on by default (opt out with `--no-color-sym` / `--no-rank-sym`). **Rank-sym is on by principle, not evidence:** the nine number cards are an exact symmetry of the rules, so relabeling them is free bias removal — but it measured at exact *parity* with A8 (R1, RESEARCH_LOG.md), so the default is not a claim that it helps, and A8 (trained color-sym-only) remains the champion. Earlier checkpoints (`checkpoint_colorsym_snap180000` with 205-float obs, `checkpoint_shaped_snap300000` with 201-float obs) are **not loadable** — observation encoding changed. Chance baseline 0.25.
 
 ## Environment & Commands

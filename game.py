@@ -152,9 +152,10 @@ class State(Enum):
 
 # Plain number cards (ONE..NINE); the round must OPEN on one of these.
 NUMBER_TYPE_VALUES = frozenset(range(Type.ONE.value, Type.NINE.value + 1))
-# Card types the game may END on: the plain numbers plus the King (the King is a legal
-# finishing card in standard Taki). Every other action card triggers the penalty draw.
-FINISHING_TYPE_VALUES = NUMBER_TYPE_VALUES | {Type.KING.value}
+# Card types the game may END on: everything except PLUS. PLUS obliges the player to put one
+# more card, which an empty hand cannot satisfy; every other card's effect lands on someone
+# else and is coherent as a final card. Ending on a PLUS triggers the penalty draw.
+FINISHING_TYPE_VALUES = frozenset(t.value for t in Type) - {Type.PLUS.value}
 # Cards dealt to each player at the start of a round.
 INITIAL_HAND_SIZE = 8
 # Observation normalisation constants (see Game.observation). Count features are
@@ -693,14 +694,14 @@ class Game:
         finished = len(self.hands[self.curr]) == 0
         if finished and action is Action.PLAY_CARD \
                 and card.type.value not in FINISHING_TYPE_VALUES:
-            # Standard Taki: you may not end the game on an action card (the King is the
-            # exception — see FINISHING_TYPE_VALUES). Draw a penalty card and keep playing
-            # (the card's own effect still applies).
+            # You may not end the game on a PLUS — it obliges you to play another card
+            # (see FINISHING_TYPE_VALUES). Draw a penalty card and keep playing (the card's
+            # own effect still applies).
             self.draw_card(self.curr, 1)
             # Only truly finished if the deck was exhausted and no card could be drawn.
             finished = len(self.hands[self.curr]) == 0
             if self.debug and not finished:
-                print(f"Player {self.curr+1} can't finish on an action card; drew a penalty.")
+                print(f"Player {self.curr+1} can't finish on a PLUS; drew a penalty.")
         if finished:
             self.state = State.FINISHED
             if self.debug:

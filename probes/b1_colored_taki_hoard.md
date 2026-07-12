@@ -1,5 +1,30 @@
 # B1 — The colored-TAKI hoard: what does A8 actually know?
 
+> ## ⚠️ PARTIAL RETRACTION (2026-07-12) — read before believing anything below
+>
+> **The engine's finishing rule was wrong when this was run.** `game.py` let a hand end only on a
+> number or the King. The real Taki rule (now implemented): **you may finish on any card except
+> PLUS** — PLUS alone obliges you to play another card, which an empty hand cannot do. See RULES.md.
+>
+> **What that kills — Result 1, the sequencing half, and "Statement about Taki #1".** Result 1's
+> position (`red TAKI, red STOP, red +2, red 5`) rests on "the only finisher in hand is the red 5,
+> so the run must end on it." Under the real rule the STOP and the +2 are finishers too: **every
+> ordering of that run wins**, there is no trap, and the scenario is degenerate. The measured
+> behaviour was real — A8 genuinely defers the 5, and the DiD control genuinely separates it from
+> random-init nets — but it is skill at a game that isn't Taki. *Statement about Taki #1 is
+> withdrawn.* Result 2 (the minimal pair) goes with it, for the same reason. Pinned in
+> `probetest.py::test_b1a_has_no_sequencing_trap_every_order_wins`.
+>
+> **What survives — Result 3, the hoarding half (b1c).** The matched-TAKI sweep never touches the
+> finishing rule: no hand in it can empty, so no finisher is ever chosen. Its finding — the policy
+> dumps a well-backed TAKI that the rollouts say it should keep — stands as *reasoning*, but the
+> numbers were produced by a policy trained on the buggy game and must be **re-measured against the
+> retrained champion**.
+>
+> **Bigger point.** With PLUS the only card that cannot end a hand, "sequencing skill" in Taki is far
+> thinner than this report assumed: a run needs planning only when it contains a PLUS. That absence
+> is itself a finding, and it is what a redone B1 should test.
+
 **Policy probed:** `models/checkpoint_a8_snap455000` (the champion; 0.912 vs 3 random opponents).
 **Harness:** `probe.py`. **Consistency tests:** `probetest.py` (14 tests, all green).
 **Raw output:** `b1_qarm.log` (Q arm), `b1_mc.log` (rollout arm).

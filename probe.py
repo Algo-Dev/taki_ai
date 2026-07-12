@@ -325,11 +325,15 @@ class Scenario:
 
 PLAY = Action.PLAY_CARD
 
-# --- B1a: the sequencing trap -----------------------------------------------------------------
-# All four cards are red, so all are legal on a red 3. The run must END on the red 5 (the only
-# finisher in hand): ending it on the STOP or the +2 empties the hand on a non-finisher, which
-# costs a penalty draw and forfeits a GUARANTEED win. (It does not forfeit the win outright —
-# the drawn card is still playable inside the open TAKI.)
+# --- B1a: the sequencing trap -- INVALIDATED, DO NOT INTERPRET ---------------------------------
+# These scenarios were built against a BUG in FINISHING_TYPE_VALUES that let a hand end only on a
+# number or the King. The real rule: you may finish on ANY card except PLUS. The red STOP and the
+# red +2 are therefore finishers too, so there is NO sequencing constraint here and no trap —
+# every ordering of the run wins. The B1 headline drawn from these ("plan a TAKI run backwards
+# from its last card") is an artifact of the bug; see probes/b1_colored_taki_hoard.md.
+# A real sequencing trap needs a PLUS in hand (the one card that cannot end a hand). Kept only so
+# the B1 report stays reproducible; b1c (the matched-TAKI sweep) never depended on the rule and
+# remains valid.
 B1A = Scenario(
     name='b1a',
     desc='Sequencing trap: red TAKI + red STOP + red +2 + red 5 on a red 3.',
@@ -345,15 +349,14 @@ B1A = Scenario(
         'open_taki': ((PLAY, c(Type.TAKI, R)),),
         'no_taki': ((PLAY, c(Type.FIVE, R)),),
     },
-    correct='Open the TAKI, play STOP and +2 in either order, finish on the red 5 -> wins outright.',
+    correct='DEGENERATE under the corrected rule: open the TAKI and dump all four in ANY order '
+            '-> wins outright. There is no last-card constraint.',
 )
 
-# --- B1a-min: the minimal pair (the control that makes B1a mean anything) ----------------------
-# A: inside an open red TAKI, holding red STOP + red 5. STOP-then-5 wins; 5-first eats a penalty.
-# B: identical, plus a blue 9 that is UNPLAYABLE inside a red TAKI -> no win is available this
-# turn, so the STOP-vs-5 order barely matters. A policy that has actually detected the win-now
-# condition prefers the STOP much more strongly in A than in B; a policy that merely dislikes
-# playing low numbers prefers it equally in both.
+# --- B1a-min: the minimal pair -- INVALIDATED with B1a (see above) -----------------------------
+# The pair was built on "5-first eats a penalty", which the finishing-rule fix makes false: the
+# red STOP is a legal finisher, so BOTH orders win in A. The A-vs-B contrast no longer isolates a
+# win-now condition, and the Q-gap it reports means nothing. Redesign with a PLUS before reusing.
 B1A_MIN_A = Scenario(
     name='b1a_min_a',
     desc='Trap LIVE: in an open red TAKI with red STOP + red 5. Win is available this turn.',
@@ -363,7 +366,7 @@ B1A_MIN_A = Scenario(
     expect_illegal=((Action.DRAW, None),),
     lines={'correct': ((PLAY, c(Type.STOP, R)), (PLAY, c(Type.FIVE, R))),
            'trap': ((PLAY, c(Type.FIVE, R)),)},
-    correct='STOP then 5 -> wins. The 5 first empties the hand on the STOP -> penalty draw.',
+    correct='DEGENERATE: both orders win (the red STOP is a legal finisher). No trap here.',
 )
 B1A_MIN_B = Scenario(
     name='b1a_min_b',
