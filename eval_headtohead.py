@@ -6,11 +6,53 @@ import math
 import time
 from agents.dqn import AIAgent
 from agents.random import RandomAgent
+from agents.heuristic import HeuristicAgent, Weights, GREEDY, ABLATIONS, ablated
 from game import Game
 
 def load_greedy_agent(checkpoint_path):
     """Load a trained DQN agent in greedy mode."""
     return AIAgent(epsilon=0.0, epsilon_min=0.0, load_model=checkpoint_path)
+
+
+def make_agent(spec):
+    """Resolve an agent spec (PLAN.md B2 needs non-checkpoint opponents here).
+
+      random                -> RandomAgent
+      heuristic             -> the full R3 heuristic
+      heuristic:greedy      -> every hold-back behaviour OFF (the B2 control)
+      heuristic:-<name>     -> the full agent with ONE hold-back behaviour off,
+                               for name in ABLATIONS (hoard, wilds, blocker,
+                               finisher, king_follow, king_cancel)
+      <path>                -> a DQN checkpoint
+    """
+    if spec == 'random':
+        return RandomAgent(seed=0)
+    if spec == 'heuristic':
+        return HeuristicAgent()
+    if spec.startswith('heuristic:'):
+        variant = spec.split(':', 1)[1]
+        if variant == 'greedy':
+            return HeuristicAgent(weights=GREEDY)
+        if variant.startswith('-'):
+            name = variant[1:]
+            if name not in ABLATIONS:
+                raise SystemExit(f'unknown ablation {name!r}; '
+                                 f'choose from {sorted(ABLATIONS)}')
+            return HeuristicAgent(weights=ablated(name))
+        # Arbitrary overrides: "heuristic:w_reserve=3.0,p_king=2" — lets a weight be
+        # SWEPT rather than merely switched off, which is how we separate "decline to
+        # play the card" from "draw rather than play it" (the SCORE_DRAW=-5 threshold).
+        import dataclasses as _dc
+        fields = {f.name: f.type for f in _dc.fields(Weights)}
+        overrides = {}
+        for part in variant.split(','):
+            key, _, val = part.partition('=')
+            if key not in fields:
+                raise SystemExit(f'unknown weight {key!r}; choose from {sorted(fields)}')
+            overrides[key] = (val.lower() == 'true') if fields[key] is bool \
+                else (int(val) if fields[key] is int else float(val))
+        return HeuristicAgent(weights=_dc.replace(Weights(), **overrides))
+    return load_greedy_agent(spec)
 
 def play_match(seat_agents, games, seed=0, verbose=False):
     """Play with a fixed list of 4 agents (one per seat).
@@ -123,8 +165,9 @@ def main():
     parser = argparse.ArgumentParser(description='Head-to-head eval of two checkpoints, '
                                                   'any 4-seat assignment (e.g. 1v3, 2v2, 3v1, '
                                                   'at arbitrary seat positions).')
-    parser.add_argument('model1', help='checkpoint for team 1')
-    parser.add_argument('model2', help='checkpoint for team 2')
+    parser.add_argument('model1', help='team 1: a checkpoint path, "random", "heuristic", '
+                                       '"heuristic:greedy", or "heuristic:-<ablation>"')
+    parser.add_argument('model2', help='team 2: same forms as model1')
     parser.add_argument('--team1-seats', default='0',
                         help='comma-separated seat indices (0-3) for model1; remaining seats '
                              'get model2 (default "0" = model1 solo at seat 0)')
@@ -147,9 +190,9 @@ def main():
     team2_idx = [i for i in range(4) if i not in team1_idx]
 
     print(f'Loading {args.model1}...')
-    agent1 = load_greedy_agent(args.model1)
+    agent1 = make_agent(args.model1)
     print(f'Loading {args.model2}...')
-    agent2 = load_greedy_agent(args.model2)
+    agent2 = make_agent(args.model2)
 
     name1 = args.model1.rstrip('/').split('/')[-1]
     name2 = args.model2.rstrip('/').split('/')[-1]
