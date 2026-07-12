@@ -35,14 +35,34 @@ information a human actually has** — and then to *interrogate the resulting po
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
 
-> **STALE CHAMPION (2026-07-12).** The finishing rule was wrong until today: the engine let a hand
-> end only on a number or the King, when the real rule is **any card except PLUS** (RULES.md).
-> Every checkpoint below — A8 included — was trained on that other game, so its numbers describe a
-> game the engine no longer plays. The observation/action contract is unchanged, so they still
-> *load*; they are simply no longer trustworthy. A8 is being retrained; until a new champion is
-> screened and promoted, treat the win rates in this section as historical.
+Current best model: **`models/checkpoint_a9rules_snap500000`** (A9-rules — the first model trained on
+the **corrected finishing rule**; 500k trials, seed 1, shaped, color-sym + rank-sym). Scores
+**0.348 vs 3 heuristic opponents** and 0.906 vs 3 random, at 3000 games. Chance baseline 0.25.
+**It is also the only checkpoint that exists** — see the two warnings below.
 
-Current best model: `models/checkpoint_a8_snap455000` (A8, the 500k-run seed1/snap455000 — **0.912** vs 3 random opponents at 3000 games; beats the previous best `checkpoint_a4a7_snap550000` head-to-head by **+3.7 points per-seat** in a seat-swap-controlled comparison (0.278 vs 0.241), the largest and most consistent edge among the top-5 candidate snapshots screened from the run). A8 = self-play training collects transitions from all four seats, not just the learner's, via `train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k). Same 147-float observation as A4+A7 (opener randomized per trial, A4; opponent hand sizes/deck size/unseen counts, A7) — checkpoints remain cross-loadable with `checkpoint_a4a7_snap550000`. Color-sym and rank-sym replay augmentation are both on by default (opt out with `--no-color-sym` / `--no-rank-sym`). **Rank-sym is on by principle, not evidence:** the nine number cards are an exact symmetry of the rules, so relabeling them is free bias removal — but it measured at exact *parity* with A8 (R1, RESEARCH_LOG.md), so the default is not a claim that it helps, and A8 (trained color-sym-only) remains the champion. Earlier checkpoints (`checkpoint_colorsym_snap180000` with 205-float obs, `checkpoint_shaped_snap300000` with 201-float obs) are **not loadable** — observation encoding changed. Chance baseline 0.25.
+> **ALL PRE-2026-07-13 CHECKPOINTS ARE GONE FROM DISK.** `checkpoint_a8_snap455000` and
+> `checkpoint_a4a7_snap550000` were destroyed in the models-symlink incident (commits `0f96882` /
+> `62a7433`); `models/` is gitignored, so nothing was recoverable. Their recorded win rates survive
+> in RESEARCH_LOG.md as *history only* — no head-to-head against them can ever be run again. Do not
+> write instructions that assume they exist.
+>
+> **AND THEY WOULD HAVE BEEN INVALID ANYWAY.** The finishing rule was wrong until 2026-07-13 (the
+> engine let a hand end only on a number or the King; the real rule is **any card except PLUS** —
+> RULES.md). Every pre-A9 checkpoint learned that other game. Cross-rule win rates are not
+> comparable in either direction.
+
+**Rank on the heuristic, not on random.** `--opponent heuristic` (R3) is the yardstick; vs-random
+is saturated and misleading — A9-rules reaches 0.902 vs random by **trial 25,000** and then does not
+improve for the remaining 475k trials, while the same run's heuristic score is only 0.348. A high
+vs-random number means almost nothing (R3: A8 scored 0.912 vs random but 0.343 vs heuristic).
+
+A8's architecture is still what trains: self-play collects transitions from all four seats via
+`train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k), on the 147-float A4+A7
+observation (opener randomized per trial; opponent hand sizes/deck size/unseen counts; no discard
+histogram). Color-sym and rank-sym replay augmentation are both on by default (opt out with
+`--no-color-sym` / `--no-rank-sym`). **Rank-sym is on by principle, not evidence:** the nine number
+cards are an exact symmetry of the rules, so relabeling them is free bias removal — but it measured
+at exact *parity* (R1, RESEARCH_LOG.md), so the default is not a claim that it helps.
 
 ## Environment & Commands
 
