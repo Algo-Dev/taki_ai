@@ -50,6 +50,10 @@ python eval.py --run-dir models/run<ts> --baseline <ckpt> \
     --snap-stride 100 --games-b 3000                         # Mode B: snapshot progression
 
 python main.py --model <ckpt>                                # seeded demo game (greedy)
+
+python probe.py --model <ckpt> --scenario all --controls     # B-series behavioural probes (Q-ranking)
+python probe.py --model <ckpt> --scenario b1c_k2 --mc 1500   # + rollout adjudication of a line
+python -m unittest probetest                                 # probe-harness consistency tests
 ```
 
 Training/eval runs can take hours (1M trials ≈ 13 h); run long jobs in the background.
