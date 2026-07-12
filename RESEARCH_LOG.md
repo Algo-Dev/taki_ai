@@ -70,6 +70,47 @@ Tests: 56 green (`gametest` + `probetest`). The old `test_cannot_win_on_action_c
 into per-card finishing coverage (STOP/CHDIR/+2/TAKI/Super TAKI/CHCOL/King all win) plus
 `test_cannot_win_on_plus`; probetest's two B1A engine-fact tests now pin the *corrected* behaviour
 and the one surviving constraint (you cannot finish on a PLUS inside a TAKI).
+---
+
+## 2026-07-12 — New head-to-head standard: alternating 2v2 seat swap (`--seat-swap`), + a pairing bug it exposed
+
+Methodology change, not a training result. The head-to-head promotion test is now
+**`eval_headtohead.py <cand> <champ> --team1-seats 0,2 --seat-swap --games 3000`**, which runs both
+occupancies of the alternating partition over the same decks and reports the seat-balanced, paired
+comparison in one command. Rationale is in CLAUDE.md; the two reasons that decided it:
+
+- **Alternating `A,B,A,B` is the only 2v2 layout with no friendly fire.** STOP/+2/CHDIR hit your
+  *neighbour*, so in a contiguous `A,A,B,B` half of each team's aggression lands on a teammate — and
+  CHDIR makes that asymmetry direction-dependent. Interleaved, every attack crosses team lines.
+- **Seat balance becomes exact rather than approximate.** Across the two runs each model holds each
+  seat exactly once, so seat 0's first-mover edge cancels by construction; and all four seats feed the
+  team indicator (parity 0.5) instead of one Bernoulli per game (parity 0.25).
+
+**Pairing bug found and fixed while implementing it.** `play_match` built one `Game` and reused its
+single RNG stream across all games. Mid-game reshuffles draw from that same stream, so game *g*'s deal
+depended on how games *0..g-1* happened to play out — meaning two runs with swapped occupants silently
+**diverged after game 0** and were never actually paired. Fixed by reseeding the deck RNG to `seed + g`
+before every game, as `eval.py` has always done. (Also: `total_decided` used to increment on every game
+including undecided ones; now only on decided ones.) Old head-to-head numbers were unpaired but not
+*biased* — the seat-swap logic was still comparing like with like in expectation, just noisily.
+
+**Validation — the new protocol reproduces the A8 promotion independently.**
+`checkpoint_a8_snap455000` vs `checkpoint_a4a7_snap550000`, partition [0,2]/[1,3], 3000 games x 2 runs,
+seed 0:
+
+| | seat-balanced per-seat (parity 0.250) |
+|---|---|
+| `checkpoint_a8_snap455000` | **0.268** |
+| `checkpoint_a4a7_snap550000` | 0.232 |
+
+Paired same-seat margin **+0.0710 ± 0.0114** (paired SE over 3000 common decks; ~6 SE). The +3.6 pt
+per-seat edge matches the **+3.7** recorded for A8's original promotion under the old ad-hoc protocol,
+so the champion stands and the two protocols agree where they overlap. Runtime is cheap: 134 s for both
+runs at 3000 games.
+
+**Keep the 1v3 form (`--team1-seats 0 --seat-swap`) as a secondary check** — it is the same shape as
+Mode B (one model in a homogeneous field), which is what the champion's headline 0.912 means. A
+disagreement between 2v2 and 1v3 is information (the edge depends on field composition), not a bug.
 
 ---
 
