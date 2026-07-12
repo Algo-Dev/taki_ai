@@ -1,9 +1,10 @@
-# B2 — Holding cards back: the question was wrong, and the answer is worth 13 points
+# B2 — Holding cards back: the shaped reward is the champion's best habit *and* its worst blind spot
 
 **Policy probed:** `models/checkpoint_a9rules_snap500000` (the champion on the corrected
 finishing rule; 0.906 vs 3 random, 0.348 vs 3 heuristic).
-**Harness:** `holdback.py` (census), `agents/heuristic.py` (`Weights`/`GREEDY`/`ABLATIONS`),
-`eval_headtohead.py --seat-swap`. **Tests:** `holdbacktest.py` (14) + `agenttest.py` (+5).
+**Harness:** `holdback.py` (census), `scenarios_b2.py` (weapon timing), `agents/heuristic.py`
+(`Weights`/`GREEDY`/`ABLATIONS`), `eval_headtohead.py --seat-swap`, `probe.mc_line` (rollouts).
+**Tests:** `holdbacktest.py` (17) + `agenttest.py` (+5). Full suite 100 green.
 
 PLAN.md asked: *the shaped reward pays `-len(hand)` every step, so the policy is trained to be
 greedy about hand size. Does it ever play **fewer** cards now for a better end-game? If it never
@@ -11,24 +12,39 @@ does, that is a real finding about the shaped reward's bias, and the strongest a
 
 ## Verdict
 
-**The premise is false, and R6 is unmotivated by it.**
+**B2 asked one question that turned out to be two, and they have opposite answers.** The shaped
+reward is simultaneously the source of the champion's best discipline and of its worst blind spot.
+
+**Half 1 — "does it shed greedily?" The premise is FALSE. The reward is ALIGNED.**
 
 1. **"Holding back" is not one behaviour. It is two, and they have opposite signs.**
    - **REFUSAL** — decline to put a card down at all (DRAW, or CLOSE a TAKI/King continuation)
-     while a legal play exists. You keep the card *and* lose the tempo. **Catastrophic.**
+     while a legal play exists. You keep the card *and* lose the tempo. **Catastrophic (−13 pts).**
    - **PREFERENCE** — play a *different* card instead. You keep the card, you spend the turn.
-     **Valuable.**
+     **Valuable (+2 to +7 pts).**
 2. **The champion already has this exactly right**: it refuses on **1.8%** of its free decisions
    (essentially never) while holding back by preference on **20.4%** of them. It is *not* a greedy
    hand-size minimiser, and it is not making the mistake B2 predicted.
-3. **The shaped reward is the reason it gets this right, not a bias to be fixed.** `-len(hand)` per
-   step punishes drawing — drawing *grows* the hand — so the training signal directly encodes the
-   single most valuable discipline in the game. It is **aligned** with the dominant strategic truth,
-   not misaligned. **R6 (a terminal loss penalty, as a fidelity fix for hold-back) should not be
-   built on B2's evidence.**
-4. **Bonus, and it is a big one: R3's heuristic is badly tuned.** Fixing only its hold-back
-   discipline takes it from **0.850 → 0.899** vs random and to **statistical parity with the
-   500k-trial DQN champion**. The project's non-lineage yardstick was weak because of a tuning bug.
+3. **The shaped reward is why it gets this right.** `-len(hand)` per step punishes drawing — drawing
+   *grows* the hand — so the training signal directly encodes the most valuable rule in the game.
+
+**Half 2 — "does it hold a weapon for a near-winner?" It FAILS, and the shaped reward is directly,
+mechanically the cause. R6 is PROVEN — on defence, not on shedding.**
+
+4. With the next player one card from winning, the champion **declines to block** — and blocking is
+   worth **+0.050 ± 0.017** by rollout. Worse, its preference for the wrong move is *strongest*
+   exactly there. **It is most confidently wrong where the stakes are highest.**
+5. **The mechanism is visible in the Q-values and then in the reward code.** `train.py`'s
+   `seat_reward` is `-len(hand)` every step, plus a bonus **only on a win** — **a loss pays nothing,
+   the penalty stream simply stops.** Since every step is negative, *an opponent about to win is good
+   news*: it ends the stream sooner. The champion values the identical hand at **−6.56 when the next
+   player holds 1 card** and **−9.93 when they hold 7**. Blocking prolongs the game, so it looks
+   *worse*. **The value function is not mis-fit — it is faithfully optimising an objective that is
+   indifferent to who wins.** That is exactly PLAN.md R6, now with a complete causal chain.
+
+**Bonus, and a big one: R3's heuristic is badly tuned.** Fixing only its hold-back discipline takes
+it from **0.850 → 0.899** vs random and to **statistical parity with the 500k-trial DQN champion**.
+The project's non-lineage yardstick was weak because of a tuning bug.
 
 ---
 
@@ -151,17 +167,82 @@ opponent: the yardstick had a 17-point tuning bug in it.
 
 ---
 
+## Result 6 — Weapon timing: the champion is most confidently wrong where it matters most
+
+*This is the sharpest probe in the B-series, and it is where R6 actually lives.* `scenarios_b2.py`.
+
+A red +2 and a red 5, both legal on a red 7, **both shedding exactly one card**. Because the shed is
+identical, the shaped reward is **exactly indifferent** between them — so whatever preference the net
+shows here **was not paid for**, and this isolates the *value function* from the *reward*. The only
+thing that varies across the sweep is **k**, the number of cards in the **next player's** hand (the
+legal set, deck size and unseen counts are constant by construction — the `b1c` matched-contrast
+pattern). Strategy says: fire the +2 when k is small.
+
+```
+  k (next player's cards)    Q(+2)   Q(red 5)    delta = Q(+2) - Q(5)    picks
+  1                         -10.58      -6.56                  -4.01     red 5
+  2                         -10.72      -7.98                  -2.74     red 5
+  3                         -11.36      -9.00                  -2.36     red 5
+  5                         -11.74      -9.66                  -2.08     red 5
+  7                         -11.40      -9.93                  -1.47     red 5
+```
+
+**It does use the feature** — the spread over k is **2.55**, against an untrained-net noise floor of
+**0.01–0.06** (three seeds). This is not indifference.
+
+**But the sign is backwards.** `delta` should *rise* as k falls. It *falls*: the +2 is valued least,
+relative to the number, exactly when the next player is one card from winning.
+
+### Rollout adjudication (1200 determinizations, paired, 3× heuristic opponents)
+
+| k | force the block (+2) | force the number (5) | block − number | champion plays |
+|---|---|---|---|---|
+| **1** | **0.310** | **0.260** | **+0.050 ± 0.017** | the number ❌ **wrong** |
+| 2 | 0.319 | 0.369 | −0.050 ± 0.017 | the number ✓ |
+| 3 | 0.342 | 0.378 | −0.036 ± 0.017 | the number ✓ |
+| 5 | 0.358 | 0.394 | −0.036 ± 0.018 | the number ✓ |
+
+**It is right at every k except the one that matters, and it is most confident precisely there.**
+
+### Why — and it is not a mis-fit network
+
+Look at `Q(red 5)`: **−6.56 at k=1**, **−9.93 at k=7**. The *identical* hand is valued **3.4 higher
+when an opponent is about to win.** That is not a bug in the net; it is the net correctly predicting
+its own objective. From [train.py:288-290](../train.py#L288-L290):
+
+```python
+r = -len(game.hands[seat])                                    # every step, always negative
+if won:
+    r += sum(len(h) for i, h in enumerate(game.hands) if i != seat)   # bonus only on a WIN
+```
+
+**A loss pays nothing — the stream of negative rewards simply stops.** So an imminent loss is
+*rewarded*: it truncates the penalty. And blocking the near-winner **prolongs** the game, which the
+objective punishes. The agent is trained to let a near-winner go out.
+
+> **Statement about Taki #2: block the player who is about to go out.** Spending a +2 on a
+> one-card opponent is worth ~5 points; spending it on anyone else is worth *less* than a plain
+> number. The champion has the second half and not the first.
+
+**This is R6, with a complete causal chain**: the reward code → the Q-values → the behaviour → a
+measured 5.2-point cost. Note what B2 kills and what it proves. R6's *hold-back* justification
+("the shaped reward makes it greedily shed") is **dead** — that reward term is doing the most useful
+work in the model. R6's *defensive* justification ("losers get no terminal penalty, so defence is
+under-incentivised") is **exactly right**, and this is the first direct evidence for it.
+
+---
+
 ## What this means for the plan
 
-- **R6 is not motivated by B2.** The shaped reward's `-len(hand)` term teaches "never refuse to play",
-  which is the most valuable single rule we have found. Do not build a terminal loss penalty on the
-  strength of the hold-back argument. (R6 may still be worth doing for *defensive* play — but that is
-  a different claim, and B2 does not support it.)
+- **R6 is motivated — but for the opposite reason from the one PLAN.md gave.** Do **not** build it to
+  stop greedy shedding (the `-len(hand)` term is what teaches "never refuse to play", the single most
+  valuable rule we found). Build it because **a loss is currently free**, which makes an imminent
+  defeat look *good* and defence look *bad*. The fix is a terminal loss penalty; the pre-registered
+  prediction is that `delta(k)` in Result 6 flips sign at k=1 and the champion starts blocking.
 - **Promote the retuned heuristic** as the project's eval yardstick, and re-run anything that used the
   R3 one to rank a model (R3's own conclusions included).
 - **The 0.906-vs-0.348 gap is smaller than it looked.** Against a competent opponent the champion is
-  at parity with hand-written rules — which is a much sharper statement of the plateau than vs-random
-  ever gave.
+  at parity with hand-written rules — a much sharper statement of the plateau than vs-random ever gave.
 
 ## Caveats
 

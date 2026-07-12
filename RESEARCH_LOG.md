@@ -14,7 +14,7 @@ Definitions used throughout:
 
 ---
 
-## 2026-07-13 — B2: "holding back" is TWO behaviours with opposite signs. The champion has it right; R6 is unmotivated
+## 2026-07-13 — B2: the shaped reward is the source of the champion's best habit AND its worst blind spot. R6 proven — on defence, not on shedding
 
 Branch `b2-holdback`. Full write-up: `probes/b2_holding_back.md`. Harness: `holdback.py`,
 `agents/heuristic.py` (`Weights`/`GREEDY`/`ABLATIONS`), `holdbacktest.py` (14 tests).
@@ -79,9 +79,50 @@ TAKI on a PLUS or King **keeps the turn** (game.py:584-598), so CLOSE_TAKI is no
 **The champion holds cards back one time in five, and almost never by refusing to play.** It is not
 a greedy shedder, and it is not making B2's predicted mistake. **The shaped reward is WHY:**
 `-len(hand)` punishes drawing (drawing grows the hand), so the training signal directly encodes the
-most valuable rule in the game. It is *aligned*, not biased. **R6 must not be built on B2's evidence.**
+most valuable rule in the game. On *shedding*, it is **aligned, not biased** — R6's hold-back
+justification is dead.
 
-**Result 5 (unplanned, and the most actionable) — R3's heuristic is badly tuned.** Keep every
+**Result 5 — BUT: weapon timing, where the champion fails and R6 turns out to be RIGHT after all**
+(`scenarios_b2.py`). A red +2 and a red 5, both legal, **both shedding exactly one card** — so the
+shaped reward is *exactly indifferent* between them, and the probe isolates the VALUE FUNCTION from
+the reward. Only `k`, the NEXT player's hand size, varies (legal set / deck / unseen counts constant
+by construction).
+
+    k:              1       2       3       5       7
+    Q(red +2)  -10.58  -10.72  -11.36  -11.74  -11.40
+    Q(red 5)    -6.56   -7.98   -9.00   -9.66   -9.93
+    delta       -4.01   -2.74   -2.36   -2.08   -1.47      <- should RISE as k falls. It FALLS.
+
+It **does** use the feature (spread 2.55 vs an untrained noise floor of 0.01-0.06 over three seeds),
+but with the **wrong sign**: it least wants to fire the +2 exactly when the next player is one card
+from winning. Rollout (1200 determinizations, paired, 3x heuristic):
+
+| k | block (+2) | number (5) | block - number |
+|---|---|---|---|
+| **1** | **0.310** | **0.260** | **+0.050 +/- 0.017** <- champion plays the number: WRONG |
+| 2 | 0.319 | 0.369 | -0.050 +/- 0.017 (correct) |
+| 3 | 0.342 | 0.378 | -0.036 +/- 0.017 (correct) |
+| 5 | 0.358 | 0.394 | -0.036 +/- 0.018 (correct) |
+
+**Right at every k except the one that matters — and most confident precisely there.**
+
+**The mechanism, and it is not a mis-fit network.** `Q(red 5)` is **-6.56 at k=1** and **-9.93 at
+k=7**: the *identical hand* is valued 3.4 HIGHER when an opponent is about to win. From
+`train.py:288-290`, `r = -len(hand)` every step (always negative) `+ bonus only on a win` — **a loss
+pays nothing, the penalty stream just stops.** So an imminent loss is *rewarded* (it truncates the
+stream), and blocking a near-winner *prolongs* the game and therefore looks worse. The value function
+is faithfully optimising an objective **indifferent to who wins**.
+
+> **Statement about Taki: block the player about to go out.** A +2 spent on a one-card opponent is
+> worth ~5 points; spent on anyone else it is worth *less* than a plain number.
+
+**So B2 both kills and proves R6, for opposite reasons.** Its *hold-back* justification ("the shaped
+reward makes it greedily shed") is **dead** — that term is doing the most useful work in the model.
+Its *defensive* justification ("losers get no terminal penalty") is **exactly right**, and this is the
+first direct evidence: reward code -> Q-values -> behaviour -> a measured 5.2-point cost.
+Pre-registered prediction for R6: add a terminal loss penalty and `delta(k)` flips sign at k=1.
+
+**Result 6 (unplanned, and the most actionable) — R3's heuristic is badly tuned.** Keep every
 preference hold-back, delete every refusal (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4,
 king_cancel_min_penalty=0, hold_wilds_in_run=false`):
 

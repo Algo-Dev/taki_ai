@@ -308,7 +308,12 @@ and `main.py`'s greedy demo already show every piece needed.
   pts at `p_king=5` and **-10.4 pts at `p_king=6`**, where it starts *drawing* rather than playing it.
   **The champion already has this right** (census: **1.8%** refusal, **20.4%** preference hold-back —
   it is *not* a greedy shedder), and **the shaped reward is why**: `-len(hand)` punishes drawing, so
-  it teaches the single most valuable rule in the game. **It is aligned, not biased.**
+  it teaches the single most valuable rule in the game. **On shedding it is aligned, not biased.**
+  **BUT the second half of B2 — weapon timing — fails, and there the reward IS the culprit.** With the
+  next player one card from winning the champion **declines to block**, which rollout prices at
+  **+0.050 +/- 0.017** for blocking; and its Q values the *identical hand* **3.4 higher** when an
+  opponent is about to win, because **a loss pays nothing** and an imminent defeat truncates the
+  `-len(hand)` stream. **So B2 kills R6's hold-back justification and proves its defensive one.**
   *This also resolves B1's apparent contradiction* — B1 only ever compared play-vs-play (the
   preference regime), where its "keeping beats dumping" finding is confirmed exactly.
   See `probes/b2_holding_back.md`; harness `holdback.py`.
@@ -360,13 +365,26 @@ net, AlphaZero-style with determinization); if it's small, the value function is
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
 
-**R6. The loss signal is missing — losers get no terminal penalty. — MAIN JUSTIFICATION WITHDRAWN
-(B2, 2026-07-13).** B2 was supposed to be the argument for this ("the shaped reward biases toward
-greedy shedding"). **It is not: the shaped reward's `-len(hand)` term is what teaches the policy never
-to refuse a play, which B2 measured as the most valuable discipline in the game.** Do not build R6 on
-the hold-back argument. It may still be worth doing for *defensive* play specifically (holding a +2 for
-a near-winner — B2 priced that at only +0.011 +/- 0.006, i.e. barely significant), but that is a
-different and much weaker claim. Original note follows.
+**R6. The loss signal is missing — losers get no terminal penalty. — PROVEN BY B2 (2026-07-13),
+BUT FOR THE OPPOSITE REASON TO THE ONE BELOW. Now the top-priority reward experiment.**
+B2 split this cleanly:
+- **The hold-back justification is DEAD.** "The shaped reward biases toward greedy shedding" is false:
+  its `-len(hand)` term is what teaches the policy *never to refuse a play*, which B2 measured as the
+  single most valuable discipline in the game (worth ~13 pts). Do not touch that term.
+- **The defensive justification is EXACTLY RIGHT, and now measured.** `train.py:288-290` pays
+  `-len(hand)` every step (always negative) and a bonus **only on a win** — **a loss pays nothing, the
+  penalty stream simply stops.** So *an imminent loss is rewarded*: it truncates the stream. The
+  champion values the identical hand at **-6.56 when the next player holds 1 card** vs **-9.93 at 7** —
+  it thinks a near-winning opponent is **good news** — and therefore **declines to block** a one-card
+  opponent, which rollout prices at **+0.050 +/- 0.017** for blocking. It is right at every opponent hand size
+  except the one that matters, and most confident precisely there.
+- **The fix and the pre-registered prediction:** add a terminal loss penalty (ideally potential-based,
+  per A9). B2's `scenarios_b2.py` sweep is the acceptance test — `delta(k) = Q(+2) - Q(number)` must
+  flip sign at k=1, and the census's refusal rate must NOT rise (that would mean the fix broke the
+  good half). Training is cheap now: the A9 run was flat after 25k trials.
+
+Original note follows (its diagnosis was right; only its "defensive play is under-incentivised"
+framing needed the evidence B2 now supplies).
 
 **R6. The loss signal is missing — losers get no terminal penalty.**
 In `train.py`'s `seat_reward`, a losing seat's terminal transition is just `-len(hand)` — there is
