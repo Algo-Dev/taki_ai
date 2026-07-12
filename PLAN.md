@@ -274,13 +274,19 @@ training — runnable against A8 today. Requires a small harness (construct a `G
 state, ask an agent for its Q-vector, pretty-print the ranking); `gametest.py`'s hand-built states
 and `main.py`'s greedy demo already show every piece needed.
 
-- **B1. The colored-TAKI hoard.** With a colored TAKI plus several cards of that color, the whole
-  group discharges in a **single turn** (RULES.md), so hoarding it is nearly free and guarantees a
-  fast finish. Does the policy *keep* them, or dump the TAKI greedily the moment it is playable?
-  **Sharpened by a real wrinkle:** a hand may only *end* on a number or the King
-  (`FINISHING_TYPE_VALUES`), so the run must be planned to close on a legal finisher or it eats a
-  penalty draw. A greedy policy plays the TAKI on sight; a policy that understands the endgame holds
-  it *and* sequences the run. This single scenario cleanly separates the two.
+- **B1. The colored-TAKI hoard — DONE (2026-07-12). A8 splits the two halves.**
+  **Sequencing: PASS.** It plans the run backwards from its finisher, and the control shows it is
+  *detecting the win-now condition* rather than reflexively avoiding low numbers (difference-in-
+  differences **+15.6**, vs ~0.0 for five random-init nets; replicates at +7.8 in the a4a7 lineage).
+  Worth **+0.40 win rate** — and once it opens a run it finishes it correctly **1.000** of the time.
+  **Hoarding: FAIL, and the failure is legible.** It correctly keeps a weakly-backed TAKI (sheds at
+  ≤1 backers) but dumps from 2 backers up — while the rollouts say **dumping never beats keeping at
+  any backing level, against either opponent pool**; at 4 backers a five-card turn wins *less* often
+  than a one-card turn (−0.033 ± 0.011). **This file's own premise — "hoarding is nearly free" — is
+  confirmed by measurement, and the policy is what doesn't fully believe it.** Cause: the shaped
+  reward pays `-len(hand)` per step, so the training signal massively overvalues a big discharge the
+  win rate is indifferent to → the strongest evidence yet for **B2** and **R6**, and the motivation
+  for **B4** below. See `probes/b1_colored_taki_hoard.md`; harness `probe.py` / `probetest.py`.
 - **B2. Holding cards back.** The shaped reward pays for shedding cards every turn, so the policy is
   *trained* to be greedy about hand size. Does it ever nonetheless play **fewer** cards now for a
   better end-game win chance (e.g. keeping a +2 or a STOP as a tempo weapon, or keeping a wild for
@@ -291,6 +297,19 @@ and `main.py`'s greedy demo already show every piece needed.
   positions with an expected/interesting line each, and report the policy's Q-ranking per scenario.
   This is what "testing optimal scenarios for human players" ultimately produces: not a win rate, but
   a set of **statements about how to play Taki well**, each backed by the model's own valuation.
+  *B1 built the machinery:* `probe.py`'s `Scenario` registry means a new probe is **data, not code** —
+  add a hand, a top card, the expected-legal/illegal moves and (optionally) named forced lines.
+
+- **B4 (new, spun out of B1). Measure the shaped return Ĝ, and split "wrong move" from "wrong
+  reward".** Q is not a win probability — it is the discounted shaped return `train.py` pays
+  (`-len(hand)` per step, γ=0.99 per *decision*, and a TAKI run is many decisions). So when the
+  policy's Q-ranking and the rollout win rate disagree, today we cannot say *why*. Measuring the
+  empirical Ĝ alongside the win rate in `mc_line` splits it cleanly: **Q ≠ Ĝ** means the value
+  function mis-estimated its own objective; **Ĝ ≠ win rate** means the objective itself is pointed
+  the wrong way. The second is exactly the evidence B2 and R6 need, and the rollouts already exist —
+  it is bookkeeping (faithfully replicating `seat_reward`'s per-decision discounting), not new
+  machinery. Deliberately cut from B1 because B1's correct line is provable from the rules and
+  needed no value-calibration argument.
 
 Open question worth settling early: **is A8 strong enough to be a trustworthy oracle?** R3's
 heuristic/oracle yardsticks are the honest way to find out, and they matter more now — a probe is
