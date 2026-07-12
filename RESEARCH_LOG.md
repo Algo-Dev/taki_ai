@@ -71,6 +71,48 @@ into per-card finishing coverage (STOP/CHDIR/+2/TAKI/Super TAKI/CHCOL/King all w
 `test_cannot_win_on_plus`; probetest's two B1A engine-fact tests now pin the *corrected* behaviour
 and the one surviving constraint (you cannot finish on a PLUS inside a TAKI).
 ---
+---
+## 2026-07-12 — R3 (half): a hand-crafted heuristic agent — the first non-lineage yardstick. A8's 0.912 vs random is worth far less than it looked.
+
+**Setup.** New `agents/heuristic.py`: a rule-based agent with **no network**, restricted to the same
+human information set as the DQN (own hand, opponents' hand *sizes*, top card, deck size, and a new
+`game.history` log of **public table events** — who played/drew what, and the active color at the
+time). It never reads opponents' hand contents. Behaviours: +2 stacking (King-cancel only when the
+pending penalty ≥ 4), TAKI-run planning that closes the run on a legal finisher, colored-TAKI
+**hoarding**, near-winner blocking with STOP/+2, wild-holding, color richness, and **color denial**:
+if a player drew while color *c* was active they are believed to lack *c*, a belief that decays
+×(1 − 28/120) per card they have drawn since. Deterministic (no RNG), so eval's common-random-numbers
+invariant is preserved. `eval.py` gained `--opponent {random,heuristic}` and a `--model heuristic`
+sentinel. 22 new tests in `agenttest.py`; `gametest` still green (the history log changes no
+observation/action contract — **all checkpoints remain loadable**).
+
+**Results** (4 players, 3000 games, seed 0, shuffled seating, parity 0.25):
+
+| matchup | win rate |
+|---|---|
+| heuristic vs 3 random | **0.849** |
+| A8 (`checkpoint_a8_snap455000`) vs 3 random | 0.912 (previously measured) |
+| **A8 vs 3 heuristic** | **0.343** |
+| random vs 3 heuristic | 0.014 |
+
+**Reading.** The heuristic is a strong opponent — it takes a random agent from 0.25 to 0.014, i.e. it
+nearly shuts random out, and it lands within 6 points of A8 on the vs-random scale that has been our
+headline metric all along. A few hundred lines of rules recover most of what 500k trials of self-play
+bought, which says the vs-random number has very little resolution up here: **0.849 vs 0.912 is the
+gap between "sensible rules" and "our best model", so vs-random should be retired as a ranking metric**
+(it is still fine as a smoke test that a run hasn't collapsed).
+
+A8 *is* genuinely better: 0.343 vs 3 heuristics is comfortably above the 0.25 parity line
+(SE ≈ 0.009, so ~10 SE). That is the first evidence of A8's skill measured against something outside
+its own lineage, and it holds up. But the margin is modest, and it reframes the plateau story: the
+agent is not "near the ceiling of play", it is near the ceiling of *what vs-random can see*. The
+heuristic is now the recommended eval opponent for anything that needs discriminating power.
+
+**Caveats.** (1) The heuristic's weights are hand-set, not tuned — a tuned version would likely be
+stronger, which would *lower* A8's 0.343, not raise it. (2) The color-denial belief is weak evidence
+against a random opponent (DRAW is always legal here even with playable cards), so it earns its keep
+mainly against rational play. (3) 1-vs-3 rates are not comparable to `eval_headtohead.py`'s per-seat
+rates (CLAUDE.md). (4) The oracle half of R3 (a full-information upper bound) is still open.
 
 ## 2026-07-12 — New head-to-head standard: alternating 2v2 seat swap (`--seat-swap`), + a pairing bug it exposed
 

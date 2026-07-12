@@ -430,6 +430,19 @@ class Game:
         self.draw_num = 0
         self.deck = []
         self.discard = []
+        # Public table-event log, one entry per action, reset each round. Records ONLY what
+        # every player at the table can see (who played/drew what, and the active color at
+        # the time) — no hidden information — so agents with human-like memory (e.g. the
+        # heuristic's "he drew while red was on top" inference) can consume it without
+        # widening the information set. Entries are plain-value tuples, never Card refs
+        # (CHCOL cards mutate in place and the discard pile gets recycled):
+        #   ('play',  seat, type_value, color_value, prev_state_value, active_color_value)
+        #   ('draw',  seat, n_drawn,                 prev_state_value, active_color_value)
+        #   ('close', seat, top_type_value, top_color_value)
+        #   ('penalty_draw', seat, n_drawn)
+        # where active_color_value is the color a play had to match when the action was taken.
+        # The DQN observation/training paths ignore this entirely.
+        self.history = []
         # Build each card as a DISTINCT object. `[Card(...)] * n` would alias one object
         # into n deck slots (in-place card mutation would then hit every alias); distinct
         # objects keep counts identical (4 CHCOL, 2 King, 2 per colored card, 2 Super TAKI)
@@ -524,6 +537,13 @@ class Game:
         # tell "closing an open TAKI" from "declining a King's optional follow-up" (both use
         # CLOSE_TAKI), since the KING reset erases self.state.
         prev_state = self.state
+        # The color a play had to match at the moment of this action (for the history log):
+        # the open TAKI's color if one is running, else the shown card's color. Captured
+        # before the action mutates the pile/state.
+        if prev_state is State.TAKI or prev_state is State.SUPER_TAKI:
+            active_color = self.taki_color
+        else:
+            active_color = self.shown_card().color
         if self.state is State.PLUS:
             self.state = State.NORMAL
         if self.state is State.SUPER_TAKI:
@@ -534,6 +554,9 @@ class Game:
             # plain number follow-up ends the turn.
             self.state = State.NORMAL
         if action == Action.PLAY_CARD:
+            self.history.append(
+                ('play', agent, card.type.value, card.color.value,
+                 prev_state.value, active_color.value))
             self.discard.append(card)
             if card.type is Type.CHCOL:
                 self.hands[agent].remove(Card(Type.CHCOL))
@@ -579,6 +602,8 @@ class Game:
             if self.debug:
                 print(f"Player {agent+1} played {str(card)}.")
         elif action is Action.CLOSE_TAKI:
+            self.history.append(
+                ('close', agent, self.shown_card().type.value, self.shown_card().color.value))
             self.taki_color = Color.NONE
             if prev_state is State.KING:
                 # Declining the King's optional follow-up: just end the turn.
@@ -610,6 +635,7 @@ class Game:
                 self.state = State.NORMAL
             if s == 0:
                 s = 1
+            self.history.append(('draw', agent, s, prev_state.value, active_color.value))
             self.draw_card(agent, s)
             if self.debug:
                 print(f"Player {agent+1} drew {s} cards.")
@@ -697,6 +723,7 @@ class Game:
             # You may not end the game on a PLUS — it obliges you to play another card
             # (see FINISHING_TYPE_VALUES). Draw a penalty card and keep playing (the card's
             # own effect still applies).
+            self.history.append(('penalty_draw', self.curr, 1))
             self.draw_card(self.curr, 1)
             # Only truly finished if the deck was exhausted and no card could be drawn.
             finished = len(self.hands[self.curr]) == 0

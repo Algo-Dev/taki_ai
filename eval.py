@@ -44,6 +44,7 @@ from matplotlib import pyplot as plt
 from game import Game
 from agents.dqn import AIAgent
 from agents.random import RandomAgent
+from agents.heuristic import HeuristicAgent
 
 # A game only ends when a hand empties (State.FINISHED); a deck-exhaustion stalemate
 # never sets done(), so cap the turns per game and treat an over-cap game as undecided.
@@ -125,7 +126,8 @@ def discover_snapshots(run_dir):
 def main():
     parser = argparse.ArgumentParser(description='Evaluate Taki DQN agents vs fixed opponents.')
     parser.add_argument('--model', default=None,
-                        help='mode A: a single checkpoint to test against random opponents')
+                        help='mode A: a single checkpoint to test against the opponents, or the '
+                             'sentinel "heuristic" to test the hand-crafted HeuristicAgent (R3)')
     parser.add_argument('--run-dir', default=None,
                         help='mode B: a run directory of snap<NNNN> checkpoints to chart progression')
     parser.add_argument('--baseline', default=None,
@@ -139,6 +141,10 @@ def main():
                              'precision needed to rank near-equal models; see RESEARCH_LOG.md)')
     parser.add_argument('--games-b', type=int, default=150,
                         help='games per matchup for mode B (per snapshot, per reference)')
+    parser.add_argument('--opponent', choices=['random', 'heuristic'], default='random',
+                        help='what fills the N-1 opponent seats (modes A and B\'s vs-opponent '
+                             'curve). "heuristic" = the hand-crafted R3 agent — a harder, '
+                             'non-lineage yardstick than random. Default: random.')
     parser.add_argument('--num-players', type=int, default=4)
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
@@ -160,14 +166,19 @@ def main():
               f'vs-random convergence curve, too noisy for ranking near-equal snapshots.')
 
     # ---- Mode A: trained DQN vs random ------------------------------------------------
+    def make_opponent():
+        if args.opponent == 'heuristic':
+            return HeuristicAgent()
+        return RandomAgent(seed=args.seed)
+
     if args.model:
-        print(f'\n=== Mode A: {args.model} vs {args.num_players - 1} random opponents '
+        print(f'\n=== Mode A: {args.model} vs {args.num_players - 1} {args.opponent} opponents '
               f'({args.games} games) ===')
         t0 = time.time()
-        dqn = load_greedy_agent(args.model)
-        rnd = RandomAgent(seed=args.seed)
-        wins, decided, undecided = play_match(dqn, rnd, args.num_players, args.games, args.seed)
-        print('DQN vs random:', fmt(wins, decided, undecided, baseline))
+        test = HeuristicAgent() if args.model == 'heuristic' else load_greedy_agent(args.model)
+        opp = make_opponent()
+        wins, decided, undecided = play_match(test, opp, args.num_players, args.games, args.seed)
+        print(f'{args.model} vs {args.opponent}:', fmt(wins, decided, undecided, baseline))
         print(f'(took {time.time() - t0:.1f}s)')
 
     # ---- Mode B: progression vs random and vs a frozen baseline -----------------------
@@ -180,7 +191,7 @@ def main():
         if not snaps:
             parser.error(f'no snapshots with trial %% {args.snap_stride} == 0 in {args.run_dir}')
 
-        rnd = RandomAgent(seed=args.seed)
+        rnd = make_opponent()
         # The frozen reference (e.g. the current-best model): each snapshot above 1/num_players
         # against it has genuinely surpassed it. Constant model -> no "moving reference" artifact.
         base_agent = load_greedy_agent(args.baseline) if args.baseline else None
