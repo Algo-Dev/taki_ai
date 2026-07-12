@@ -19,3 +19,7 @@ start (B2 retuned): -0.0143   [37s]
   w_open_hoard      15.0 -> 25.0   -0.0097
   w_save_blocker     0.7 -> 0.0    -0.0070  <- keep
   w_save_blocker     0.0 -> 0.7    -0.0097
+  w_save_blocker     0.0 -> 2.0    -0.0213
+  w_nofin            8.0 -> 2.0    -0.0083
+  w_nofin            8.0 -> 4.0    -0.0010  <- keep
+  w_nofin            4.0 -> 8.0    -0.0070

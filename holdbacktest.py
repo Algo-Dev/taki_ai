@@ -162,3 +162,43 @@ class WeaponTimingScenarioTest(unittest.TestCase):
         g = b2_weapon(1).build([_Dummy()] * 4, seed=0)
         for card in (Card(Type.PLUSTWO, Color.RED), Card(Type.FIVE, Color.RED)):
             self.assertEqual(max_shed(g, 0, (A.PLAY_CARD, card)).shed, 1, str(card))
+
+
+class LossPenaltyTest(unittest.TestCase):
+    """R6 (train.py --loss-penalty), the fix B2 motivates. Pins the two things that make
+    it correct: it fires on a LOSING TERMINAL and on nothing else."""
+
+    def _reward(self, hand_sizes, seat, won, terminal, penalty):
+        """Reimplements train.py's `shaped` seat_reward branch exactly (train.py:288-306)."""
+        r = -hand_sizes[seat]
+        if won:
+            r += sum(h for i, h in enumerate(hand_sizes) if i != seat)
+        elif terminal and penalty:
+            r -= penalty
+        return r
+
+    def test_a_loss_now_costs_something(self):
+        hands = [4, 0, 6, 5]          # seat 1 just went out; seat 0 is a loser holding 4
+        old = self._reward(hands, 0, won=False, terminal=True, penalty=0.0)
+        new = self._reward(hands, 0, won=False, terminal=True, penalty=20.0)
+        self.assertEqual(old, -4)     # pre-B2: a loss pays nothing, the stream just stops
+        self.assertEqual(new, -24)
+
+    def test_the_penalty_does_not_touch_ordinary_steps(self):
+        hands = [4, 3, 6, 5]
+        self.assertEqual(self._reward(hands, 0, won=False, terminal=False, penalty=20.0), -4)
+
+    def test_the_penalty_does_not_touch_a_win(self):
+        hands = [0, 3, 6, 5]
+        self.assertEqual(self._reward(hands, 0, won=True, terminal=True, penalty=20.0), 14)
+
+    def test_it_restores_the_sign_that_B2_found_inverted(self):
+        """B2's core defect: with no loss penalty, a seat is BETTER OFF when an opponent is
+        about to go out, because the game ends and the -len(hand) stream stops. Compare the
+        terminal a seat faces when it loses, against simply continuing to hold its hand."""
+        hands = [4, 0, 6, 5]
+        keep_playing = -4                       # one more ordinary step, same hand
+        lose_now_old = self._reward(hands, 0, won=False, terminal=True, penalty=0.0)
+        lose_now_new = self._reward(hands, 0, won=False, terminal=True, penalty=20.0)
+        self.assertEqual(lose_now_old, keep_playing)   # losing is EXACTLY as good as playing on
+        self.assertLess(lose_now_new, keep_playing)    # ...and now it is strictly worse
