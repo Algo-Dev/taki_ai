@@ -14,6 +14,106 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-13 — B2: "holding back" is TWO behaviours with opposite signs. The champion has it right; R6 is unmotivated
+
+Branch `b2-holdback`. Full write-up: `probes/b2_holding_back.md`. Harness: `holdback.py`,
+`agents/heuristic.py` (`Weights`/`GREEDY`/`ABLATIONS`), `holdbacktest.py` (14 tests).
+
+**PLAN.md B2 asked** whether the shaped reward (`-len(hand)` per step) makes the policy a greedy
+hand-size minimiser that never plays fewer cards for a better endgame — which would be the argument
+for **R6**. **The premise is false.**
+
+**The key distinction, which nothing in this project had drawn:**
+- **REFUSAL** hold-back — decline to put a card down at all (DRAW, or CLOSE a TAKI / King
+  continuation) while a legal play exists. Keeps the card, loses the tempo. **Catastrophic.**
+- **PREFERENCE** hold-back — play a *different* card instead. Keeps the card, spends the turn.
+  **Valuable.**
+
+**Method — we did NOT ask the DQN's value function** (it is the thing under suspicion, so its own
+rollouts would be circular). We asked an agent whose strategy we own. R3's `HeuristicAgent` holds
+cards back on purpose, and `SCORE_DRAW = -5.0` is a *finite score in the same max*, so **any hold
+penalty above 5.0 flips it from preferring another play to refusing to play.** Refactored its
+constants into a `Weights` dataclass (defaults byte-identical, pinned), ablated each behaviour, and
+ran `eval_headtohead.py --team1-seats 0,2 --seat-swap` (3000 games x 2 occupancies). No network.
+
+**Result 1 — every hold-back term priced** (margin = full - ablated; positive = worth having):
+
+| behaviour | margin | kind | verdict |
+|---|---|---|---|
+| hoard (`w_reserve` 10->0) | **-0.0623 +/- 0.0105** | refusal (draws to protect the group) | harmful |
+| king_cancel (eat a +2 to keep the King) | **-0.0353 +/- 0.0054** | refusal (draws 2) | harmful |
+| wilds (`p_king`/`p_chcol`/`p_super`, in-run) | **-0.0450 +/- 0.0116** | mixed | harmful net |
+| blocker (save STOP/+2, no threat) | +0.0110 +/- 0.0064 | preference | mildly good (1.7 SE) |
+| finisher (keep a legal last card) | +0.0083 +/- 0.0035 | rules-driven | good (2.4 SE) |
+| king_follow (decline the free card) | **+0.0000 +/- 0.0000** | — | **never fires** |
+
+**Result 2 — a 13-point cliff exactly at the draw threshold.** Sweeping `p_king` alone:
+2 -> +0.016, 4 -> +0.019, **5 -> +0.020** (holding the King is worth +2 pts), **6 -> -0.104**
+(it now DRAWS rather than play it), 8 -> -0.104 (identical: the effect is the behavioural *flip*,
+not the magnitude). Head-to-head `p_king=6` vs `p_king=5` = **-0.130 +/- 0.009**, replicated on
+three disjoint deck blocks (-0.130 / -0.129 / -0.132). The `w_reserve` sweep has the same shape:
+flat (~0) from 0 to 6, then collapses at 8 and 10 — i.e. **hoarding is free; drawing to hoard is not.**
+
+> **Statement about Taki: never draw to protect a plan.** Keeping a card by playing something else is
+> free or better; keeping it by passing costs more than the card is ever worth.
+
+**Result 3 — this RESOLVES B1's apparent contradiction.** B1 found "dumping the TAKI never beats
+keeping it"; the ablation says hoarding costs 6.2 pts. Both are right: **B1 only ever compared
+play-vs-play**, which is the preference regime — and there B1 is confirmed exactly (`w_reserve` 0-6
+is flat). R3's `W_RESERVE = 10.0` goes further than anything B1 tested: it *draws*. The 6.2 points
+are the drawing, not the hoarding. B1's hoarding half survives, with a sharp boundary around it.
+
+**Result 4 — the census (`holdback.py`), 200 self-play games, all 4 seats.** At every decision, does
+the agent pick a move that provably sheds fewer cards this turn than a legal alternative? "Sheds
+fewer" is a rules-level search (`max_shed`), not a heuristic, because action identity lies: closing a
+TAKI on a PLUS or King **keeps the turn** (game.py:584-598), so CLOSE_TAKI is not always a refusal.
+
+| agent | REFUSAL (% of free decisions) | PREFERENCE hold-back | vs 3x random |
+|---|---|---|---|
+| random | 35.1% | 47.1% | 0.250 |
+| heuristic (R3, shipped) | 14.5% | 34.6% | 0.850 |
+| **DQN champion** | **1.8%** | **20.4%** | **0.906** |
+| heuristic (retuned) | 0.3% | 14.4% | 0.899 |
+| heuristic:greedy (control) | **0.0%** | 13.7% | 0.879 |
+
+**The champion holds cards back one time in five, and almost never by refusing to play.** It is not
+a greedy shedder, and it is not making B2's predicted mistake. **The shaped reward is WHY:**
+`-len(hand)` punishes drawing (drawing grows the hand), so the training signal directly encodes the
+most valuable rule in the game. It is *aligned*, not biased. **R6 must not be built on B2's evidence.**
+
+**Result 5 (unplanned, and the most actionable) — R3's heuristic is badly tuned.** Keep every
+preference hold-back, delete every refusal (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4,
+king_cancel_min_penalty=0, hold_wilds_in_run=false`):
+
+| | vs 3x random | vs DQN champion (seat-swap 2v2, 3 disjoint seeds) |
+|---|---|---|
+| heuristic (R3, shipped) | 0.850 | -0.208 +/- 0.012 |
+| heuristic (fully greedy) | 0.879 | — |
+| **heuristic (retuned)** | **0.899** | **+0.018 / -0.018 / +0.005 -> PARITY** |
+| DQN champion | 0.906 | — |
+
+**A few hundred lines of rules, retuned on nothing but hold-back discipline, match the 500k-trial
+champion.** R3's headline ("A8 genuinely better, 0.343 vs 3 heuristics") was measured against a
+crippled opponent — the yardstick had a 17-point tuning bug. Anything ranked against the R3 heuristic
+should be re-run, R3's own conclusions included.
+
+**Two process findings, both bit us:**
+- **`agenttest.py` was RED on master and nobody noticed.** R3 (agenttest) and the finishing-rule fix
+  were developed in parallel; three tests still asserted the old rule (they used a red STOP as "an
+  action card you cannot finish on" — it is now a legal finisher). The 2026-07-12 entry's "56 green"
+  counted `gametest` + `probetest` only. Fixed here (they now use PLUS, the only real non-finisher);
+  suite is 83 green. **Run the whole suite, not the subset you changed.**
+- **`eval_headtohead` seeds deck `g` with `seed + g`**, so seeds 0/1/2 share 2999 of 3000 decks and
+  are NOT independent replications. Seeds must be >= `games` apart. Our first "replication" produced
+  three near-identical numbers, which is what exposed it.
+
+**Caveats.** The retuned weights were swept on seed 0 and confirmed on disjoint blocks (the parity
+claim rests on 3 independent seeds), but the exact values carry selection risk — they are un-broken,
+not optimised. The census is one distribution (self-play). **The B4/Ĝ arm was not run:** Arm 1
+answered "does holding back pay" by a stronger non-circular route, so the empirical shaped return was
+not needed for the verdict. It remains the way to ask whether the champion's 20.4% preference
+hold-backs are well-*calibrated*, as opposed to merely present.
+
 ## 2026-07-12 — RULES BUG: the finishing rule was wrong. Fixed, B1 half-retracted, A8 retraining
 
 **Not an experiment — a correctness fix that invalidates a result and a champion.** Branch

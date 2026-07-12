@@ -298,12 +298,35 @@ and `main.py`'s greedy demo already show every piece needed.
   reward pays `-len(hand)` per step, so the training signal massively overvalues a big discharge the
   win rate is indifferent to → the strongest evidence yet for **B2** and **R6**, and the motivation
   for **B4** below. See `probes/b1_colored_taki_hoard.md`; harness `probe.py` / `probetest.py`.
-- **B2. Holding cards back.** The shaped reward pays for shedding cards every turn, so the policy is
-  *trained* to be greedy about hand size. Does it ever nonetheless play **fewer** cards now for a
-  better end-game win chance (e.g. keeping a +2 or a STOP as a tempo weapon, or keeping a wild for
-  the finish)? If it never does, that is a real finding about the shaped reward's bias, and it is
-  the strongest argument yet for R6 (the missing loss signal) — as a *fidelity* fix, not a strength
-  one.
+- **B2. Holding cards back — DONE (2026-07-13). The premise was false; the answer is worth 13 points.**
+  **"Holding back" is two behaviours with opposite signs**, a distinction nothing here had drawn:
+  **REFUSAL** (decline to play at all — DRAW, or CLOSE a TAKI/King continuation, while a legal play
+  exists) is **catastrophic**; **PREFERENCE** (play a *different* card) is **valuable**. Measured by
+  ablating R3's heuristic — the only agent in the repo that holds back on purpose, and in terms we
+  own — rather than by asking the DQN's own value function, which would be circular.
+  **A 13-point cliff sits exactly at its `SCORE_DRAW = -5.0` threshold**: holding the King is +2.0
+  pts at `p_king=5` and **-10.4 pts at `p_king=6`**, where it starts *drawing* rather than playing it.
+  **The champion already has this right** (census: **1.8%** refusal, **20.4%** preference hold-back —
+  it is *not* a greedy shedder), and **the shaped reward is why**: `-len(hand)` punishes drawing, so
+  it teaches the single most valuable rule in the game. **It is aligned, not biased.**
+  *This also resolves B1's apparent contradiction* — B1 only ever compared play-vs-play (the
+  preference regime), where its "keeping beats dumping" finding is confirmed exactly.
+  See `probes/b2_holding_back.md`; harness `holdback.py`.
+  > **Statement about Taki: never draw to protect a plan.** Keeping a card by playing something else
+  > is free or better; keeping it by passing costs more than the card is ever worth.
+
+- **B5 (new, spun out of B2). Promote the retuned heuristic as the project yardstick — and re-run
+  what was ranked against the old one.** R3's heuristic ships with a **17-point tuning bug**: its
+  hold-back weights sit *above* its own draw threshold, so it draws rather than plays. Fixing only
+  that (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4, king_cancel_min_penalty=0,
+  hold_wilds_in_run=false`) takes it from **0.850 -> 0.899** vs random and to **statistical parity
+  with the 500k-trial DQN champion** (3 disjoint seeds: +0.018 / -0.018 / +0.005). Consequences:
+  (a) R3's headline — "A8 is genuinely better, 0.343 vs 3 heuristics" — was measured against a
+  crippled opponent and must be re-run; (b) **the plateau story gets much sharper**: against a
+  competent opponent the champion is at parity with hand-written rules, which says far more than
+  vs-random ever did; (c) the weights are un-broken, not optimised — a real tuner would likely go
+  further, and a heuristic that *beats* the DQN would be a significant result.
+
 - **B3. Scenario battery + human-readable output.** Generalize B1/B2 into a small suite of named
   positions with an expected/interesting line each, and report the policy's Q-ranking per scenario.
   This is what "testing optimal scenarios for human players" ultimately produces: not a win rate, but
@@ -336,6 +359,14 @@ it's large, the long-term path is expert iteration (distill the search-improved 
 net, AlphaZero-style with determinization); if it's small, the value function is already consistent
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
+
+**R6. The loss signal is missing — losers get no terminal penalty. — MAIN JUSTIFICATION WITHDRAWN
+(B2, 2026-07-13).** B2 was supposed to be the argument for this ("the shaped reward biases toward
+greedy shedding"). **It is not: the shaped reward's `-len(hand)` term is what teaches the policy never
+to refuse a play, which B2 measured as the most valuable discipline in the game.** Do not build R6 on
+the hold-back argument. It may still be worth doing for *defensive* play specifically (holding a +2 for
+a near-winner — B2 priced that at only +0.011 +/- 0.006, i.e. barely significant), but that is a
+different and much weaker claim. Original note follows.
 
 **R6. The loss signal is missing — losers get no terminal penalty.**
 In `train.py`'s `seat_reward`, a losing seat's terminal transition is just `-len(hand)` — there is
