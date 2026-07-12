@@ -1,0 +1,110 @@
+
+========================================================================================
+Q-RANKING — models/checkpoint_a8_snap455000
+========================================================================================
+
+--- b1a: Sequencing trap: red TAKI + red STOP + red +2 + red 5 on a red 3.
+  hand [red taki, red stop, red 2+, red 5] | showing red 3 | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play red taki               -7.31     0.00   <- picks this
+  play red stop              -13.96    -6.65
+  play red 2+                -15.46    -8.15
+  play red 5                 -23.39   -16.07
+  draw                       -25.66   -18.34
+
+  correct line: Open the TAKI, play STOP and +2 in either order, finish on the red 5 -> wins outright.
+  the policy actually plays:
+  1. play red taki            hand 4 -> 3
+  2. play red 2+              hand 3 -> 2
+  3. play red stop            hand 2 -> 1
+  4. play red 5               hand 1 -> 0   *** WINS ***
+
+--- b1a_min_a: Trap LIVE: in an open red TAKI with red STOP + red 5. Win is available this turn.
+  hand [red stop, red 5] | showing red taki | TAKI
+  move                            Q       dQ
+  ------------------------------------------
+  play red stop                6.99     0.00   <- picks this
+  close taki                  -9.77   -16.75
+  play red 5                 -11.56   -18.54
+
+  correct line: STOP then 5 -> wins. The 5 first empties the hand on the STOP -> penalty draw.
+  the policy actually plays:
+  1. play red stop            hand 2 -> 1
+  2. play red 5               hand 1 -> 0   *** WINS ***
+
+--- b1a_min_b: Trap DEAD (control): same, plus an unplayable blue 9. No win available this turn.
+  hand [red stop, red 5, blue 9] | showing red taki | TAKI
+  move                            Q       dQ
+  ------------------------------------------
+  play red stop              -15.07     0.00   <- picks this
+  play red 5                 -17.99    -2.91
+  close taki                 -21.62    -6.54
+
+--- b1c_k0: Matched TAKI sweep, k=0: a red TAKI backed by 0 red cards, a green TAKI backed by none, on a blue TAKI.
+  hand [red taki, green taki, blue 1, yellow 2, yellow 4, yellow 6, yellow 8] | showing blue taki | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play blue 1                -45.05     0.00   <- picks this
+  play red taki              -45.55    -0.50
+  play green taki            -45.96    -0.91
+  draw                       -56.33   -11.28
+
+--- b1c_k1: Matched TAKI sweep, k=1: a red TAKI backed by 1 red cards, a green TAKI backed by none, on a blue TAKI.
+  hand [red taki, green taki, blue 1, red 5, yellow 2, yellow 4, yellow 6] | showing blue taki | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play blue 1                -42.94     0.00   <- picks this
+  play red taki              -43.92    -0.98
+  play green taki            -44.57    -1.63
+  draw                       -54.67   -11.72
+
+--- b1c_k2: Matched TAKI sweep, k=2: a red TAKI backed by 2 red cards, a green TAKI backed by none, on a blue TAKI.
+  hand [red taki, green taki, blue 1, red 5, red 7, yellow 2, yellow 4] | showing blue taki | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play red taki              -43.15     0.00   <- picks this
+  play blue 1                -43.31    -0.16
+  play green taki            -44.72    -1.57
+  draw                       -55.03   -11.88
+
+--- b1c_k3: Matched TAKI sweep, k=3: a red TAKI backed by 3 red cards, a green TAKI backed by none, on a blue TAKI.
+  hand [red taki, green taki, blue 1, red 5, red 7, red 3, yellow 2] | showing blue taki | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play red taki              -42.88     0.00   <- picks this
+  play blue 1                -44.03    -1.15
+  play green taki            -44.93    -2.05
+  draw                       -55.74   -12.86
+
+--- b1c_k4: Matched TAKI sweep, k=4: a red TAKI backed by 4 red cards, a green TAKI backed by none, on a blue TAKI.
+  hand [red taki, green taki, blue 1, red 5, red 7, red 3, red 9] | showing blue taki | NORMAL
+  move                            Q       dQ
+  ------------------------------------------
+  play red taki              -42.47     0.00   <- picks this
+  play green taki            -44.33    -1.86
+  play blue 1                -44.71    -2.24
+  draw                       -56.15   -13.68
+
+========================================================================================
+B1a-min DIFFERENCE-IN-DIFFERENCES — models/checkpoint_a8_snap455000
+========================================================================================
+  Q(STOP)-Q(5)  trap LIVE (win available) :   +18.54
+  Q(STOP)-Q(5)  trap DEAD (control)       :    +2.91
+  difference-in-differences               :   +15.63   (~0 => generic reflex, not endgame understanding)
+
+========================================================================================
+B1c  Delta(k) = Q(red TAKI) - Q(green TAKI)   [Delta(0) must be ~0 by color symmetry]
+========================================================================================
+  k=0  Delta=  +0.41   Q(redTAKI)= -45.55  Q(blue 1)= -45.05  Q(draw)= -56.33   picks: play blue 1
+  k=1  Delta=  +0.65   Q(redTAKI)= -43.92  Q(blue 1)= -42.94  Q(draw)= -54.67   picks: play blue 1
+  k=2  Delta=  +1.57   Q(redTAKI)= -43.15  Q(blue 1)= -43.31  Q(draw)= -55.03   picks: play red taki
+  k=3  Delta=  +2.05   Q(redTAKI)= -42.88  Q(blue 1)= -44.03  Q(draw)= -55.74   picks: play red taki
+  k=4  Delta=  +1.86   Q(redTAKI)= -42.47  Q(blue 1)= -44.71  Q(draw)= -56.15   picks: play red taki
+  [control random-init seed 0]  diff-in-diff=  -0.00   Delta(k)=['+0.24', '+0.25', '+0.25', '+0.22', '+0.22']
+  [control random-init seed 1]  diff-in-diff=  +0.01   Delta(k)=['+0.02', '+0.05', '+0.01', '+0.03', '+0.04']
+  [control random-init seed 2]  diff-in-diff=  -0.00   Delta(k)=['-0.07', '-0.05', '-0.08', '-0.11', '-0.13']
+  [control random-init seed 3]  diff-in-diff=  +0.01   Delta(k)=['-0.16', '-0.16', '-0.10', '-0.14', '-0.18']
+  [control random-init seed 4]  diff-in-diff=  -0.01   Delta(k)=['+0.06', '+0.07', '+0.04', '+0.07', '+0.08']
+  [control models/checkpoint_a4a7_snap550000]  diff-in-diff=  +7.79   Delta(k)=['+0.79', '+1.51', '+2.27', '+2.42', '+3.39']
+  [control models/run1783692871.878205_bestresponse/snap0000]  diff-in-diff=  -0.00   Delta(k)=['+0.24', '+0.25', '+0.25', '+0.22', '+0.22']
