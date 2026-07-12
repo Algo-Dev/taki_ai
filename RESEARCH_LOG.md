@@ -14,6 +14,85 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-12 — B1: A8 sequences a TAKI run correctly, but dumps the TAKI too eagerly (behavioural probe)
+
+The first B-series probe (PLAN.md), and the first result in this log that is **not a win rate**: it is
+a pair of statements about how to play Taki, each backed by the champion's own valuation and then
+adjudicated by rollout. No training. Harness: `probe.py` (+ `probetest.py`, 14 tests). Full write-up:
+`probes/b1_colored_taki_hoard.md`.
+
+**Setup.** Hand-built positions against `checkpoint_a8_snap455000`, greedy. Two arms, kept separate
+because they answer different questions. *(Q arm)* one forward pass; read the **ranking** over legal
+moves. Q is a shaped return, **not** a win probability, so only within-position orderings are used.
+*(Rollout arm)* force a candidate line, hand back to the greedy policy, play out 1500x, resampling the
+hidden cards (opponent hands + deck order) while holding the learner's hand / discard / state / opponent
+hand *sizes* fixed. That determinization is exactly the learner's belief state — sound because the
+observation is **bit-identical** across resamples (it sees the hidden region only through sizes and
+coarse counts; pinned as a test). Common random numbers across lines → all differences are **paired**.
+Opponent pools: **copies of A8 at eps=0.1** (the self-play distribution Q was trained under; parity
+0.25) and `RandomAgent`.
+
+**Headline 1 — sequencing: PASS, and it is not a reflex.** A hand may only *end* on a number or the
+King, so a TAKI run must close on a finisher. Given `red TAKI, red STOP, red +2, red 5` on a red 3, A8
+opens the run, plays the action cards, and **saves the red 5 for last** — winning outright. It ranks
+that red 5 *fourth of five* legal moves. The obvious alternative explanation is that it merely dislikes
+playing low numbers, so the control kills the win (same choice, plus an unplayable blue 9):
+
+| policy | Q(STOP)−Q(5) win live | ... win dead | **diff-in-diff** |
+|---|---|---|---|
+| **A8** | +18.54 | +2.91 | **+15.63** |
+| `checkpoint_a4a7_snap550000` (different lineage) | | | **+7.79** |
+| 5x random-init nets | | | −0.00 … +0.01 |
+
+The reflex explanation is rejected: A8 defers the finisher **~6x more strongly when the win is actually
+available**, the effect replicates in an independently trained lineage, and it is absent in every
+untrained net. Rollouts: the correct line wins **1.000**; mis-sequencing costs **+0.404 ± 0.013** win
+rate vs A8 copies. Forcing only the TAKI and letting A8 choose the rest also returns **1.000** — once
+it opens a run it finishes it correctly every time.
+*(Engine fact, pinned by test: the penalty draw does **not** end the turn — you keep playing inside the
+open TAKI. Mis-sequencing forfeits a **guaranteed** win, not the win: the trap line still wins outright
+35.9% of the time when the drawn card is red-and-a-number.)*
+
+**Headline 2 — hoarding: FAIL, and the shaped reward is the culprit.** Showing a blue TAKI, a red TAKI
+is legal *by type* while red numbers are not — which pins the legal set at exactly
+`{red TAKI, green TAKI, blue 1, DRAW}` while `k`, the number of red backers, varies 0..4. The hand also
+carries a **green TAKI backed by nothing**, so `Δ(k) = Q(red TAKI) − Q(green TAKI)` is a within-position,
+matched-card contrast — and at k=0 the observation is *exactly* red↔green symmetric (pinned by test), so
+a color-equivariant net must give **Δ(0)=0**: a free, calibrated noise floor.
+
+| k | Δ(k) | A8 plays | **dump − shed** (paired) vs A8 copies | vs random |
+|---|---|---|---|---|
+| 0 | +0.41 *(noise floor)* | **sheds** (blue 1) | −0.019 ± 0.012 | −0.024 ± 0.013 |
+| 1 | +0.65 | **sheds** | −0.007 ± 0.013 | −0.023 ± 0.012 |
+| 2 | +1.57 | **dumps** | −0.005 ± 0.014 | −0.019 ± 0.013 |
+| 3 | +2.05 | **dumps** | +0.019 ± 0.015 | −0.001 ± 0.012 |
+| 4 | +1.86 | **dumps** | −0.017 ± 0.017 | **−0.033 ± 0.011** |
+
+A8 prices the TAKI by its backing (Δ grows to ~5x its noise floor; random-init controls are **flat**
+across k) and it does **not** dump on sight — it keeps a weakly-backed TAKI. But its crossover is in the
+wrong place. **Dumping never beats keeping, at any k, against either pool.** At k=4 dumping discharges
+**five cards in one turn** (hand 7→2) against shedding **one** (7→6) — and the five-card turn **wins
+less often** (0.862 vs 0.895 vs random, ~3 SE). Shedding five times the cards buys nothing: the TAKI
+group was never the problem, it was the guaranteed escape hatch, and cashing it early spends it while
+leaving behind the cards that may be unplayable when the turn returns.
+
+**So PLAN.md's premise — "hoarding is nearly free" — is confirmed by measurement, and the policy is what
+doesn't fully believe it.** The cause is legible: `train.py`'s shaped reward pays `-len(hand)` per step,
+so a five-card turn is enormously rewarded in the *training signal* while being worth nothing in *win
+rate*, and A8's Q prefers the dump from k=2 up precisely where the win rate says not to.
+
+**Caveats.** Q is a shaped return, not a win probability — cross-position Q levels are meaningless and
+are never used. The rollouts assume a **uniform prior** over unseen cards (correct given the observation,
+but a human would sometimes infer better from the play history). Positions are hand-built: guaranteed
+*reachable* (`make_position` asserts deck conservation and a discard large enough for a real game to have
+reached the position) but still hand-picked, not sampled from play. Effect sizes in the hoard table are
+small (1–3 pts); k=4-vs-random is the only individually strong one, though **every** cell points the same
+way, which is the substance of the claim. **This probe cannot say whether the network mis-estimated its
+own objective or estimated it correctly and the objective is wrong** — separating those needs the
+empirical shaped return measured beside the win rate, now filed as **PLAN.md B4**.
+
+---
+
 ## 2026-07-11 — CALIBRATION: run-to-run sigma is ~0.5-0.7 pts — the promotion history holds up
 
 The project had never measured **run-to-run variance**, yet every promotion was adjudicated
