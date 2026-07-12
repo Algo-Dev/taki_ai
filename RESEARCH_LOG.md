@@ -14,6 +14,105 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-12 — RULES BUG: the finishing rule was wrong. Fixed, B1 half-retracted, A8 retraining
+
+**Not an experiment — a correctness fix that invalidates a result and a champion.** Branch
+`fix-finishing-rule` (worktree `/home/orih/taki-rules`).
+
+**The bug.** `game.py` allowed a hand to END only on a number or the King:
+
+    FINISHING_TYPE_VALUES = NUMBER_TYPE_VALUES | {Type.KING.value}      # WRONG
+
+Every other card — TAKI, STOP, CHDIR, +2, Change Color, Super TAKI — emptied the hand but drew a
+penalty and play continued. **The real rule: you may finish on any card EXCEPT PLUS.** PLUS is the
+unique exception because it obliges you to put another card, which an empty hand cannot do; every
+other card's effect lands on someone else and is coherent as a final play.
+
+    FINISHING_TYPE_VALUES = frozenset(t.value for t in Type) - {Type.PLUS.value}   # correct
+
+**This was never a house rule.** It is absent from RULES.md's house-rule section; the code comment
+asserted the King exception was "standard Taki"; and `gametest.py` had a
+`test_cannot_win_on_action_card` *encoding the bug*, which is why the suite stayed green for the
+whole project. A test can only protect the behaviour it describes. One enforcement site
+(`next_turn`), no contract change — `OBSERVATION_SIZE`/`ACTION_SIZE` untouched, so checkpoints
+still load. RULES.md now has a dedicated **Finishing** section.
+
+**Fallout 1 — B1's sequencing half is RETRACTED** (see the banner on the entry below). B1a's whole
+premise was "the only finisher in hand is the red 5, so the run must end on it." Under the real
+rule the red STOP and red +2 are finishers too: **every ordering wins**, and there was never a
+trap. A8's deferral of the 5 was *real behaviour* — the DiD control genuinely separated it from
+random-init nets — but it was skill at a game that isn't Taki. **"Statement about Taki #1" is
+withdrawn.** B1's hoarding half (b1c) never touches finishing (no hand there can empty) and
+survives as reasoning, though its numbers came from a policy trained on the buggy game.
+
+**Fallout 2 — the interesting one.** With PLUS the *only* card that cannot end a hand, **there is
+almost nothing to sequence in Taki**. A TAKI run needs planning only when it contains a PLUS;
+otherwise dump the color group in any order and the last card wins. B1 assumed a rich sequencing
+skill and found the policy had it; the corrected game says the skill barely exists. *That absence
+is itself a finding*, and any redone sequencing probe must put a PLUS in hand to have a real trap.
+
+**Fallout 3 — the champion is stale.** `checkpoint_a8_snap455000` optimised a game the engine no
+longer plays, so probing it now would measure a policy on rules it never trained under. **Retrain
+launched** (tmux `retrain_a9`, `nice -n 19`): `train.py --trials 500000 --seed 1
+--snapshot-every 5000 --reward shaped` — A8's recipe on the corrected engine, but with the current
+**rank-sym default left ON** (color-sym + rank-sym; R1 measured rank-sym at parity, so this is not
+expected to move the number, and it re-tests rank-sym on the corrected game for free). ~6–7 h. On
+completion: screen with `eval.py` Mode B, confirm with seat-swap-controlled `eval_headtohead.py`,
+promote a new champion, then **redo B1** (hoarding first; sequencing needs a new PLUS-based
+design) before B2.
+
+**Caveat for anyone comparing across this line:** every win rate recorded *above* this entry was
+measured under the buggy rule. They are not comparable to anything measured after it. The rule
+change makes hands end sooner and more often on action cards, so absolute win rates vs random may
+shift on their own.
+
+Tests: 56 green (`gametest` + `probetest`). The old `test_cannot_win_on_action_card` is inverted
+into per-card finishing coverage (STOP/CHDIR/+2/TAKI/Super TAKI/CHCOL/King all win) plus
+`test_cannot_win_on_plus`; probetest's two B1A engine-fact tests now pin the *corrected* behaviour
+and the one surviving constraint (you cannot finish on a PLUS inside a TAKI).
+
+### RESULTS of the retrain (A9-rules): the fix costs nothing, and the run is flat after 25k trials
+
+Run `models/run1783853033.01791`, 500k trials, seed 1, shaped, color-sym + rank-sym. **Promoted:
+`checkpoint_a9rules_snap500000`** — the new champion, and the *only* usable checkpoint on disk
+(see the missing-champion note below).
+
+| yardstick | A9-rules snap500000 | A8 (old rules, for reference only) |
+|---|---|---|
+| vs 3 random (3000 games) | **0.906** | 0.912 |
+| vs 3 **heuristic** (3000 games) | **0.348** | 0.343 |
+
+**The rule fix is behaviourally cheap.** On the heuristic yardstick — the one R3 says to trust —
+the corrected-rules agent lands at **0.348 vs A8's 0.343**, a difference of 0.005 against SE
+≈0.009: *parity*. Learning the real game is neither harder nor easier than learning the buggy one.
+(Both numbers are cross-rule comparisons and should be read as "same ballpark", not as a ranking.)
+
+**The run is flat, and that is the finding.** Mode B (21 snapshots, 3000 games each, baseline =
+`snap500000`): vs-random hits **0.902 at snap25000** and never improves — the whole 25k→500k tail
+wanders in 0.893–0.909, i.e. inside noise. Against the internal baseline every snapshot sits in
+0.237–0.269 around parity 0.250 (SE ≈0.008); the max (snap300000, 0.269) is +2.4 SE, which is
+exactly what the *maximum of 21 draws* looks like under the null — winner's curse, not skill.
+Confirmed head-to-head with the new standard (`--team1-seats 0,2 --seat-swap`, 3000×2):
+snap300000 vs snap500000 = **+0.0073 ± 0.0109, Tie**. So no snapshot beats any other, and
+`snap500000` is promoted for parsimony (final snapshot, no selection bias).
+**~475k of the 500k trials bought nothing measurable.** This is the plateau of CLAUDE.md's
+project-goal section showing up on the *corrected* rules too, and it sharpens the case that the
+agent is at the ceiling of its information set rather than under-trained. A cheap follow-up: the
+next run needs nowhere near 500k trials, which makes B-series iteration much faster.
+
+**Two caveats, both load-bearing:**
+- **vs-random is saturated and near-useless.** 0.90 by trial 25,000, then flat for 475k more. R3
+  already retired it as a *ranking* metric (A8: 0.912 vs random, 0.343 vs heuristic); this run
+  shows it is not even a *progress* metric past the first 5% of training. Rank on the heuristic.
+- **The champion checkpoints are GONE.** `models/` held nothing when the retrain finished —
+  `checkpoint_a8_snap455000` and `checkpoint_a4a7_snap550000` no longer exist anywhere on disk,
+  lost in the models-symlink incident that commits `0f96882`/`62a7433` repaired. So the planned
+  "new champion vs old champion" seat-swap head-to-head is **impossible** and no cross-rule
+  head-to-head will ever be run. The A8 numbers above survive only as recorded history. Every
+  comparison from here is against the heuristic or within-lineage.
+
+Not yet done: **redo B1** against the new champion (hoarding half re-measures directly; the
+sequencing half needs a fresh PLUS-based design), then B2.
 ## 2026-07-12 — R3 (half): a hand-crafted heuristic agent — the first non-lineage yardstick. A8's 0.912 vs random is worth far less than it looked.
 
 **Setup.** New `agents/heuristic.py`: a rule-based agent with **no network**, restricted to the same
@@ -99,6 +198,14 @@ disagreement between 2v2 and 1v3 is information (the edge depends on field compo
 ---
 
 ## 2026-07-12 — B1: A8 sequences a TAKI run correctly, but dumps the TAKI too eagerly (behavioural probe)
+
+> **⚠️ HALF RETRACTED same day — see the finishing-rule entry above.** The engine's finishing rule was
+> a bug (finish only on a number/King; the real rule is *any card except PLUS*). That makes the
+> **sequencing half degenerate**: in B1a's hand the STOP and +2 are finishers too, so every ordering
+> wins, there was never a trap, and **"Statement about Taki #1" is withdrawn** — A8's deferral of the
+> 5 is real behaviour at a game that isn't Taki. The **hoarding half (b1c) survives the rule fix** (no
+> hand there can empty), but its numbers came from a policy trained on the buggy game, so it must be
+> re-measured after the retrain. Details in `probes/b1_colored_taki_hoard.md`.
 
 The first B-series probe (PLAN.md), and the first result in this log that is **not a win rate**: it is
 a pair of statements about how to play Taki, each backed by the champion's own valuation and then

@@ -5,6 +5,7 @@ still *looking* fine, so these run before any result is believed. Kept out of ga
 `python -m unittest gametest` stays TensorFlow-free.
 """
 import collections
+import itertools
 import unittest
 
 import numpy as np
@@ -97,24 +98,38 @@ class EngineFactsTest(unittest.TestCase):
             self.assertTrue(g.done(), f'seed {seed}')
             self.assertEqual(g.hands[0], [], f'seed {seed}')
 
-    def test_b1a_trap_line_eats_a_penalty_and_KEEPS_THE_TURN(self):
-        # Ending the run on the +2 empties the hand on a non-finisher: penalty draw, and the
-        # player stays inside the open TAKI holding the drawn card (game.py:692-702 does not
-        # advance curr). So mis-sequencing forfeits a GUARANTEED win, not the win.
-        trap = [(PLAY, Card(Type.TAKI, R)), (PLAY, Card(Type.FIVE, R)),
-                (PLAY, Card(Type.STOP, R)), (PLAY, Card(Type.PLUSTWO, R))]
-        g = B1A.build(seats(), seed=0)
-        force_line(g, trap, 0)
-        self.assertFalse(g.done())
-        self.assertEqual(g.state, State.TAKI)
-        self.assertEqual(g.curr, 0)
-        self.assertEqual(len(g.hands[0]), 1)
+    def test_b1a_has_no_sequencing_trap_every_order_wins(self):
+        # The B1 premise was that the run must END on the red 5. That was an artifact of the
+        # FINISHING_TYPE_VALUES bug; the real rule finishes on anything but PLUS, so the red
+        # STOP and red +2 are finishers too. Pin the corrected fact: EVERY ordering of the run
+        # wins outright. If a real trap is ever wanted here, it needs a PLUS in hand.
+        run = [Card(Type.FIVE, R), Card(Type.STOP, R), Card(Type.PLUSTWO, R)]
+        for order in itertools.permutations(run):
+            g = B1A.build(seats(), seed=0)
+            force_line(g, [(PLAY, Card(Type.TAKI, R))] + [(PLAY, x) for x in order], 0)
+            self.assertTrue(g.done(), f'order {order} should win')
+            self.assertEqual(g.hands[0], [], f'order {order} left cards in hand')
 
-    def test_b1a_min_five_first_eats_the_penalty(self):
-        g = B1A_MIN_A.build(seats(), seed=0)
-        force_line(g, [(PLAY, Card(Type.FIVE, R)), (PLAY, Card(Type.STOP, R))], 0)
+    def test_b1a_min_both_orders_win(self):
+        # Same correction at the minimal-pair scale: 5-first no longer eats a penalty, because
+        # ending on the STOP is legal. The A-vs-B minimal pair therefore no longer isolates
+        # anything and its Q-gap must not be interpreted.
+        for order in ([Card(Type.FIVE, R), Card(Type.STOP, R)],
+                      [Card(Type.STOP, R), Card(Type.FIVE, R)]):
+            g = B1A_MIN_A.build(seats(), seed=0)
+            force_line(g, [(PLAY, x) for x in order], 0)
+            self.assertTrue(g.done(), f'order {order} should win')
+            self.assertEqual(g.hands[0], [], f'order {order} left cards in hand')
+
+    def test_cannot_finish_on_a_plus_inside_a_taki(self):
+        # The one surviving finishing constraint, and the basis of any future sequencing probe:
+        # emptying the hand on a PLUS costs a penalty draw and keeps the turn inside the run.
+        g = make_position([Card(Type.PLUS, R)], Card(Type.TAKI, R), agents=seats(),
+                          state=State.TAKI, taki_color=R, seed=0)
+        force_line(g, [(PLAY, Card(Type.PLUS, R))], 0)
         self.assertFalse(g.done())
-        self.assertEqual(len(g.hands[0]), 1)
+        self.assertEqual(g.curr, 0)
+        self.assertEqual(len(g.hands[0]), 1)   # drew a penalty instead of winning
 
 
 class MonteCarloValidityTest(unittest.TestCase):

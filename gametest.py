@@ -156,13 +156,50 @@ class GameFlowTest(unittest.TestCase):
         self.assertEqual(winner, 0)
         self.assertTrue(g.done())
 
-    def test_cannot_win_on_action_card(self):
+    def _assert_wins_on_last_card(self, card, top=Card(Type.FIVE, Color.RED)):
+        """Plays `card` as player 0's only remaining card and asserts it wins the round."""
+        g = self.make_game()
+        g.curr = 0
+        g.discard = [top]
+        g.hands[0] = [card]
+        g.state = State.NORMAL
+        done, winner = self._take_turn(g, Action.PLAY_CARD, card)
+        self.assertTrue(done, f'should win on a last-card {card}')
+        self.assertEqual(winner, 0)
+        self.assertTrue(g.done())
+        self.assertEqual(len(g.hands[0]), 0)  # no penalty draw
+
+    def test_win_on_stop(self):
+        self._assert_wins_on_last_card(Card(Type.STOP, Color.RED))
+
+    def test_win_on_change_direction(self):
+        self._assert_wins_on_last_card(Card(Type.CHDIR, Color.RED))
+
+    def test_win_on_plus_two(self):
+        self._assert_wins_on_last_card(Card(Type.PLUSTWO, Color.RED))
+
+    def test_win_on_taki(self):
+        self._assert_wins_on_last_card(Card(Type.TAKI, Color.RED))
+
+    def test_win_on_super_taki(self):
+        # A Super TAKI is a colorless TAKI (Type.TAKI / Color.NONE).
+        self._assert_wins_on_last_card(Card(Type.TAKI, Color.NONE))
+
+    def test_win_on_change_color(self):
+        self._assert_wins_on_last_card(Card(Type.CHCOL))
+
+    def test_win_on_king(self):
+        self._assert_wins_on_last_card(Card(Type.KING))
+
+    def test_cannot_win_on_plus(self):
+        # PLUS is the one card you may not finish on: it obliges you to put another card,
+        # which an empty hand cannot do. Penalty draw, and play continues.
         g = self.make_game()
         g.curr = 0
         g.discard = [Card(Type.FIVE, Color.RED)]
-        g.hands[0] = [Card(Type.STOP, Color.RED)]  # last card is an action card
+        g.hands[0] = [Card(Type.PLUS, Color.RED)]
         g.state = State.NORMAL
-        done, _ = self._take_turn(g, Action.PLAY_CARD, Card(Type.STOP, Color.RED))
+        done, _ = self._take_turn(g, Action.PLAY_CARD, Card(Type.PLUS, Color.RED))
         self.assertFalse(done)
         self.assertFalse(g.done())
         self.assertEqual(len(g.hands[0]), 1)  # drew a penalty card instead of winning

@@ -49,8 +49,28 @@ A colorless wild (2 copies). It can be played on any card. Its behaviour depends
   is **closed on** a King (the King is the top card at close), the player is then granted the
   optional follow-up turn (mirrors how +2/STOP/etc. defer their effect to close).
 - **Kings chain** — a King may itself be the follow-up to a King, each granting one more card.
-- **You can win on a King** — unlike other action cards, the King is a legal finishing card. (The
-  round still may not *open* on a King; that is numbers-only.)
+- **You can win on a King** — like every card except PLUS (see Finishing). Note the asymmetry with
+  the opening: the round may not *open* on a King; opening is numbers-only.
+
+## Finishing (which card may be your last)
+
+**You may end the round on any card except PLUS.** PLUS is the sole exception because it obliges
+you to put one more card, and an empty hand cannot. Every other card's effect lands on someone
+else and is coherent as a final play: a last STOP skips the next player, a last +2 makes them
+draw, a last CHDIR reverses, a last Change Color / King / TAKI / Super TAKI simply wins (a TAKI
+run you never get to use is still a legal last card).
+
+Enforcement is a single check in `next_turn` ([game.py:694](game.py#L694)) against
+`FINISHING_TYPE_VALUES`. Playing a PLUS as your last card is **legal** — it just doesn't win: the
+card's own effect still applies, you draw one penalty card, and play continues (you keep the turn,
+since PLUS grants you another). You only truly finish that way if the deck is exhausted and no
+penalty card can be drawn.
+
+Because PLUS is the only restriction, **sequencing a TAKI run is unconstrained unless the run
+contains a PLUS** — dump a color group in any order and the last card wins. (History: the engine
+formerly allowed finishing only on a number or the King. That was a **bug, not a house rule**; it
+was fixed on 2026-07-12 and it invalidated the sequencing half of the B1 probe. See
+`probes/b1_colored_taki_hoard.md`.)
 
 ## House-rule interpretations (deliberate; official rules ambiguous or simplified)
 
