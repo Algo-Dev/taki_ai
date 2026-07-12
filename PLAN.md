@@ -238,18 +238,22 @@ Caveats: single seed, 200k trials (vs A8's 450-500k protocol), though the long f
 late breakout unlikely.
 
 **R3. Estimate the skill ceiling with an oracle and a heuristic baseline.**
-The project currently has only two external yardsticks: random opponents and its own lineage. Two
-cheap agents would recalibrate everything:
-- **A full-information oracle** (an agent that sees all hands — trained the same way, or even a
-  greedy full-info heuristic) upper-bounds what any policy could do; the gap between it and A8
+- **The heuristic baseline is DONE** (2026-07-12, `agents/heuristic.py`; RESEARCH_LOG). It scores
+  **0.849 vs 3 random** (A8: 0.912) and A8 beats it at only **0.343 vs 3 heuristics** (parity 0.25).
+  Conclusions: **vs-random is retired as a ranking metric** — hand-written rules recover most of it,
+  so it cannot resolve differences up here; use `eval.py --opponent heuristic` when discrimination
+  matters. A8's edge over a non-lineage opponent is real but modest, so the plateau is the ceiling of
+  *what vs-random can see*, not of play. Follow-ups: tune the heuristic's hand-set weights; add it to
+  the training opponent pool (`train.py`) to see whether a non-lineage sparring partner moves A8.
+- **Still open: a full-information oracle** (an agent that sees all hands — trained the same way, or a
+  greedy full-info heuristic) to upper-bound what any policy could do. The gap between it and A8
   measures how much the hidden information is worth, i.e. how much belief-state features (R4) can
-  possibly buy.
-- **A hand-crafted heuristic agent** (hold wilds, dump colors you're rich in, block the near-winner
-  with +2/STOP) as an independent eval opponent and pool member. Right now a lineage-specific blind
-  spot would be invisible: every checkpoint has only ever been ranked against its own ancestors.
-  Taki vs 3 random at 0.91 may already be near the luck-imposed ceiling — an oracle run would tell
-  us whether the remaining 0.09 is winnable at all, which determines whether vs-random should be
-  retired as a metric entirely.
+  possibly buy. Cheap version: reuse `HeuristicAgent`'s scoring with the opponent model replaced by
+  the true hands.
+- **Also worth doing: a hybrid probe agent** — A8 wrapped with heuristic *overrides* (e.g. force the
+  colored-TAKI hoard, force the near-winner block). If forcing a rule *raises* win rate, A8 never
+  learned that behaviour; if it lowers it, A8 already knows better. This is a direct instrument for
+  the behavioural questions in CLAUDE.md, and it can reuse the rule code as-is.
 
 **R4. Belief-state features — SPLIT by the target. One half is off-goal, one half is on-goal.**
 Written before the project target was recorded; the two bullets it proposed are now on opposite

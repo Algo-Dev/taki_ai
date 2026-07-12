@@ -1,0 +1,8 @@
+2026-07-12 18:29:48.729563: I tensorflow/compiler/jit/xla_cpu_device.cc:41] Not creating XLA devices, tf_xla_enable_xla_devices not set
+2026-07-12 18:29:48.729733: I tensorflow/core/platform/cpu_feature_guard.cc:142] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  SSE4.1 SSE4.2 AVX AVX2 AVX512F FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Baseline (1/num_players) = 0.250  [4 players]
+
+=== Mode A: models/checkpoint_a8_snap455000 vs 3 heuristic opponents (3000 games) ===
+models/checkpoint_a8_snap455000 vs heuristic: 1029/3000 = 0.343  vs 1/N 0.250  -> ABOVE chance
+(took 23.4s)
