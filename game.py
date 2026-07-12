@@ -447,7 +447,8 @@ class Game:
                 self.deck.extend(Card(t) for _ in range(2))
         self.random.shuffle(self.deck)
         self.discard.append(self.deck.pop())
-        # Standard Taki: the game must open on a plain number card. Re-draw the
+        # House-rule simplification (official Taki flips the top card as-is): the game
+        # must open on a plain number card. Re-draw the
         # starting card (returning it to the deck) until that holds, so no action
         # card's effect is silently dropped at the start of the round.
         while self.discard[-1].type.value not in NUMBER_TYPE_VALUES:
