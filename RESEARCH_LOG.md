@@ -14,6 +14,52 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-13 (later) — R6 attempt 1: a terminal loss penalty fixes the VALUATION but not the POLICY. The step term taxes defence
+
+Branch `b2-holdback`. `train.py --loss-penalty`. Run `models/run1783898274.148395` (100k trials,
+seed 1, shaped, L=20). Acceptance test `r6_accept.py`, **pre-registered in the B2 commit before this
+run finished, and written to be able to fail. It did.**
+
+**Setup.** B2 (entry above) found the champion will not block a one-card opponent even though
+blocking is worth +0.050 +/- 0.017, and traced it to `seat_reward`: `-len(hand)` every step, a bonus
+only on a win, **nothing on a loss** — so ending the game *stops the penalty stream* and an imminent
+defeat is a relief. R6 adds a penalty to the terminal transition of a seat that did not win.
+
+**Result: PREDICTION 1 FAILED, PREDICTION 2 PASSED.**
+
+| | baseline champion | R6 (L=20, 100k) |
+|---|---|---|
+| Q(red 5) at k=1 / k=7 | -6.56 / -9.93 — a near-winning opponent is **good news** | **-20.07 / -18.84 — now correctly BAD news** |
+| delta(k=1) = Q(+2)-Q(5) | -4.01 | -3.23 (moved the right way, nowhere near flipping) |
+| delta spread over k | 2.55, **falling** as k falls (backwards) | 0.88, still **falling** (still backwards) |
+| census REFUSAL rate | 1.93% | 1.85% (guard-rail holds) |
+
+**The mechanism claim is CONFIRMED by intervention.** The sign of the state value flipped exactly as
+B2 predicted: the identical hand is no longer worth *more* when an opponent is about to go out. B2's
+causal story was right.
+
+**But the policy did not follow, and the reason is a tension B2 missed.** Blocking with a +2 makes the
+opponent draw and **prolongs the game** — and the `-len(hand)` step term charges ~3 per extra turn. So
+the *same* reward term B2 praised (it teaches "never refuse to play", worth ~13 pts) **also taxes every
+defensive line**. A one-off penalty of 20 does not outweigh ~15 in extra step cost times the
+probability the block actually saves you. The two halves of the shaped reward are in conflict, and a
+constant terminal penalty cannot resolve it.
+
+**Guard-rail passed, which matters:** the refusal rate did not move (1.85% vs 1.93%), so the loss
+penalty did not break the half of the reward that was working. Whatever the fix is, it need not
+trade one against the other.
+
+**Next.** (a) A larger penalty (L=60 running) directly tests the "the step tax dominates" explanation —
+it must eventually flip delta if the diagnosis is right; if even a large L fails, the problem is not
+magnitude but *form*. (b) The principled fix is **potential-based** (PLAN A9): shape on the *change*
+in hand size rather than its level, so a longer game is not intrinsically penalised and defence stops
+being taxed. That is now the leading candidate and it is what R6 should probably become.
+
+**Process note:** two concurrent `train.py` runs (each thread-capped and niced) ran at **~2.2 trials/s
+each**; killing one took the survivor to **~34 trials/s** — a **>10x** speedup, not the ~2x core
+contention predicts. Concurrency is strongly negative-sum on this box: **run trainings sequentially**,
+and always measure the rate before sizing a run (100k looked like 13 h concurrent, ~50 min solo).
+
 ## 2026-07-13 — B2: the shaped reward is the source of the champion's best habit AND its worst blind spot. R6 proven — on defence, not on shedding
 
 Branch `b2-holdback`. Full write-up: `probes/b2_holding_back.md`. Harness: `holdback.py`,
