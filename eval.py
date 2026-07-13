@@ -45,6 +45,7 @@ from game import Game
 from agents.dqn import AIAgent
 from agents.random import RandomAgent
 from agents.heuristic import HeuristicAgent
+from eval_headtohead import make_agent as resolve_agent
 
 # A game only ends when a hand empties (State.FINISHED); a deck-exhaustion stalemate
 # never sets done(), so cap the turns per game and treat an over-cap game as undecided.
@@ -141,7 +142,7 @@ def main():
                              'precision needed to rank near-equal models; see RESEARCH_LOG.md)')
     parser.add_argument('--games-b', type=int, default=150,
                         help='games per matchup for mode B (per snapshot, per reference)')
-    parser.add_argument('--opponent', choices=['random', 'heuristic'], default='random',
+    parser.add_argument('--opponent', default='random',
                         help='what fills the N-1 opponent seats (modes A and B\'s vs-opponent '
                              'curve). "heuristic" = the hand-crafted R3 agent — a harder, '
                              'non-lineage yardstick than random. Default: random.')
@@ -167,15 +168,16 @@ def main():
 
     # ---- Mode A: trained DQN vs random ------------------------------------------------
     def make_opponent():
-        if args.opponent == 'heuristic':
-            return HeuristicAgent()
+        if args.opponent.startswith('heuristic'):
+            return resolve_agent(args.opponent)
         return RandomAgent(seed=args.seed)
 
     if args.model:
         print(f'\n=== Mode A: {args.model} vs {args.num_players - 1} {args.opponent} opponents '
               f'({args.games} games) ===')
         t0 = time.time()
-        test = HeuristicAgent() if args.model == 'heuristic' else load_greedy_agent(args.model)
+        test = resolve_agent(args.model) if args.model.startswith('heuristic') \
+            else load_greedy_agent(args.model)
         opp = make_opponent()
         wins, decided, undecided = play_match(test, opp, args.num_players, args.games, args.seed)
         print(f'{args.model} vs {args.opponent}:', fmt(wins, decided, undecided, baseline))

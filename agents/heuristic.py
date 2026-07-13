@@ -32,6 +32,8 @@ Behaviours (numbering matches the R3 plan):
   B12 deterministic tie-break by action scalar (bit-reproducible, no RNG)
 """
 
+import dataclasses
+
 from game import (Action, Card, Color, Type, State, FINISHING_TYPE_VALUES,
                   NUMBER_TYPE_VALUES, action_to_scalar)
 
@@ -68,6 +70,81 @@ SCORE_FORBIDDEN = -100.0   # B5 hard: emptying the hand on a non-finisher
 _INFORMATIVE_DRAW_STATES = (State.NORMAL.value, State.PLUS.value)
 _BLOCKER_TYPES = (Type.STOP, Type.PLUSTWO)
 _WILD_TYPES = (Type.CHCOL, Type.KING)  # colorless; Super TAKI is Card(TAKI, NONE)
+
+
+@dataclasses.dataclass(frozen=True)
+class Weights:
+    """The agent's scoring economy, as data (PLAN.md B2).
+
+    Defaults reproduce the R3 agent exactly. Broken out so the HOLD-BACK terms can be
+    switched off individually: B2 asks whether playing fewer cards now ever pays, and
+    this agent is the only one in the repo that does it on purpose, in terms we control.
+
+    The hold-back terms are the ones marked HOLD below. They work only because
+    `score_draw` is a FINITE score competing in the same `max`: any hold penalty above
+    5.0 makes the agent voluntarily DRAW rather than play a legal card.
+
+    `score_forbidden` is NOT a hold-back term — it encodes the engine's finishing rule
+    (you may not end on a PLUS) and must stay on in every ablation.
+    """
+    w_deny: float = W_DENY
+    w_rich: float = W_RICH
+    w_block: float = W_BLOCK
+    w_chdir_block: float = W_CHDIR_BLOCK
+    w_plus_tempo: float = W_PLUS_TEMPO
+    w_taki_dump: float = W_TAKI_DUMP
+    score_draw: float = SCORE_DRAW
+    score_forbidden: float = SCORE_FORBIDDEN   # rules, not strategy — never ablate
+
+    # --- HOLD-BACK terms (B2 ablates these) ---
+    w_save_blocker: float = W_SAVE_BLOCKER     # HOLD: keep STOP/+2 with no threat
+    w_nofin: float = W_NOFIN                   # HOLD: keep a finisher with a small hand
+    w_reserve: float = W_RESERVE               # HOLD: don't break the hoarded color group
+    w_open_hoard: float = W_OPEN_HOARD         # HOLD: (the hoard's release trigger)
+    p_chcol: float = P_CHCOL                   # HOLD: keep Change Color
+    p_super_taki: float = P_SUPER_TAKI         # HOLD: keep Super TAKI
+    p_king: float = P_KING                     # HOLD: keep the King
+    score_decline_king: float = SCORE_DECLINE_KING  # HOLD: decline the King's follow-up
+    hold_wilds_in_run: bool = True             # HOLD: never spend a wild inside a TAKI run
+    # HOLD: under a pending +2, keep the King unless it cancels at least this much.
+    # A threshold rather than a weight, but the same behaviour — eat 2 cards now to keep
+    # the King for later. Ablating it means: always cancel with the King if you hold one.
+    king_cancel_min_penalty: int = KING_CANCEL_MIN_PENALTY
+    # B7: a next player holding <= this many cards counts as a threat worth blocking.
+    # NOT a hold-back term — it decides WHEN to spend a blocker, i.e. selectivity.
+    block_hand_threshold: int = BLOCK_HAND_THRESHOLD
+
+
+#: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
+#: it can and never draws when a legal play exists. This is the B2 control.
+GREEDY = Weights(
+    w_save_blocker=0.0,
+    w_nofin=0.0,
+    w_reserve=0.0,
+    w_open_hoard=0.0,
+    p_chcol=0.0,
+    p_super_taki=0.0,
+    p_king=0.0,
+    score_decline_king=-100.0,   # never decline a free card
+    hold_wilds_in_run=False,
+    king_cancel_min_penalty=0,   # always spend the King to cancel a +2
+)
+
+#: Single-term ablations: each turns exactly ONE hold-back behaviour off, so the
+#: head-to-head margin against the full agent prices that behaviour on its own.
+ABLATIONS = {
+    'hoard': dict(w_reserve=0.0, w_open_hoard=0.0),
+    'wilds': dict(p_chcol=0.0, p_super_taki=0.0, p_king=0.0, hold_wilds_in_run=False),
+    'blocker': dict(w_save_blocker=0.0),
+    'finisher': dict(w_nofin=0.0),
+    'king_follow': dict(score_decline_king=-100.0),
+    'king_cancel': dict(king_cancel_min_penalty=0),
+}
+
+
+def ablated(name):
+    """The full agent with exactly one hold-back behaviour removed."""
+    return dataclasses.replace(Weights(), **ABLATIONS[name])
 
 
 class _OpponentModel:
@@ -115,7 +192,8 @@ class _OpponentModel:
 
 
 class HeuristicAgent:
-    def __init__(self):
+    def __init__(self, weights=None):
+        self.w = weights if weights is not None else Weights()
         self._model = None
         self._cursor = 0
 
@@ -170,7 +248,7 @@ class HeuristicAgent:
                      if a is Action.PLAY_CARD and c.type is Type.PLUSTWO]
         if plus_twos:
             return self._best_by_color(game, plus_twos)
-        if 2 * game.draw_num >= KING_CANCEL_MIN_PENALTY:
+        if 2 * game.draw_num >= self.w.king_cancel_min_penalty:
             for a, c in moves:
                 if a is Action.PLAY_CARD and c.type is Type.KING:
                     return a, c
@@ -180,9 +258,13 @@ class HeuristicAgent:
         """B3: dump the run's color; never spend wilds; order so inert action
         cards go first, a number closes out a hand-emptying run, and a blocker
         lands last (its effect applies at CLOSE_TAKI) when a threat looms."""
-        colored = [(a, c) for a, c in moves
-                   if a is Action.PLAY_CARD and c.color is not Color.NONE
-                   and c.type is not Type.CHCOL]
+        if self.w.hold_wilds_in_run:
+            colored = [(a, c) for a, c in moves
+                       if a is Action.PLAY_CARD and c.color is not Color.NONE
+                       and c.type is not Type.CHCOL]
+        else:
+            # Ablated: spend wilds in the run like any other card.
+            colored = [(a, c) for a, c in moves if a is Action.PLAY_CARD]
         # Excluded: hand-emptying plays on a non-finisher (B5 hard rule).
         playable = [(a, c) for a, c in colored
                     if not (len(hand) == 1 and c.type.value not in FINISHING_TYPE_VALUES)]
@@ -215,9 +297,9 @@ class HeuristicAgent:
         for move in moves:
             action, card = move
             if action is Action.DRAW:
-                score = SCORE_DRAW
+                score = self.w.score_draw
             elif action is Action.CLOSE_TAKI:  # only reachable declining a King
-                score = SCORE_DECLINE_KING
+                score = self.w.score_decline_king
             else:
                 score = self._score_play(game, hand, card, reserved,
                                          hoard_color, open_hoard)
@@ -226,9 +308,10 @@ class HeuristicAgent:
         return best[1]
 
     def _score_play(self, game, hand, card, reserved, hoard_color, open_hoard):
+        w = self.w
         # B5 hard rule: never end the hand on a non-finisher (engine penalty).
         if len(hand) == 1 and card.type.value not in FINISHING_TYPE_VALUES:
-            return SCORE_FORBIDDEN
+            return w.score_forbidden
 
         score = 0.0
         next_seat = self._seat_after_playing(game, card)
@@ -236,51 +319,51 @@ class HeuristicAgent:
 
         # B8 color denial + B9 richness (only when an opponent acts next).
         if next_seat != game.curr and result_color is not Color.NONE:
-            score += W_DENY * self._model.lacks_color(next_seat, result_color)
+            score += w.w_deny * self._model.lacks_color(next_seat, result_color)
             # `c is not card` (identity) excludes the played card; an expanded
             # CHCOL choice is a fresh object, so nothing is excluded — correct,
             # since playing a recolored wild spends no card of that color.
             remaining = sum(1 for c in hand
                             if c.color is result_color and c is not card)
-            score += W_RICH * remaining
+            score += w.w_rich * remaining
 
         # B7 blocking economy.
         threat = self._threat_seat(game)
         if card.type in _BLOCKER_TYPES:
-            score += W_BLOCK if threat is not None else -W_SAVE_BLOCKER
+            score += w.w_block if threat is not None else -w.w_save_blocker
         elif card.type is Type.CHDIR and threat is not None:
             behind = (game.curr - game.dir) % len(game.agents)
             if len(game.hands[behind]) > len(game.hands[threat]):
-                score += W_CHDIR_BLOCK
+                score += w.w_chdir_block
         elif card.type is Type.PLUS:
-            score += W_PLUS_TEMPO
+            score += w.w_plus_tempo
 
         # B10 wild hold-penalties.
         if card.type is Type.CHCOL:
-            score -= P_CHCOL
+            score -= w.p_chcol
         elif card.type is Type.KING:
-            score -= P_KING
+            score -= w.p_king
         elif card.type is Type.TAKI and card.color is Color.NONE:
-            score -= P_SUPER_TAKI
+            score -= w.p_super_taki
         elif card.type is Type.TAKI:
             # A colored TAKI opens a run: worth roughly the color group it dumps.
             group = sum(1 for c in hand
                         if c.color is card.color and c is not card)
-            score += W_TAKI_DUMP * group
+            score += w.w_taki_dump * group
             if open_hoard and card.color is hoard_color:
-                score += W_OPEN_HOARD
+                score += w.w_open_hoard
 
         # B6 hoard reserve.
         if card in reserved and not (open_hoard and card.type is Type.TAKI
                                      and card.color is hoard_color):
-            score -= W_RESERVE
+            score -= w.w_reserve
 
         # B5 soft: with a small hand, keep at least one finisher.
         if len(hand) <= SMALL_HAND:
             has_finisher_after = any(
                 c.type.value in FINISHING_TYPE_VALUES for c in hand if c is not card)
             if not has_finisher_after:
-                score -= W_NOFIN
+                score -= w.w_nofin
 
         return score
 
@@ -329,7 +412,7 @@ class HeuristicAgent:
     def _threat_seat(self, game):
         """The next opponent, if they are close to winning (B7)."""
         nxt = (game.curr + game.dir) % len(game.agents)
-        if len(game.hands[nxt]) <= BLOCK_HAND_THRESHOLD:
+        if len(game.hands[nxt]) <= self.w.block_hand_threshold:
             return nxt
         return None
 
@@ -342,9 +425,9 @@ class HeuristicAgent:
             s = 0.0
             nxt = self._seat_after_playing(game, card)
             if nxt != game.curr and card.color is not Color.NONE:
-                s += W_DENY * self._model.lacks_color(nxt, card.color)
-                s += W_RICH * sum(1 for c in hand
-                                  if c.color is card.color and c is not card)
+                s += self.w.w_deny * self._model.lacks_color(nxt, card.color)
+                s += self.w.w_rich * sum(1 for c in hand
+                                         if c.color is card.color and c is not card)
             return (-s, action_to_scalar(*move))
 
         return min(plays, key=key)

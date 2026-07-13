@@ -14,6 +14,255 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-13 (later) — R6 attempt 1: a terminal loss penalty fixes the VALUATION but not the POLICY. The step term taxes defence
+
+Branch `b2-holdback`. `train.py --loss-penalty`. Run `models/run1783898274.148395` (100k trials,
+seed 1, shaped, L=20). Acceptance test `r6_accept.py`, **pre-registered in the B2 commit before this
+run finished, and written to be able to fail. It did.**
+
+**Setup.** B2 (entry above) found the champion will not block a one-card opponent even though
+blocking is worth +0.050 +/- 0.017, and traced it to `seat_reward`: `-len(hand)` every step, a bonus
+only on a win, **nothing on a loss** — so ending the game *stops the penalty stream* and an imminent
+defeat is a relief. R6 adds a penalty to the terminal transition of a seat that did not win.
+
+**Result: PREDICTION 1 FAILED, PREDICTION 2 PASSED.**
+
+| | baseline champion | R6 (L=20, 100k) |
+|---|---|---|
+| Q(red 5) at k=1 / k=7 | -6.56 / -9.93 — a near-winning opponent is **good news** | **-20.07 / -18.84 — now correctly BAD news** |
+| delta(k=1) = Q(+2)-Q(5) | -4.01 | -3.23 (moved the right way, nowhere near flipping) |
+| delta spread over k | 2.55, **falling** as k falls (backwards) | 0.88, still **falling** (still backwards) |
+| census REFUSAL rate | 1.93% | 1.85% (guard-rail holds) |
+
+**The mechanism claim is CONFIRMED by intervention.** The sign of the state value flipped exactly as
+B2 predicted: the identical hand is no longer worth *more* when an opponent is about to go out. B2's
+causal story was right.
+
+**But the policy did not follow, and the reason is a tension B2 missed.** Blocking with a +2 makes the
+opponent draw and **prolongs the game** — and the `-len(hand)` step term charges ~3 per extra turn. So
+the *same* reward term B2 praised (it teaches "never refuse to play", worth ~13 pts) **also taxes every
+defensive line**. A one-off penalty of 20 does not outweigh ~15 in extra step cost times the
+probability the block actually saves you. The two halves of the shaped reward are in conflict, and a
+constant terminal penalty cannot resolve it.
+
+**Guard-rail passed, which matters:** the refusal rate did not move (1.85% vs 1.93%), so the loss
+penalty did not break the half of the reward that was working. Whatever the fix is, it need not
+trade one against the other.
+
+### R6 attempt 2 (L=60, partial — 20k trials): the sign FLIPS, but it over-blocks and the guard-rail cracks
+
+| | baseline (500k) | L=20 (100k) | L=60 (20k, partial) |
+|---|---|---|---|
+| delta(k=1) | -4.01 | -3.23 | **+0.26 — SIGN FLIPPED** |
+| delta direction | falls as k falls (wrong) | falls (wrong) | **rises (right)** |
+| delta spread over k | 2.55 | 0.88 | **0.20** |
+| plays at k=1 | number | number | **the +2** |
+| plays at k=7 | number (correct) | number (correct) | **the +2 (WRONG — blocking costs -0.036 here)** |
+| census REFUSAL | 1.93% | **1.85%** (pass) | **5.67%** (elevated) |
+| vs 3x heuristic | 0.348 | **0.366** | 0.342 |
+
+**The magnitude hypothesis is confirmed and then punished.** L=60 does flip the sign — so the "step
+tax dominates" diagnosis was right — but it produces an agent that plays the +2 at **every** k,
+including where blocking is measurably worse. **The k-spread is 0.20**, i.e. it is not blocking
+*selectively*; it is just always blocking. A constant terminal penalty can shift **how much you fear
+losing**, but it cannot teach **when the threat is real** — which is precisely the k-sensitivity the
+probe asks for. L=20 under-blocks everywhere, L=60 over-blocks everywhere, and *neither has the
+spread*. That is a strong argument that the problem is **form, not magnitude** -> **R17**.
+
+**The unexpected win: L=20 is genuinely STRONGER.** 0.366 vs the champion's 0.348 against the
+heuristic yardstick (SE ~0.009, so ~2 SE) — while passing the refusal guard-rail. So a terminal loss
+penalty is worth keeping **even though it did not fix the behaviour it was built for**. Promotion is
+NOT claimed here: it needs a seat-swapped head-to-head against the champion, which was not run.
+
+**Caveats, load-bearing.** L=60 reached only **20k of 100k trials** before the time budget ran out, so
+its 0.342 and its 5.67% refusal are **confounded by short training** (early models refuse more) and
+must not be compared to the fully-trained rows as if they were peers. The sign flip and the near-zero
+k-spread are the parts that are safe to read at 20k, because the L=20 run's delta at 20k already
+matched its own final value. **A full L=60 run is the first thing to finish.**
+
+**Next.** (a) Finish the L=60 run (100k) and re-run `r6_accept.py`.
+(b) A larger penalty (L=60 running) directly tests the "the step tax dominates" explanation —
+it must eventually flip delta if the diagnosis is right; if even a large L fails, the problem is not
+magnitude but *form*. (b) The principled fix is **potential-based** (PLAN A9): shape on the *change*
+in hand size rather than its level, so a longer game is not intrinsically penalised and defence stops
+being taxed. That is now the leading candidate and it is what R6 should probably become.
+
+**Process note:** two concurrent `train.py` runs (each thread-capped and niced) ran at **~2.2 trials/s
+each**; killing one took the survivor to **~34 trials/s** — a **>10x** speedup, not the ~2x core
+contention predicts. Concurrency is strongly negative-sum on this box: **run trainings sequentially**,
+and always measure the rate before sizing a run (100k looked like 13 h concurrent, ~50 min solo).
+
+## 2026-07-13 — B2: the shaped reward is the source of the champion's best habit AND its worst blind spot. R6 proven — on defence, not on shedding
+
+Branch `b2-holdback`. Full write-up: `probes/b2_holding_back.md`. Harness: `holdback.py`,
+`agents/heuristic.py` (`Weights`/`GREEDY`/`ABLATIONS`), `holdbacktest.py` (14 tests).
+
+**PLAN.md B2 asked** whether the shaped reward (`-len(hand)` per step) makes the policy a greedy
+hand-size minimiser that never plays fewer cards for a better endgame — which would be the argument
+for **R6**. **The premise is false.**
+
+**The key distinction, which nothing in this project had drawn:**
+- **REFUSAL** hold-back — decline to put a card down at all (DRAW, or CLOSE a TAKI / King
+  continuation) while a legal play exists. Keeps the card, loses the tempo. **Catastrophic.**
+- **PREFERENCE** hold-back — play a *different* card instead. Keeps the card, spends the turn.
+  **Valuable.**
+
+**Method — we did NOT ask the DQN's value function** (it is the thing under suspicion, so its own
+rollouts would be circular). We asked an agent whose strategy we own. R3's `HeuristicAgent` holds
+cards back on purpose, and `SCORE_DRAW = -5.0` is a *finite score in the same max*, so **any hold
+penalty above 5.0 flips it from preferring another play to refusing to play.** Refactored its
+constants into a `Weights` dataclass (defaults byte-identical, pinned), ablated each behaviour, and
+ran `eval_headtohead.py --team1-seats 0,2 --seat-swap` (3000 games x 2 occupancies). No network.
+
+**Result 1 — every hold-back term priced** (margin = full - ablated; positive = worth having):
+
+| behaviour | margin | kind | verdict |
+|---|---|---|---|
+| hoard (`w_reserve` 10->0) | **-0.0623 +/- 0.0105** | refusal (draws to protect the group) | harmful |
+| king_cancel (eat a +2 to keep the King) | **-0.0353 +/- 0.0054** | refusal (draws 2) | harmful |
+| wilds (`p_king`/`p_chcol`/`p_super`, in-run) | **-0.0450 +/- 0.0116** | mixed | harmful net |
+| blocker (save STOP/+2, no threat) | +0.0110 +/- 0.0064 | preference | mildly good (1.7 SE) |
+| finisher (keep a legal last card) | +0.0083 +/- 0.0035 | rules-driven | good (2.4 SE) |
+| king_follow (decline the free card) | **+0.0000 +/- 0.0000** | — | **never fires** |
+
+**Result 2 — a 13-point cliff exactly at the draw threshold.** Sweeping `p_king` alone:
+2 -> +0.016, 4 -> +0.019, **5 -> +0.020** (holding the King is worth +2 pts), **6 -> -0.104**
+(it now DRAWS rather than play it), 8 -> -0.104 (identical: the effect is the behavioural *flip*,
+not the magnitude). Head-to-head `p_king=6` vs `p_king=5` = **-0.130 +/- 0.009**, replicated on
+three disjoint deck blocks (-0.130 / -0.129 / -0.132). The `w_reserve` sweep has the same shape:
+flat (~0) from 0 to 6, then collapses at 8 and 10 — i.e. **hoarding is free; drawing to hoard is not.**
+
+> **Statement about Taki: never draw to protect a plan.** Keeping a card by playing something else is
+> free or better; keeping it by passing costs more than the card is ever worth.
+
+**Result 3 — this RESOLVES B1's apparent contradiction.** B1 found "dumping the TAKI never beats
+keeping it"; the ablation says hoarding costs 6.2 pts. Both are right: **B1 only ever compared
+play-vs-play**, which is the preference regime — and there B1 is confirmed exactly (`w_reserve` 0-6
+is flat). R3's `W_RESERVE = 10.0` goes further than anything B1 tested: it *draws*. The 6.2 points
+are the drawing, not the hoarding. B1's hoarding half survives, with a sharp boundary around it.
+
+**Result 4 — the census (`holdback.py`), 200 self-play games, all 4 seats.** At every decision, does
+the agent pick a move that provably sheds fewer cards this turn than a legal alternative? "Sheds
+fewer" is a rules-level search (`max_shed`), not a heuristic, because action identity lies: closing a
+TAKI on a PLUS or King **keeps the turn** (game.py:584-598), so CLOSE_TAKI is not always a refusal.
+
+| agent | REFUSAL (% of free decisions) | PREFERENCE hold-back | vs 3x random |
+|---|---|---|---|
+| random | 35.1% | 47.1% | 0.250 |
+| heuristic (R3, shipped) | 14.5% | 34.6% | 0.850 |
+| **DQN champion** | **1.8%** | **20.4%** | **0.906** |
+| heuristic (retuned) | 0.3% | 14.4% | 0.899 |
+| heuristic:greedy (control) | **0.0%** | 13.7% | 0.879 |
+
+**The champion holds cards back one time in five, and almost never by refusing to play.** It is not
+a greedy shedder, and it is not making B2's predicted mistake. **The shaped reward is WHY:**
+`-len(hand)` punishes drawing (drawing grows the hand), so the training signal directly encodes the
+most valuable rule in the game. On *shedding*, it is **aligned, not biased** — R6's hold-back
+justification is dead.
+
+**Result 5 — BUT: weapon timing, where the champion fails and R6 turns out to be RIGHT after all**
+(`scenarios_b2.py`). A red +2 and a red 5, both legal, **both shedding exactly one card** — so the
+shaped reward is *exactly indifferent* between them, and the probe isolates the VALUE FUNCTION from
+the reward. Only `k`, the NEXT player's hand size, varies (legal set / deck / unseen counts constant
+by construction).
+
+    k:              1       2       3       5       7
+    Q(red +2)  -10.58  -10.72  -11.36  -11.74  -11.40
+    Q(red 5)    -6.56   -7.98   -9.00   -9.66   -9.93
+    delta       -4.01   -2.74   -2.36   -2.08   -1.47      <- should RISE as k falls. It FALLS.
+
+It **does** use the feature (spread 2.55 vs an untrained noise floor of 0.01-0.06 over three seeds),
+but with the **wrong sign**: it least wants to fire the +2 exactly when the next player is one card
+from winning. Rollout (1200 determinizations, paired, 3x heuristic):
+
+| k | block (+2) | number (5) | block - number |
+|---|---|---|---|
+| **1** | **0.310** | **0.260** | **+0.050 +/- 0.017** <- champion plays the number: WRONG |
+| 2 | 0.319 | 0.369 | -0.050 +/- 0.017 (correct) |
+| 3 | 0.342 | 0.378 | -0.036 +/- 0.017 (correct) |
+| 5 | 0.358 | 0.394 | -0.036 +/- 0.018 (correct) |
+
+**Right at every k except the one that matters — and most confident precisely there.**
+
+**The mechanism, and it is not a mis-fit network.** `Q(red 5)` is **-6.56 at k=1** and **-9.93 at
+k=7**: the *identical hand* is valued 3.4 HIGHER when an opponent is about to win. From
+`train.py:288-290`, `r = -len(hand)` every step (always negative) `+ bonus only on a win` — **a loss
+pays nothing, the penalty stream just stops.** So an imminent loss is *rewarded* (it truncates the
+stream), and blocking a near-winner *prolongs* the game and therefore looks worse. The value function
+is faithfully optimising an objective **indifferent to who wins**.
+
+> **Statement about Taki: block the player about to go out.** A +2 spent on a one-card opponent is
+> worth ~5 points; spent on anyone else it is worth *less* than a plain number.
+
+**CORRECTION (2026-07-13, later) — the magnitude above is inflated ~2x; the finding survives.** The
+table was rolled out against `3x heuristic` with **shipped** weights — the same weights this entry
+goes on to show are crippled by the refusal cliff (14.5% voluntary draws). A pool that draws when it
+should play ends games slowly, and a tempo weapon is worth more against slow opponents. Re-priced
+against the **retuned** pool (`b2_block_price.py`, 1200 paired determinizations x 3 independent deck
+blocks), with the shipped pool re-run alongside as a control:
+
+| k | shipped pool (as published) | retuned pool |
+|---|---|---|
+| **1** | +0.050 / +0.064 / +0.081 | **+0.020 / +0.038 / +0.045** |
+| 2 | -0.050 | **-0.048 / -0.049 / -0.050** |
+| 3, 5, 7 | -0.036 .. -0.050 | -0.031 .. -0.077 |
+
+Seed 0 reproduces the published row **exactly** (+0.050, -0.050, -0.036, -0.036), so the harness is
+faithful and the difference is the opponent pool, not the code. **The k=1-vs-k=2 sign flip — the whole
+content of the finding, and the sole evidence for H2 — is unchanged.** Only the price changes: the
+statement above should read **~2-4 points**, not ~5. The champion's own win rate drops from ~0.31-0.41
+to ~0.20-0.26 across the same positions, independently corroborating that the retuned heuristic is a
+much stronger opponent (Result 5).
+
+**Method bug found while doing this, and it taints every "confirmed on seeds 0/1/2" claim in B1/B2.**
+`mc_line` seeded replicate `g` with `seed + g`, so a run at seed 0 drew deals 0..1199 and a run at
+seed 1 drew deals 1..1200 — **a 99.9% shared sample**. Re-running at nearby seeds was not replication;
+it was one measurement reported three times, and it looked *reassuringly* tight for exactly that
+reason (the retuned k=1 cell read +0.020 / +0.020 / +0.019). Fixed: `probe.det_seed(seed, g)` hashes
+the pair (crc32), so distinct seeds are independent blocks. The same cell now reads **+0.023 / +0.018
+/ +0.038** — the honest spread, and consistent with the disjoint blocks above. Common random numbers
+across *lines* (the pairing that makes the SEs tight) are unaffected and still pinned by `probetest`.
+Prior logged rollout numbers will not bit-reproduce under the new seeding; that is the cost of the fix.
+
+**So B2 both kills and proves R6, for opposite reasons.** Its *hold-back* justification ("the shaped
+reward makes it greedily shed") is **dead** — that term is doing the most useful work in the model.
+Its *defensive* justification ("losers get no terminal penalty") is **exactly right**, and this is the
+first direct evidence: reward code -> Q-values -> behaviour -> a measured 5.2-point cost.
+Pre-registered prediction for R6: add a terminal loss penalty and `delta(k)` flips sign at k=1.
+
+**Result 6 (unplanned, and the most actionable) — R3's heuristic is badly tuned.** Keep every
+preference hold-back, delete every refusal (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4,
+king_cancel_min_penalty=0, hold_wilds_in_run=false`):
+
+| | vs 3x random | vs DQN champion (seat-swap 2v2, 3 disjoint seeds) |
+|---|---|---|
+| heuristic (R3, shipped) | 0.850 | -0.208 +/- 0.012 |
+| heuristic (fully greedy) | 0.879 | — |
+| **heuristic (retuned)** | **0.899** | **+0.018 / -0.018 / +0.005 -> PARITY** |
+| DQN champion | 0.906 | — |
+
+**A few hundred lines of rules, retuned on nothing but hold-back discipline, match the 500k-trial
+champion.** R3's headline ("A8 genuinely better, 0.343 vs 3 heuristics") was measured against a
+crippled opponent — the yardstick had a 17-point tuning bug. Anything ranked against the R3 heuristic
+should be re-run, R3's own conclusions included.
+
+**Two process findings, both bit us:**
+- **`agenttest.py` was RED on master and nobody noticed.** R3 (agenttest) and the finishing-rule fix
+  were developed in parallel; three tests still asserted the old rule (they used a red STOP as "an
+  action card you cannot finish on" — it is now a legal finisher). The 2026-07-12 entry's "56 green"
+  counted `gametest` + `probetest` only. Fixed here (they now use PLUS, the only real non-finisher);
+  suite is 83 green. **Run the whole suite, not the subset you changed.**
+- **`eval_headtohead` seeds deck `g` with `seed + g`**, so seeds 0/1/2 share 2999 of 3000 decks and
+  are NOT independent replications. Seeds must be >= `games` apart. Our first "replication" produced
+  three near-identical numbers, which is what exposed it.
+
+**Caveats.** The retuned weights were swept on seed 0 and confirmed on disjoint blocks (the parity
+claim rests on 3 independent seeds), but the exact values carry selection risk — they are un-broken,
+not optimised. The census is one distribution (self-play). **The B4/Ĝ arm was not run:** Arm 1
+answered "does holding back pay" by a stronger non-circular route, so the empirical shaped return was
+not needed for the verdict. It remains the way to ask whether the champion's 20.4% preference
+hold-backs are well-*calibrated*, as opposed to merely present.
+
 ## 2026-07-12 — RULES BUG: the finishing rule was wrong. Fixed, B1 half-retracted, A8 retraining
 
 **Not an experiment — a correctness fix that invalidates a result and a champion.** Branch

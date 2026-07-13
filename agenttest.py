@@ -56,10 +56,11 @@ class HistoryLogTest(unittest.TestCase):
         g = make_game()
         g.curr = 0
         g.discard = [Card(Type.FIVE, Color.RED)]
-        g.hands[0] = [Card(Type.STOP, Color.RED)]  # would end on an action card
+        # PLUS is the ONLY card a hand may not end on (game.py FINISHING_TYPE_VALUES).
+        g.hands[0] = [Card(Type.PLUS, Color.RED)]
         g.state = State.NORMAL
         g.history = []
-        g.agents[0] = _Scripted([(Action.PLAY_CARD, Card(Type.STOP, Color.RED))])
+        g.agents[0] = _Scripted([(Action.PLAY_CARD, Card(Type.PLUS, Color.RED))])
         g.next_turn()
         self.assertIn(('penalty_draw', 0, 1), g.history)
 
@@ -145,13 +146,24 @@ class HeuristicBehaviourTest(unittest.TestCase):
         self.assertEqual(self.agent.play(g),
                          (Action.PLAY_CARD, Card(Type.FIVE, Color.BLUE)))
 
-    def test_b5_never_empties_hand_on_action_card(self):
+    def test_b5_never_empties_hand_on_a_plus(self):
+        g = make_game()
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.PLUS, Color.RED)]
+        # PLUS is the only non-finisher: playing it would trigger the penalty draw,
+        # so drawing is preferred.
+        self.assertEqual(self.agent.play(g), (Action.DRAW, None))
+
+    def test_b4_wins_on_an_action_card(self):
+        # The corrected finishing rule: every card EXCEPT PLUS may end the hand.
+        # A last red STOP is a legal winner and must be played, not held.
         g = make_game()
         g.discard = [Card(Type.FIVE, Color.RED)]
         g.state = State.NORMAL
         g.hands[0] = [Card(Type.STOP, Color.RED)]
-        # Playing would trigger the finisher penalty; drawing is preferred.
-        self.assertEqual(self.agent.play(g), (Action.DRAW, None))
+        self.assertEqual(self.agent.play(g),
+                         (Action.PLAY_CARD, Card(Type.STOP, Color.RED)))
 
     def test_b7_blocks_a_near_winner_with_stop(self):
         g = make_game()
@@ -186,12 +198,14 @@ class HeuristicBehaviourTest(unittest.TestCase):
         action, card = self.agent.play(g)
         self.assertEqual((action, card.type), (Action.PLAY_CARD, Type.FIVE))
 
-    def test_b3_closes_rather_than_end_run_on_action_card(self):
+    def test_b3_closes_rather_than_end_run_on_a_plus(self):
         g = make_game()
         g.discard = [Card(Type.TAKI, Color.RED)]
         g.state = State.TAKI
         g.taki_color = Color.RED
-        g.hands[0] = [Card(Type.STOP, Color.RED)]
+        # A run may not END on a PLUS (the one surviving finishing constraint), so
+        # the agent closes instead of spending its last card.
+        g.hands[0] = [Card(Type.PLUS, Color.RED)]
         self.assertEqual(self.agent.play(g), (Action.CLOSE_TAKI, None))
 
     def test_b6_protects_the_hoarded_color_group(self):
@@ -238,3 +252,86 @@ class SmokeEvalTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WeightsAblationTest(unittest.TestCase):
+    """PLAN.md B2: the hold-back terms must be (a) inert by default and (b) really off
+    when ablated. Without (a) the ablation measures a refactor; without (b) it measures
+    nothing."""
+
+    def test_default_weights_reproduce_the_r3_agent(self):
+        from agents.heuristic import Weights
+        w = Weights()
+        self.assertEqual(
+            (w.w_reserve, w.w_nofin, w.p_king, w.p_chcol, w.p_super_taki,
+             w.w_save_blocker, w.score_decline_king, w.score_draw, w.hold_wilds_in_run),
+            (10.0, 8.0, 6.0, 3.0, 4.0, 0.7, -2.0, -5.0, True))
+
+    def test_default_and_explicit_default_weights_play_identically(self):
+        from agents.heuristic import Weights
+        a, b = HeuristicAgent(), HeuristicAgent(weights=Weights())
+        for seed in range(30):
+            g = Game([RandomAgent(seed=i) for i in range(4)], seed=seed)
+            for _ in range(40):
+                if g.done():
+                    break
+                self.assertEqual(a.play(g), b.play(g))
+                g.next_turn()
+
+    def test_greedy_holds_nothing_back_where_the_full_agent_does(self):
+        """The three cases where SCORE_DRAW=-5 is beaten by a hold penalty."""
+        from agents.heuristic import GREEDY
+        full, greedy = HeuristicAgent(), HeuristicAgent(weights=GREEDY)
+
+        # P_KING = 6.0 > 5.0: the full agent draws rather than spend a lone King.
+        g = make_game()
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.KING), Card(Type.NINE, Color.BLUE)]
+        self.assertEqual(full.play(g), (Action.DRAW, None))
+        self.assertEqual(greedy.play(g)[0], Action.PLAY_CARD)
+
+        # W_RESERVE = 10.0 > 5.0: the full agent draws rather than break its hoard.
+        # Two cards sit OUTSIDE the group, so the hoard-release trigger (`open_now`,
+        # which needs outside <= 1) has not fired yet — the group is still being saved.
+        g = make_game()
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.TAKI, Color.RED), Card(Type.THREE, Color.RED),
+                      Card(Type.SEVEN, Color.RED),
+                      Card(Type.NINE, Color.BLUE), Card(Type.TWO, Color.GREEN)]
+        self.assertEqual(full.play(g), (Action.DRAW, None))
+        self.assertEqual(greedy.play(g)[0], Action.PLAY_CARD)
+
+        # KING_CANCEL_MIN_PENALTY = 4: under a single +2 the full agent eats the two
+        # cards rather than spend its King; the greedy one cancels.
+        g = make_game()
+        g.discard = [Card(Type.PLUSTWO, Color.GREEN)]
+        g.state = State.DRAW_TWO
+        g.draw_num = 1
+        g.hands[0] = [Card(Type.KING), Card(Type.THREE, Color.BLUE)]
+        self.assertEqual(full.play(g), (Action.DRAW, None))
+        self.assertEqual(greedy.play(g), (Action.PLAY_CARD, Card(Type.KING)))
+
+    def test_greedy_never_draws_when_a_legal_play_exists(self):
+        """The B2 positive control: the ablated agent must have a ~0 voluntary-draw
+        rate, otherwise the census's 'holds back' signal is not measuring what we think."""
+        from agents.heuristic import GREEDY
+        greedy = HeuristicAgent(weights=GREEDY)
+        voluntary = 0
+        for seed in range(20):
+            g = Game([HeuristicAgent(weights=GREEDY) for _ in range(4)], seed=seed)
+            for _ in range(300):
+                if g.done():
+                    break
+                moves = g.valid_moves()
+                plays = [m for m in moves if m[0] is Action.PLAY_CARD]
+                action, _ = greedy.play(g)
+                if action is Action.DRAW and plays:
+                    # Legal only if every play would empty the hand on a PLUS.
+                    if not all(len(g.hands[g.curr]) == 1
+                               and c.type.value not in FINISHING_TYPE_VALUES
+                               for _, c in plays):
+                        voluntary += 1
+                g.next_turn()
+        self.assertEqual(voluntary, 0)

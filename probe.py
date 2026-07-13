@@ -31,6 +31,7 @@ os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')
 import argparse
 import collections
 import random
+import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -438,6 +439,18 @@ class MCResult:
         return float(self.wins.std(ddof=1) / np.sqrt(len(self.wins)))
 
 
+def det_seed(seed, g):
+    """Determinization seed for replicate `g` of a run based at `seed`.
+
+    Must be injective in (seed, g), and NOT `seed + g`: that made runs at nearby seeds overlap
+    almost completely (seed 0 draws deals 0..N-1, seed 1 draws 1..N — a 99.9% shared sample at
+    N=1200), so "replicated on seeds 0/1/2" was one measurement reported three times. Hashing the
+    pair gives every (seed, g) its own stream, so distinct --seed values are independent blocks
+    and a spread across them is a real spread.
+    """
+    return zlib.crc32(f'{seed}:{g}'.encode()) & 0xFFFFFFFF
+
+
 def mc_line(scen, learner, line, opponents, games=1000, seed=0):
     """Force `line`, hand back to the greedy policy, play out. Repeat, resampling hidden cards.
 
@@ -446,16 +459,17 @@ def mc_line(scen, learner, line, opponents, games=1000, seed=0):
     is exactly the learner's belief state — sound because observation() sees the hidden region only
     through sizes and counts, so it is bit-identical across replicates (pinned in probetest).
 
-    Replicate g uses determinization seed `seed+g` for EVERY line (common random numbers), so lines
-    are compared on identical deals and the difference can be tested paired.
+    Replicate g uses determinization seed `det_seed(seed, g)` for EVERY line (common random
+    numbers), so lines are compared on identical deals and the difference can be tested paired.
     """
     wins, wtt, hands_after, undecided = [], [], [], 0
     for g in range(games):
+        ds = det_seed(seed, g)
         for opp in opponents:
             if hasattr(opp, 'reseed'):
                 opp.reseed(f'{seed}:{g}:opp')
-        np.random.seed(seed + g)                       # epsilon-greedy opponents draw from np
-        game = scen.build([learner] + list(opponents), seed=seed + g)
+        np.random.seed(ds)                             # epsilon-greedy opponents draw from np
+        game = scen.build([learner] + list(opponents), seed=ds)
         force_line(game, list(line), 0)
         # finish the learner's turn under its own policy
         turns = 0
