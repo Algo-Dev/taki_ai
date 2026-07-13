@@ -74,6 +74,40 @@ is saturated and misleading — A9-rules reaches 0.902 vs random by **trial 25,0
 improve for the remaining 475k trials, while the same run's heuristic score is only 0.348. A high
 vs-random number means almost nothing (R3: A8 scored 0.912 vs random but 0.343 vs heuristic).
 
+## The heuristic is a VERSIONED, FROZEN yardstick (H-series, 2026-07-14)
+
+Because it is the ranking metric, changing `HeuristicAgent` in place would silently rewrite the
+project's history. So `agents/heuristic.py` owns a **registry of named, frozen versions**, and one
+spec grammar (`resolve_weights`) shared by every harness — `eval.py`, `eval_headtohead.py`,
+`holdback.py`, `tune_heuristic.py`. Spec forms: `heuristic:<version>`, `heuristic:-<ablation>`,
+`heuristic:k=v,k=v`, and `heuristic:<version>,k=v` (**the leading version matters** — without it an
+override is based on `REFERENCE`, i.e. the *legacy* structure).
+
+| version | what it is | vs R6 champion | vs random |
+|---|---|---|---|
+| `r3` | **the yardstick** — as shipped; every published "vs heuristic" number refers to THIS | -0.263 | 0.850 |
+| `b2` | B2's retuned weights (legacy structure) | -0.065 | 0.899 |
+| `h1` | **R3's exact weights** + H1's structure | -0.079 | 0.896 |
+| `h1b2` | B2's weights + H1's structure — the best hand-set point | **-0.065** | 0.897 |
+| `h7` | `h1b2` + the RACE behaviour — **refuted, off** (racing loses monotonically) | — | — |
+| `greedy` | every hold-back off (the B2 control) | — | — |
+
+**`REFERENCE = 'r3'`** — a bare `heuristic` still means what it always meant. Promoting a successor
+is a deliberate one-line act (**B5**) that requires re-running the champion against the new reference
+and recording *both* numbers. Do not change it as a side effect.
+
+**The two facts to carry forward** (RESEARCH_LOG 2026-07-14):
+1. **The heuristic's 18-point defect was STRUCTURAL, not a bad weight.** `score_draw = -5.0` competed
+   in the same `max()` as the plays, so any hold above 5.0 bought a *refusal* (-13 pts) instead of a
+   *preference*. H1 (`refusal_mode='structural'`) makes refusing rules-only, so **no weight
+   assignment can produce a voluntary draw** — pinned as a property test. `h1` carries R3's exact
+   weights and beats it by **+0.183**.
+2. **Therefore every hold-back ablation B2 ran was confounded.** Any weight B2 priced at or above 5.0
+   was priced against the cliff. When H1 removes it, B2's conclusions **invert**: the hold-backs
+   *earn* points (`w_nofin` +1.1, the hoard +2.9, spending the blocker +2.2) rather than buying
+   nothing, and big holds are not "catastrophic" but merely *saturating*. Do not cite B2's ablation
+   numbers without re-measuring under `structural`.
+
 A8's architecture is still what trains: self-play collects transitions from all four seats via
 `train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k), on the 147-float A4+A7
 observation (opener randomized per trial; opponent hand sizes/deck size/unseen counts; no discard
@@ -97,8 +131,12 @@ python eval.py --model <ckpt> --games 1000                   # Mode A: win rate 
 python eval.py --run-dir models/run<ts> --baseline <ckpt> \
     --snap-stride 100 --games-b 3000                         # Mode B: snapshot progression
 python eval.py --model <ckpt> --opponent heuristic \
-    --games 3000                                             # vs the R3 heuristic (the discriminating opponent)
+    --games 3000                                             # vs the REFERENCE heuristic (r3) — the discriminating opponent
+python eval.py --model <ckpt> --opponent heuristic:h1b2 \
+    --games 3000                                             # vs a specific frozen version (r3/b2/h1/h1b2/greedy)
 python eval.py --model heuristic --games 3000                # the heuristic itself, vs random
+python holdback.py heuristic:h1 --games 200                  # refusal/hold-back census (draw refusals must be 0 under H1)
+python tune_heuristic.py --games 3000 --passes 2             # H8 coordinate descent vs the champion (base h1b2)
 
 python eval_headtohead.py <cand> <champ> \
     --team1-seats 0,2 --seat-swap --games 3000               # standard promotion test (see below)
@@ -120,7 +158,7 @@ Three layers with a strict encoding contract between them:
   - card vector (63 slots: 60 colored, Change Color, Super TAKI, King), action scalars (65: 0–59 colored plays, 60 CHCOL, 61 Super TAKI, 62 King, 63 DRAW, 64 CLOSE_TAKI), and the 147-float observation (`OBSERVATION_SIZE`), all defined here and imported by `agents/dqn.py`. The colored-block stride is `TYPES_PER_COLOR` (15), deliberately decoupled from `len(Type)` because the King is a colorless wild (never in the colored block).
   - `valid_moves()` is the legality source of truth; agents only ever choose among legal moves.
   - Changing `OBSERVATION_SIZE`/`ACTION_SIZE` or the network shape **invalidates every saved checkpoint** — loads fail hard by design (no silent cold-start). **The King card (this branch) did exactly that:** every pre-King checkpoint (incl. `checkpoint_colorsym_snap180000`) is unloadable here. The last commit on `master` with the old 62/64/201 contract that still loads those models is **`344535a`** — check it out to use the pre-King models. **The A7 observation-reshape (this branch) did it again:** the observation went 205→147 — added the 3 opponent hand sizes in turn order, deck size, and unseen +2/King/CHCOL counts, and **removed the full discard-pile histogram** (only the shown top card remains, so the net has a coarse card-count sense, not a full memory of what's been played). That invalidates every pre-A7 checkpoint too, so this branch trains from scratch. Also on this branch (A4): training randomizes the opener per trial (the learner stays list index 0 but no longer opens 100% of games), matching eval's shuffled seating.
-- **`agents/`** — anything with `play(game) -> (Action, Card)`: `dqn.py` (DQN with replay buffer; masks illegal actions in both action selection and the bootstrap target), `random.py` (uniform over legal moves, with `reseed()` for eval), `human.py`, `heuristic.py` (R3: hand-crafted rules, no network — the independent non-lineage eval opponent; consumes `game.history`, the public table-event log, and is bound by the same human information set as the DQN — it must never read opponents' hand *contents*).
+- **`agents/`** — anything with `play(game) -> (Action, Card)`: `dqn.py` (DQN with replay buffer; masks illegal actions in both action selection and the bootstrap target), `random.py` (uniform over legal moves, with `reseed()` for eval), `human.py`, `heuristic.py` (hand-crafted rules, no network — the independent non-lineage eval opponent, and a **registry of frozen versions** since the H-series: see "The heuristic is a VERSIONED, FROZEN yardstick" above. Consumes `game.history`, the public table-event log, and is bound by the same human information set as the DQN — it must never read opponents' hand *contents*).
 - **`train.py` / `eval.py` / `main.py`** — orchestration. The training loop, not the agent, computes rewards (`--reward {shaped,win,anneal}`) and drives replay/target-sync cadence. Self-play = learner at seat 0 + 3 opponents whose weights sync to the learner every 5 trials.
 
 ## Evaluation discipline (do not break)
