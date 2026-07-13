@@ -120,8 +120,14 @@ class Weights:
     #                  the plays, so a hold penalty above 5.0 turns "I would rather
     #                  keep this" into "I would rather not play at all" (the 13-point
     #                  refusal cliff B2 measured). This is what R3 shipped.
-    #   'structural' — H1: refusal is decided by the RULES alone, never by a weight.
-    #                  Not implemented yet; H1 adds it.
+    #   'structural' — H1: DRAWING is decided by the RULES alone, never by a weight. The
+    #                  agent draws only when it has no play the rules allow it to make;
+    #                  hold penalties rank the plays against each other and can never
+    #                  outvote playing at all. Hold weights become UNBOUNDED-SAFE: you can
+    #                  say "I really want to keep the King" without that ever meaning "so I
+    #                  will draw instead". Covers both places the agent can literally draw
+    #                  (`_score_and_pick` and `_play_draw_two`); the CLOSE_TAKI refusals
+    #                  (decline-King, hold-wilds-in-run) are untouched — see H4.
     # Pinned per named version below, so a frozen yardstick stays reproducible even
     # after the default flips.
     refusal_mode: str = 'legacy'
@@ -132,8 +138,8 @@ class Weights:
                              f'choose from {sorted(REFUSAL_MODES)}')
 
 
-#: Decision structures the scoring code implements. H1 adds 'structural'.
-REFUSAL_MODES = ('legacy',)
+#: Decision structures the scoring code implements.
+REFUSAL_MODES = ('legacy', 'structural')
 
 
 #: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
@@ -204,9 +210,24 @@ B2_RETUNED = Weights(
     hold_wilds_in_run=False,
 )
 
+#: H1 (PLAN.md): R3's weights, UNCHANGED — only the decision structure differs. Refusing
+#: to play is no longer something a weight can buy, so R3's `p_king = 6.0 > 5.0` stops
+#: meaning "draw rather than spend the King" and goes back to meaning what it reads like:
+#: "keep the King if there is anything else to play". The point of isolating it this way is
+#: that H1 vs R3 measures the STRUCTURE alone, with no retuning confounded into it — where
+#: B2 measured the retuning alone, and (we now know) left a cliff behind at `w_nofin`.
+H1 = dataclasses.replace(R3, refusal_mode='structural')
+
+#: H1's structure applied to B2's retuned weights: the two fixes together. B2 pulled the
+#: WILD holds under the threshold but missed `w_nofin`, so this is also the version where
+#: that leftover cliff finally cannot bite.
+H1_B2 = dataclasses.replace(B2_RETUNED, refusal_mode='structural')
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
+    'h1': H1,
+    'h1b2': H1_B2,
     'greedy': GREEDY,
 }
 
@@ -364,12 +385,20 @@ class HeuristicAgent:
     # --- state handlers -------------------------------------------------------
 
     def _play_draw_two(self, game, moves):
-        """B1: stack a +2 if held; King-cancel only when the penalty is big."""
+        """B1: stack a +2 if held; King-cancel only when the penalty is big.
+
+        H1: under 'structural', `king_cancel_min_penalty` is INERT here. Declining to
+        cancel means eating the pile to keep the King — a hold weight buying a voluntary
+        draw, i.e. the exact cliff, and the most expensive one in the agent (the draw is
+        `2 * draw_num` cards, not one). With no other legal play there is nothing for a
+        preference to reorder, so the invariant leaves only one honest answer: cancel.
+        """
         plus_twos = [(a, c) for a, c in moves
                      if a is Action.PLAY_CARD and c.type is Type.PLUSTWO]
         if plus_twos:
             return self._best_by_color(game, plus_twos)
-        if 2 * game.draw_num >= self.w.king_cancel_min_penalty:
+        if self.w.refusal_mode == 'structural' \
+                or 2 * game.draw_num >= self.w.king_cancel_min_penalty:
             for a, c in moves:
                 if a is Action.PLAY_CARD and c.type is Type.KING:
                     return a, c
@@ -414,17 +443,29 @@ class HeuristicAgent:
 
     def _score_and_pick(self, game, hand, moves):
         reserved, hoard_color, open_hoard = self._hoard_plan(game, hand)
+        structural = self.w.refusal_mode == 'structural'
         scored = []
         for move in moves:
             action, card = move
             if action is Action.DRAW:
+                if structural:
+                    # H1: drawing is not an option to be outbid — it is the fallback when
+                    # the rules leave nothing to play. Keep it out of the `max` entirely.
+                    continue
                 score = self.w.score_draw
             elif action is Action.CLOSE_TAKI:  # only reachable declining a King
                 score = self.w.score_decline_king
             else:
                 score = self._score_play(game, hand, card, reserved,
                                          hoard_color, open_hoard)
+                if structural and score == self.w.score_forbidden:
+                    # The finishing rule forbids it (a lone PLUS). Not a preference — a
+                    # rule. Dropping it here is what lets DRAW remain reachable when it is
+                    # the ONLY thing the rules permit, without any weight voting for it.
+                    continue
             scored.append((score, move))
+        if not scored:                       # structural: every play is rule-forbidden
+            return Action.DRAW, None
         best = max(scored, key=lambda s: (s[0], -action_to_scalar(*s[1])))
         return best[1]
 
