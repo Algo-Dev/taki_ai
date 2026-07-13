@@ -457,6 +457,127 @@ class FrozenVersionTest(unittest.TestCase):
         must fail loudly rather than silently fall back to the legacy scoring path."""
         from agents.heuristic import Weights
         with self.assertRaises(ValueError):
-            Weights(refusal_mode='structural')   # H1 implements it; not yet
-        with self.assertRaises(ValueError):
             Weights(refusal_mode='typo')
+
+
+class H1StructuralInvariantTest(unittest.TestCase):
+    """H1 (PLAN.md): "never refuse to play" is a STRUCTURAL INVARIANT, not a tuning
+    accident. Under 'legacy', `score_draw = -5.0` is a finite score competing in the same
+    `max` as the plays, so ANY hold penalty above 5.0 silently converts "I would rather
+    keep this" into "I would rather not play at all" — the 13-point cliff that R3's shipped
+    `p_king = 6.0` falls straight off, and that B2's retune moved rather than removed.
+
+    The invariant PLAN pre-registered: *no weight assignment can produce a voluntary draw.*
+    That is a property of the STRUCTURE, so it is tested as one — over random weight
+    vectors, including absurd ones — rather than by spot-checking the versions we ship.
+    """
+
+    def _voluntary_draws(self, weights, games=40, turn_cap=120):
+        """DRAW while a legal, non-forbidden play exists (holdback.is_refusal's rule)."""
+        agent = HeuristicAgent(weights=weights)
+        voluntary = 0
+        for seed in range(games):
+            g = Game([HeuristicAgent(weights=weights) for _ in range(4)], seed=seed)
+            for _ in range(turn_cap):
+                if g.done():
+                    break
+                action, _ = agent.play(g)
+                plays = [(a, c) for a, c in g.valid_moves() if a is Action.PLAY_CARD]
+                if action is Action.DRAW and plays:
+                    if not all(len(g.hands[g.curr]) == 1
+                               and c.type.value not in FINISHING_TYPE_VALUES
+                               for _, c in plays):
+                        voluntary += 1
+                g.next_turn()
+        return voluntary
+
+    def test_h1_drives_r3s_refusals_to_zero_without_touching_a_single_weight(self):
+        """The headline. H1 carries R3's exact weight vector — p_king=6.0 and all — and
+        yet cannot refuse. The cliff was never in the weights; it was in the structure."""
+        from agents.heuristic import H1, R3
+        self.assertEqual(dataclasses.asdict(H1) | {'refusal_mode': 'legacy'},
+                         dataclasses.asdict(R3))       # same weights, different structure
+        self.assertGreater(self._voluntary_draws(R3), 4)      # the yardstick refuses
+        self.assertEqual(self._voluntary_draws(H1), 0)        # H1 does not
+
+    def test_h1_also_removes_the_cliff_b2s_retune_left_behind(self):
+        """B2's retuned point still drew 4 times in 40 games via `w_nofin=8.0` (H5). Under
+        H1 that weight keeps its meaning as a PREFERENCE and loses its power to refuse."""
+        from agents.heuristic import H1_B2, B2_RETUNED
+        self.assertEqual(self._voluntary_draws(B2_RETUNED), 4)
+        self.assertEqual(self._voluntary_draws(H1_B2), 0)
+
+    def test_no_weight_assignment_can_produce_a_voluntary_draw(self):
+        """The pre-registered invariant, as a property test. Hold weights become
+        UNBOUNDED-SAFE: even at values far past the old cliff (a 500-point hold on the
+        King!), 'structural' cannot be made to draw while a legal play exists. Under
+        'legacy' these same vectors refuse constantly — asserted below, so this test
+        cannot pass by accident (e.g. if the games ended before a hold ever bound)."""
+        import random as _random
+        from agents.heuristic import Weights
+        rng = _random.Random(7)
+        legacy_refusals = 0
+        for _ in range(12):
+            holds = dict(
+                w_nofin=rng.uniform(0, 500), w_reserve=rng.uniform(0, 500),
+                w_open_hoard=rng.uniform(0, 500), p_chcol=rng.uniform(0, 500),
+                p_super_taki=rng.uniform(0, 500), p_king=rng.uniform(0, 500),
+                w_save_blocker=rng.uniform(0, 500),
+                king_cancel_min_penalty=rng.randint(0, 40),
+                hold_wilds_in_run=bool(rng.getrandbits(1)),
+            )
+            self.assertEqual(
+                self._voluntary_draws(Weights(refusal_mode='structural', **holds), games=8),
+                0, f'structural refused with {holds}')
+            legacy_refusals += self._voluntary_draws(
+                Weights(refusal_mode='legacy', **holds), games=8)
+        self.assertGreater(legacy_refusals, 0, 'legacy never refused — test is vacuous')
+
+    def test_structural_still_draws_when_the_RULES_leave_nothing_to_play(self):
+        """The invariant is "never refuse", not "never draw". With no legal play the agent
+        must still draw — and it must also draw on the one rule-forced case: a lone PLUS,
+        which the finishing rule forbids playing (the engine hands it straight back)."""
+        from agents.heuristic import H1
+        agent = HeuristicAgent(weights=H1)
+
+        g = make_game()                       # nothing playable: no match, no wild
+        g.discard = [Card(Type.THREE, Color.RED)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.FIVE, Color.BLUE), Card(Type.SEVEN, Color.GREEN)]
+        self.assertEqual(agent.play(g), (Action.DRAW, None))
+
+        g = make_game()                       # a lone PLUS: legal to play, forbidden to end on
+        g.discard = [Card(Type.PLUS, Color.RED)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.PLUS, Color.RED)]
+        self.assertIn((Action.PLAY_CARD, Card(Type.PLUS, Color.RED)), g.valid_moves())
+        self.assertEqual(agent.play(g), (Action.DRAW, None))
+
+    def test_structural_cancels_a_plus_two_with_the_King_rather_than_eat_the_pile(self):
+        """The costliest refusal in the agent, and the one a `max()` never saw: under a
+        pending +2, declining to cancel is a voluntary draw of `2 * draw_num` CARDS bought
+        by `king_cancel_min_penalty`. There is no other legal play, so nothing exists for a
+        preference to reorder — the invariant leaves only one honest answer."""
+        from agents.heuristic import H1, R3
+        g = make_game()
+        g.discard = [Card(Type.PLUSTWO, Color.GREEN)]
+        g.state = State.DRAW_TWO
+        g.draw_num = 1
+        g.hands[0] = [Card(Type.KING), Card(Type.THREE, Color.BLUE)]
+        self.assertEqual(HeuristicAgent(weights=R3).play(g), (Action.DRAW, None))
+        self.assertEqual(HeuristicAgent(weights=H1).play(g),
+                         (Action.PLAY_CARD, Card(Type.KING)))
+
+    def test_holds_still_RANK_plays_under_h1_they_just_cannot_veto_playing(self):
+        """H1 must not flatten the agent into `greedy`. The hold weights keep doing their
+        job — reordering the plays — they simply cannot outvote playing at all. Here a
+        precious King and a plain number are both legal: the agent plays the number."""
+        from agents.heuristic import H1
+        g = make_game()
+        g.discard = [Card(Type.THREE, Color.BLUE)]
+        g.state = State.NORMAL
+        g.hands[0] = [Card(Type.KING), Card(Type.NINE, Color.BLUE),
+                      Card(Type.TWO, Color.RED)]
+        action, card = HeuristicAgent(weights=H1).play(g)
+        self.assertEqual(action, Action.PLAY_CARD)
+        self.assertEqual(card, Card(Type.NINE, Color.BLUE))   # kept the King, still played
