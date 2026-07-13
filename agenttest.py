@@ -358,7 +358,11 @@ class FrozenVersionTest(unittest.TestCase):
                  w_reserve=10.0, w_open_hoard=15.0, p_chcol=3.0, p_super_taki=4.0,
                  p_king=6.0, score_decline_king=-2.0, hold_wilds_in_run=True,
                  king_cancel_min_penalty=4, block_hand_threshold=2,
-                 refusal_mode='legacy'))
+                 refusal_mode='legacy',
+                 # H7 added these; R3 predates the behaviour, so it must stay OFF here.
+                 # (This assertion failing on a new field is the freeze working: any field
+                 # added to Weights has to be consciously defaulted for the yardstick.)
+                 race=False, race_hand_threshold=2, race_hold_scale=0.0))
 
     def test_b2_retuned_is_pinned(self):
         """The single definition of "retuned" — b2_block_price.py and tune_heuristic.py
@@ -474,6 +478,123 @@ class FrozenVersionTest(unittest.TestCase):
         from agents.heuristic import Weights
         with self.assertRaises(ValueError):
             Weights(refusal_mode='typo')
+
+
+class H7RaceTest(unittest.TestCase):
+    """H7: the agent knows how to BLOCK a near-winner but had no answer when it CANNOT
+    block one — its scoring did not change at all in that situation. A human speeds up: a
+    card kept for later has no later to be kept for."""
+
+    def _game_with_near_winner_at(self, seat, hand):
+        g = make_game(players=4)
+        g.discard = [Card(Type.THREE, Color.BLUE)]
+        g.state = State.NORMAL
+        g.hands[0] = hand
+        for s in (1, 2, 3):
+            g.hands[s] = [Card(Type.FIVE, Color.RED)] * 6
+        g.hands[seat] = [Card(Type.FIVE, Color.RED)]     # one card: about to win
+        return g
+
+    def test_racing_stops_charging_a_hold_penalty_for_spending_a_precious_card(self):
+        """The mechanism. While racing, the hold-back terms are scaled away, so a card the
+        agent was hoarding stops looking expensive.
+
+        NB what this does NOT do: make the agent PREFER dumping the King over an equivalent
+        number. Both shed exactly one card, so with the penalty gone they tie at 0.0 and the
+        tie-break decides. That is correct — in Taki the only move that sheds MORE than one
+        card is opening a TAKI run, which is why the hoard release (below) is the part of H7
+        that can actually 'dump maximally'."""
+        from agents.heuristic import H1_B2, H7
+        hand = [Card(Type.KING), Card(Type.NINE, Color.BLUE)]
+        g = self._game_with_near_winner_at(2, list(hand))     # NOT the next seat: unstoppable
+        king = Card(Type.KING)
+        plan = (frozenset(), None, False)
+
+        held = HeuristicAgent(weights=H1_B2)._score_play(g, hand, king, *plan, racing=False)
+        raced = HeuristicAgent(weights=H7)._score_play(g, hand, king, *plan, racing=True)
+        self.assertEqual(held, -H1_B2.p_king)    # normally: "the King is precious"
+        self.assertEqual(raced, 0.0)             # racing: "there is no later"
+        self.assertGreater(raced, held)
+
+    def test_racing_cashes_the_hoarded_taki_run_instead_of_guarding_it(self):
+        """The half of H7 that actually sheds cards. A colored TAKI opens a run that dumps
+        the whole color group in ONE turn; normally the agent guards that group (w_reserve)
+        until the release trigger fires. With a near-winner it cannot stop, the trigger is
+        now — it is the last turn that will ever come."""
+        from agents.heuristic import H1_B2, H7
+        taki = Card(Type.TAKI, Color.RED)
+        # The red group is hoarded; the two blues are the "rest of the hand", so the normal
+        # release trigger (rest nearly gone) does NOT fire and only racing can open the run.
+        hand = [taki, Card(Type.FIVE, Color.RED), Card(Type.SEVEN, Color.RED),
+                Card(Type.NINE, Color.RED), Card(Type.EIGHT, Color.BLUE),
+                Card(Type.SIX, Color.BLUE)]
+
+        g = self._game_with_near_winner_at(2, list(hand))
+        g.discard = [Card(Type.THREE, Color.RED)]            # the TAKI is playable
+        agent = HeuristicAgent(weights=H7)
+        agent._sync_model(g)
+        reserved, hoard_color, open_now, _legal = agent._hoard_plan(g, g.hands[0])
+        self.assertEqual(hoard_color, Color.RED)             # the group IS being hoarded
+        self.assertFalse(open_now)                           # and the trigger has NOT fired
+        self.assertTrue(agent._racing(g, g.hands[0]))        # but we cannot stop the winner
+
+        # Racing overrides the trigger: the run is opened NOW. Worth `w_open_hoard` (the
+        # release bonus) plus `w_reserve` (the guard penalty, no longer charged).
+        guarded = agent._score_play(g, hand, taki, reserved, hoard_color, False, racing=False)
+        cashed = agent._score_play(g, hand, taki, reserved, hoard_color, True, racing=True)
+        self.assertEqual(cashed - guarded, H7.w_open_hoard + H7.w_reserve)
+        self.assertEqual(agent.play(g), (Action.PLAY_CARD, taki))
+
+        # (h1b2 opens this particular run too — `w_taki_dump` x 3 already outweighs the
+        # reserve here. H7's edge is that it does so DELIBERATELY, and in the positions
+        # where the guard would otherwise win.)
+        self.assertFalse(HeuristicAgent(weights=H1_B2)._racing(g, g.hands[0]))
+
+    def test_not_racing_when_the_near_winner_is_the_next_seat_and_we_can_block(self):
+        """The trigger's subtle half. STOP and +2 hit the NEIGHBOUR, so a blocker is only
+        an answer when the near-winner IS the next seat. Then we are not racing — we block,
+        and the hold-backs go on applying normally."""
+        from agents.heuristic import H7
+        agent = HeuristicAgent(weights=H7)
+        hand = [Card(Type.STOP, Color.BLUE), Card(Type.KING), Card(Type.NINE, Color.BLUE)]
+
+        g = self._game_with_near_winner_at(1, list(hand))     # next seat: blockable
+        self.assertFalse(agent._racing(g, g.hands[0]))
+        self.assertEqual(agent.play(g)[1], Card(Type.STOP, Color.BLUE))   # block them
+
+        # Same blocker, but the near-winner sits elsewhere: the STOP cannot reach them, so
+        # holding it is worthless and we are racing after all.
+        g = self._game_with_near_winner_at(2, list(hand))
+        self.assertTrue(agent._racing(g, g.hands[0]))
+
+    def test_race_is_off_in_every_frozen_version_that_predates_it(self):
+        from agents.heuristic import R3, B2_RETUNED, H1, H1_B2, GREEDY, H7
+        for w in (R3, B2_RETUNED, H1, H1_B2, GREEDY):
+            self.assertFalse(w.race)
+        self.assertTrue(H7.race)
+
+    def test_racing_cannot_buy_a_refusal_even_though_it_rescales_holds(self):
+        """H7 rescales hold weights at runtime — exactly the unbounded move that would have
+        been unsafe before H1. Under 'structural' no scale can produce a voluntary draw."""
+        import dataclasses as dc
+        from agents.heuristic import H7
+        for scale in (0.0, 1.0, 100.0):      # 100x every hold: far past the old cliff
+            w = dc.replace(H7, race_hold_scale=scale)
+            agent = HeuristicAgent(weights=w)
+            voluntary = 0
+            for seed in range(12):
+                g = Game([HeuristicAgent(weights=w) for _ in range(4)], seed=seed)
+                for _ in range(120):
+                    if g.done():
+                        break
+                    action, _ = agent.play(g)
+                    plays = [(a, c) for a, c in g.valid_moves() if a is Action.PLAY_CARD]
+                    if action is Action.DRAW and plays and not all(
+                            len(g.hands[g.curr]) == 1
+                            and c.type.value not in FINISHING_TYPE_VALUES for _, c in plays):
+                        voluntary += 1
+                    g.next_turn()
+            self.assertEqual(voluntary, 0, f'refused at race_hold_scale={scale}')
 
 
 class H1StructuralInvariantTest(unittest.TestCase):
