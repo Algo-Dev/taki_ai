@@ -1,0 +1,20 @@
+
+=== block - number vs 3x heuristic (shipped weights), 1200 paired determinizations, seed 0 ===
+    k    block   number     delta   +/- SE   verdict
+    1    0.310    0.260    +0.050    0.017   BLOCK
+    2    0.319    0.369    -0.050    0.017   do not block
+    3    0.342    0.378    -0.036    0.017   do not block
+    4    0.386    0.409    -0.023    0.017   wash
+    5    0.358    0.394    -0.036    0.018   do not block
+    6    0.371    0.411    -0.040    0.018   do not block
+    7    0.365    0.415    -0.050    0.018   do not block
+
+=== block - number vs 3x heuristic (retuned weights), 1200 paired determinizations, seed 0 ===
+    k    block   number     delta   +/- SE   verdict
+    1    0.201    0.181    +0.020    0.014   wash
+    2    0.203    0.252    -0.048    0.015   do not block
+    3    0.226    0.257    -0.031    0.015   do not block
+    4    0.234    0.278    -0.044    0.015   do not block
+    5    0.262    0.264    -0.003    0.016   wash
+    6    0.237    0.290    -0.053    0.016   do not block
+    7    0.234    0.311    -0.077    0.016   do not block

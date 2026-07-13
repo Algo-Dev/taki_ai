@@ -67,7 +67,7 @@ including where blocking is measurably worse. **The k-spread is 0.20**, i.e. it 
 *selectively*; it is just always blocking. A constant terminal penalty can shift **how much you fear
 losing**, but it cannot teach **when the threat is real** — which is precisely the k-sensitivity the
 probe asks for. L=20 under-blocks everywhere, L=60 over-blocks everywhere, and *neither has the
-spread*. That is a strong argument that the problem is **form, not magnitude** -> **R7**.
+spread*. That is a strong argument that the problem is **form, not magnitude** -> **R17**.
 
 **The unexpected win: L=20 is genuinely STRONGER.** 0.366 vs the champion's 0.348 against the
 heuristic yardstick (SE ~0.009, so ~2 SE) — while passing the refusal guard-rail. So a terminal loss
@@ -193,6 +193,36 @@ is faithfully optimising an objective **indifferent to who wins**.
 
 > **Statement about Taki: block the player about to go out.** A +2 spent on a one-card opponent is
 > worth ~5 points; spent on anyone else it is worth *less* than a plain number.
+
+**CORRECTION (2026-07-13, later) — the magnitude above is inflated ~2x; the finding survives.** The
+table was rolled out against `3x heuristic` with **shipped** weights — the same weights this entry
+goes on to show are crippled by the refusal cliff (14.5% voluntary draws). A pool that draws when it
+should play ends games slowly, and a tempo weapon is worth more against slow opponents. Re-priced
+against the **retuned** pool (`b2_block_price.py`, 1200 paired determinizations x 3 independent deck
+blocks), with the shipped pool re-run alongside as a control:
+
+| k | shipped pool (as published) | retuned pool |
+|---|---|---|
+| **1** | +0.050 / +0.064 / +0.081 | **+0.020 / +0.038 / +0.045** |
+| 2 | -0.050 | **-0.048 / -0.049 / -0.050** |
+| 3, 5, 7 | -0.036 .. -0.050 | -0.031 .. -0.077 |
+
+Seed 0 reproduces the published row **exactly** (+0.050, -0.050, -0.036, -0.036), so the harness is
+faithful and the difference is the opponent pool, not the code. **The k=1-vs-k=2 sign flip — the whole
+content of the finding, and the sole evidence for H2 — is unchanged.** Only the price changes: the
+statement above should read **~2-4 points**, not ~5. The champion's own win rate drops from ~0.31-0.41
+to ~0.20-0.26 across the same positions, independently corroborating that the retuned heuristic is a
+much stronger opponent (Result 5).
+
+**Method bug found while doing this, and it taints every "confirmed on seeds 0/1/2" claim in B1/B2.**
+`mc_line` seeded replicate `g` with `seed + g`, so a run at seed 0 drew deals 0..1199 and a run at
+seed 1 drew deals 1..1200 — **a 99.9% shared sample**. Re-running at nearby seeds was not replication;
+it was one measurement reported three times, and it looked *reassuringly* tight for exactly that
+reason (the retuned k=1 cell read +0.020 / +0.020 / +0.019). Fixed: `probe.det_seed(seed, g)` hashes
+the pair (crc32), so distinct seeds are independent blocks. The same cell now reads **+0.023 / +0.018
+/ +0.038** — the honest spread, and consistent with the disjoint blocks above. Common random numbers
+across *lines* (the pairing that makes the SEs tight) are unaffected and still pinned by `probetest`.
+Prior logged rollout numbers will not bit-reproduce under the new seeding; that is the cost of the fix.
 
 **So B2 both kills and proves R6, for opposite reasons.** Its *hold-back* justification ("the shaped
 reward makes it greedily shed") is **dead** — that term is doing the most useful work in the model.
