@@ -1,0 +1,25 @@
+2026-07-13 02:05:22.645484: I tensorflow/compiler/jit/xla_cpu_device.cc:41] Not creating XLA devices, tf_xla_enable_xla_devices not set
+2026-07-13 02:05:22.645640: I tensorflow/core/platform/cpu_feature_guard.cc:142] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  SSE4.1 SSE4.2 AVX AVX2 AVX512F FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+start (B2 retuned): -0.0143   [37s]
+
+--- pass 1 ---
+  p_king             4.9 -> 3.0    -0.0133  <- keep
+  p_king             3.0 -> 4.0    -0.0147
+  p_king             3.0 -> 4.9    -0.0143
+  p_chcol            4.5 -> 3.0    -0.0243
+  p_chcol            4.5 -> 4.0    -0.0147
+  p_chcol            4.5 -> 4.9    -0.0110  <- keep
+  p_super_taki       4.5 -> 3.0    -0.0097  <- keep
+  p_super_taki       3.0 -> 4.0    -0.0103
+  p_super_taki       3.0 -> 4.9    -0.0110
+  w_reserve          4.0 -> 2.0    -0.0183
+  w_reserve          4.0 -> 4.9    -0.0120
+  w_open_hoard      15.0 -> 5.0    -0.0097
+  w_open_hoard      15.0 -> 25.0   -0.0097
+  w_save_blocker     0.7 -> 0.0    -0.0070  <- keep
+  w_save_blocker     0.0 -> 0.7    -0.0097
+  w_save_blocker     0.0 -> 2.0    -0.0213
+  w_nofin            8.0 -> 2.0    -0.0083
+  w_nofin            8.0 -> 4.0    -0.0010  <- keep
+  w_nofin            4.0 -> 8.0    -0.0070

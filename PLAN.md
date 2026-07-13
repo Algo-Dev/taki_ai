@@ -298,12 +298,108 @@ and `main.py`'s greedy demo already show every piece needed.
   reward pays `-len(hand)` per step, so the training signal massively overvalues a big discharge the
   win rate is indifferent to → the strongest evidence yet for **B2** and **R6**, and the motivation
   for **B4** below. See `probes/b1_colored_taki_hoard.md`; harness `probe.py` / `probetest.py`.
-- **B2. Holding cards back.** The shaped reward pays for shedding cards every turn, so the policy is
-  *trained* to be greedy about hand size. Does it ever nonetheless play **fewer** cards now for a
-  better end-game win chance (e.g. keeping a +2 or a STOP as a tempo weapon, or keeping a wild for
-  the finish)? If it never does, that is a real finding about the shaped reward's bias, and it is
-  the strongest argument yet for R6 (the missing loss signal) — as a *fidelity* fix, not a strength
-  one.
+- **B2. Holding cards back — DONE (2026-07-13). The premise was false; the answer is worth 13 points.**
+  **"Holding back" is two behaviours with opposite signs**, a distinction nothing here had drawn:
+  **REFUSAL** (decline to play at all — DRAW, or CLOSE a TAKI/King continuation, while a legal play
+  exists) is **catastrophic**; **PREFERENCE** (play a *different* card) is **valuable**. Measured by
+  ablating R3's heuristic — the only agent in the repo that holds back on purpose, and in terms we
+  own — rather than by asking the DQN's own value function, which would be circular.
+  **A 13-point cliff sits exactly at its `SCORE_DRAW = -5.0` threshold**: holding the King is +2.0
+  pts at `p_king=5` and **-10.4 pts at `p_king=6`**, where it starts *drawing* rather than playing it.
+  **The champion already has this right** (census: **1.8%** refusal, **20.4%** preference hold-back —
+  it is *not* a greedy shedder), and **the shaped reward is why**: `-len(hand)` punishes drawing, so
+  it teaches the single most valuable rule in the game. **On shedding it is aligned, not biased.**
+  **BUT the second half of B2 — weapon timing — fails, and there the reward IS the culprit.** With the
+  next player one card from winning the champion **declines to block**, which rollout prices at
+  **+0.050 +/- 0.017** for blocking; and its Q values the *identical hand* **3.4 higher** when an
+  opponent is about to win, because **a loss pays nothing** and an imminent defeat truncates the
+  `-len(hand)` stream. **So B2 kills R6's hold-back justification and proves its defensive one.**
+  *This also resolves B1's apparent contradiction* — B1 only ever compared play-vs-play (the
+  preference regime), where its "keeping beats dumping" finding is confirmed exactly.
+  See `probes/b2_holding_back.md`; harness `holdback.py`.
+  > **Statement about Taki: never draw to protect a plan.** Keeping a card by playing something else
+  > is free or better; keeping it by passing costs more than the card is ever worth.
+
+- **H-series (new, 2026-07-13, spun out of B2). Rebuild the heuristic around the refusal/preference
+  distinction.** B2 measured that *how* you hold a card back matters more than *whether* you do:
+  **refusal** (decline to play at all) is worth **-13 pts**, **preference** (play a different card) is
+  worth **+2..+7**. The agent has no way to express the second without risking the first, which makes
+  every one of its hold weights a latent cliff. These items follow directly.
+
+  - **H1. Make "never refuse to play" a STRUCTURAL INVARIANT, not a tuning accident.** *(The headline.)*
+    Today `SCORE_DRAW = -5.0` is a finite score competing in the same `max` as the plays, so any hold
+    penalty above 5.0 silently converts "I would rather keep this" into "I would rather not play at
+    all" — a **13-point cliff** that `p_king = 6.0` (the shipped default!) falls straight off. Split
+    the decision in two:
+      1. **Refuse?** Only when a *rule* says so: no legal play, or every play is forbidden by the
+         finishing rule (a lone PLUS). Never because a card is precious.
+      2. **Which play?** Rank by preference. Hold penalties live *here*, where they can reorder plays
+         but can never outvote playing at all.
+    Then hold weights become **unbounded-safe** — you can say "I really want to keep the King" without
+    that ever meaning "so I will draw instead". Pin it with a test: *no weight assignment can produce a
+    voluntary draw.* B2's census (`holdback.py`) already measures exactly this (the ablated agent reads
+    0.00% refusal), so the invariant is checkable, not just asserted.
+
+  - **H2. The blocker fires too late AND too widely — `BLOCK_HAND_THRESHOLD = 2` looks wrong.**
+    B2's rollout priced blocking a next player holding **k** cards: **k=1 -> +0.050 +/- 0.017**
+    (block!), **k=2 -> -0.050 +/- 0.017**, **k=3 -> -0.036**, **k=5 -> -0.036** (do NOT block). The
+    agent's threshold is `<= 2`, so it spends its blocker in exactly the case that **costs 5 points**.
+    Predicted fix: **threshold 1**. Cheap to test (`block_hand_threshold` is now a `Weights` field; one
+    seat-swap run). *Caveat: those numbers were measured with the DQN as the acting seat; they are a
+    property of the game, so they should transfer, but confirm with the heuristic as the actor.*
+    **RE-PRICED 2026-07-13 vs a COMPETENT pool — H2 SURVIVES, at half the stated price.** The original
+    rollout used the *shipped* (crippled) heuristic as the opponent, which flatters a tempo weapon.
+    Against the **retuned** pool (`b2_block_price.py`, 3 independent deck blocks): k=1 -> **+0.020 /
+    +0.038 / +0.045**, k=2 -> **-0.05** consistently. The sign flip that H2 rests on is intact; the
+    prize is **~2-4 points, not ~5** (RESEARCH_LOG correction). Threshold 1 remains the predicted fix,
+    and it is still unimplemented.
+
+  - **H3. Ablate the SPEND side of blocking, not just the SAVE side.** B2 ablated `W_SAVE_BLOCKER`
+    (hold the blocker when there is no threat: **+0.011 +/- 0.006**, barely significant) but never
+    `W_BLOCK` (spend it when there IS one). Given H2, the spend side may be *mis-aimed* rather than
+    merely weak. This is a hole in B2's coverage.
+
+  - **H4. `SCORE_DECLINE_KING` is dead code — a phantom behaviour.** The census shows the agent declines
+    a King's follow-up **0 times in 200 games**, and the `king_follow` ablation measured **exactly
+    +0.0000 +/- 0.0000** (two instruments agreeing that the path never binds). Either delete it or find
+    the position that should trigger it. As written, the agent *believes* it has a behaviour it does
+    not have.
+
+  - **H5. `W_NOFIN = 8.0` is a refusal-risk guarding a nearly-vacuous rule.** Since the finishing-rule
+    fix, **every card except PLUS is a finisher**, so "keep a finisher" now only ever means "do not end
+    up holding nothing but PLUS cards". Yet its weight (8.0) sits **above the draw threshold**, so this
+    almost-dead rule can still make the agent refuse to play. Reformulate as "avoid a PLUS-only hand"
+    and drop it below the threshold. (H1 would make this safe automatically — which is the point of H1.)
+
+  - **H6. The hoard buys nothing — consider deleting B6 entirely.** Sweeping `w_reserve`: 0 -> -0.013,
+    2 -> -0.003, 4 -> +0.003, 6 -> +0.004 — **flat, all within noise of zero** — and then catastrophic
+    at 8/10 (where it starts drawing). So the entire hoard apparatus (reserve set, release trigger,
+    identity-keyed membership) is **complexity with no measurable payoff and a large downside**. B1 said
+    keeping a TAKI group beats dumping it; B2 says it is a *wash*. Simplify unless H-series testing
+    finds a version that earns its keep.
+
+  - **H7. There is no RACE behaviour.** The agent knows how to *block* a near-winner, but not what to do
+    when it **cannot** block one (no STOP/+2 in hand). A human speeds up — dumps maximally, spends the
+    hoard, cashes the TAKI run — because the game is about to end. The agent's scoring does not change
+    at all in that situation. This is the natural counterpart to H2 and is currently absent.
+
+  - **H8. Finish `tune_heuristic.py`.** Coordinate descent against the DQN champion, already written and
+    running when B2's time budget ran out (it had improved `p_king`, `p_chcol`, `p_super_taki` in its
+    first pass). With H1 in place the search space becomes safe to explore — no candidate can fall off
+    the refusal cliff — which is precisely what makes automated tuning trustworthy here.
+
+- **B5 (new, spun out of B2). Promote the retuned heuristic as the project yardstick — and re-run
+  what was ranked against the old one.** R3's heuristic ships with a **17-point tuning bug**: its
+  hold-back weights sit *above* its own draw threshold, so it draws rather than plays. Fixing only
+  that (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4, king_cancel_min_penalty=0,
+  hold_wilds_in_run=false`) takes it from **0.850 -> 0.899** vs random and to **statistical parity
+  with the 500k-trial DQN champion** (3 disjoint seeds: +0.018 / -0.018 / +0.005). Consequences:
+  (a) R3's headline — "A8 is genuinely better, 0.343 vs 3 heuristics" — was measured against a
+  crippled opponent and must be re-run; (b) **the plateau story gets much sharper**: against a
+  competent opponent the champion is at parity with hand-written rules, which says far more than
+  vs-random ever did; (c) the weights are un-broken, not optimised — a real tuner would likely go
+  further, and a heuristic that *beats* the DQN would be a significant result.
+
 - **B3. Scenario battery + human-readable output.** Generalize B1/B2 into a small suite of named
   positions with an expected/interesting line each, and report the policy's Q-ranking per scenario.
   This is what "testing optimal scenarios for human players" ultimately produces: not a win rate, but
@@ -336,6 +432,72 @@ it's large, the long-term path is expert iteration (distill the search-improved 
 net, AlphaZero-style with determinization); if it's small, the value function is already consistent
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
+
+**R17 (new, 2026-07-13, spun out of R6's failure). Potential-based shaping — the step term is a
+LENGTH TAX, and that is what actually blocks defence.**
+R6 (a terminal loss penalty) **fixed the valuation and not the policy** (RESEARCH_LOG). It confirmed
+B2's causal story — a near-winning opponent flipped from good news (Q -6.56) to bad news (-20.07) —
+but the champion still would not block. The reason is a tension B2 missed:
+
+> **One reward term is doing two jobs, and they conflict.** `-len(hand)` per step teaches *"never
+> refuse to play"* (worth ~13 pts, B2 Arm 1 — the champion's best habit). It **also charges ~3 per
+> extra turn**, and *every defensive move prolongs the game*. So the term that makes the agent good
+> at shedding is the term that makes it bad at defence. A one-off terminal penalty cannot outweigh a
+> per-turn tax.
+
+**The fix is to shape on the CHANGE in hand size, not its level.** Replace the level penalty with a
+potential-based term `F(s,s') = gamma*PHI(s') - PHI(s)`, `PHI(s) = -c*len(hand(s))`:
+- Shedding a card pays ~`+c`; drawing one pays ~`-c`. **So "never refuse to play" is preserved** —
+  which the B2 census can verify directly (the refusal rate must stay ~2%).
+- **Standing still pays ~`c*(1-gamma)*len(hand)` ~ 0.01c, i.e. nothing.** The length tax disappears,
+  and defence stops being punished for prolonging the game.
+- Ng et al.: potential-based shaping is **policy-invariant** w.r.t. the base reward — so the base
+  reward must then carry the real objective, i.e. **win bonus AND loss penalty** (R6's term, which we
+  now know is necessary but not sufficient).
+
+**Two things to get right, both easy to get wrong:**
+1. **`PHI(terminal) = 0` is required for the invariance theorem** — but taken literally it pays a
+   *losing* seat `+c*len(hand)` on its terminal transition (a bonus for losing with a big hand). That
+   is only sound because the base reward's loss penalty dominates it; size `L` against `c*8` and
+   check the sign, or the fix reintroduces the very pathology it is meant to remove.
+2. `train.py` currently stores `pending[seat] = (state, action)` and computes the reward at *close*
+   time from `len(hand)` then. PBRS needs `len(hand)` at **both** ends, so `pending` must also carry
+   the hand size at action time (a one-line change at train.py:336).
+
+**Acceptance test: `r6_accept.py` already exists and is pre-registered.** `delta(k=1)` must flip sign
+AND the refusal rate must not rise. R6 passed the second and failed the first; R17 must pass both.
+
+**R6. The loss signal is missing — losers get no terminal penalty. — PROVEN BY B2 (2026-07-13),
+BUT FOR THE OPPOSITE REASON TO THE ONE BELOW. Now the top-priority reward experiment.**
+B2 split this cleanly:
+- **The hold-back justification is DEAD.** "The shaped reward biases toward greedy shedding" is false:
+  its `-len(hand)` term is what teaches the policy *never to refuse a play*, which B2 measured as the
+  single most valuable discipline in the game (worth ~13 pts). Do not touch that term.
+- **The defensive justification is EXACTLY RIGHT, and now measured.** `train.py:288-290` pays
+  `-len(hand)` every step (always negative) and a bonus **only on a win** — **a loss pays nothing, the
+  penalty stream simply stops.** So *an imminent loss is rewarded*: it truncates the stream. The
+  champion values the identical hand at **-6.56 when the next player holds 1 card** vs **-9.93 at 7** —
+  it thinks a near-winning opponent is **good news** — and therefore **declines to block** a one-card
+  opponent, which rollout prices at **+0.050 +/- 0.017** for blocking. It is right at every opponent hand size
+  except the one that matters, and most confident precisely there.
+- **The fix — IMPLEMENTED and RUNNING (2026-07-13).** `train.py --loss-penalty X` adds a penalty to
+  the TERMINAL transition of a seat that did not win. `seat_reward` previously could not tell a losing
+  terminal from an ordinary step (both passed `won=False`), which is *why* the signal was missing; a
+  `terminal` flag now distinguishes them. Default 0.0, so the pre-B2 behaviour is bit-identical unless
+  asked for. The pinning test states the defect in one line: **with no penalty, losing scores exactly
+  the same as playing on** (-4 == -4).
+- **Pre-registered acceptance test** (`r6_accept.py`, written BEFORE the runs finished, able to fail):
+  1. `delta(k=1) = Q(+2) - Q(number)` must **flip sign** — the agent must want to block a one-card
+     opponent. (Rollout: blocking is worth +0.050 +/- 0.017 at k=1 and -0.04..-0.05 at k>=2, so a
+     correct policy's delta crosses zero between k=1 and k=2.)
+  2. **Guard-rail:** the census's REFUSAL rate must NOT rise. The `-len(hand)` term is what teaches
+     "never refuse to play" (~13 pts). If the loss penalty broke that, R6 is a regression regardless
+     of what it did for defence.
+  Runs in flight: 100k trials, seed 1, `--loss-penalty 10` and `20` (the win bonus is ~15, so these
+  bracket "a loss costs about what a win pays"). Training is cheap now — the A9 run was flat after 25k.
+
+Original note follows (its diagnosis was right; only its "defensive play is under-incentivised"
+framing needed the evidence B2 now supplies).
 
 **R6. The loss signal is missing — losers get no terminal penalty.**
 In `train.py`'s `seat_reward`, a losing seat's terminal transition is just `-len(hand)` — there is

@@ -120,6 +120,12 @@ if __name__ == '__main__':
                         help="reward shaping: 'shaped' = per-step -len(hand) + win bonus "
                              "(default); 'win' = win-only, no per-step penalty; 'anneal' = "
                              "curriculum drifting shaped -> (almost) win-only over training.")
+    parser.add_argument('--loss-penalty', type=float, default=0.0,
+                        help='R6 (motivated by B2): extra penalty on the TERMINAL transition of a '
+                             'seat that did not win. Without it a loss pays nothing — the stream of '
+                             'negative -len(hand) rewards just stops — so ending the game is itself '
+                             'rewarded and blocking a near-winner (which prolongs it) looks bad. '
+                             'Only affects --reward shaped. Default 0.0 = the pre-B2 behaviour.')
     parser.add_argument('--reward-anneal-fraction', type=float, default=REWARD_ANNEAL_FRACTION,
                         help='for --reward anneal: fraction of trials over which the reward '
                              f'transitions, then holds (default {REWARD_ANNEAL_FRACTION})')
@@ -260,7 +266,7 @@ if __name__ == '__main__':
             alpha = ALPHA_MAX * p
             if trial % 500 == 0:
                 print(f"  [anneal] p={p:.3f} step_coef={step_coef:.3f} alpha={alpha:.3f}")
-        def seat_reward(seat, won):
+        def seat_reward(seat, won, terminal=False):
             # Reward for `seat`'s transition, generalised from the seat-0-only rewards to any
             # seat (the shaped/win/anneal shaping is seat-symmetric — everyone wants fewer
             # cards / to win). `won` is True only when the game just ended with `seat`'s hand
@@ -288,6 +294,16 @@ if __name__ == '__main__':
             r = -len(game.hands[seat])
             if won:
                 r += sum(len(h) for i, h in enumerate(game.hands) if i != seat)
+            elif terminal and args.loss_penalty:
+                # R6, motivated by B2 (RESEARCH_LOG 2026-07-13): without this, a LOSS pays
+                # nothing — the stream of negative -len(hand) rewards simply stops. Ending the
+                # game is therefore *rewarded*, so an opponent about to win is good news and
+                # blocking them (which prolongs the game) looks bad. Measured: the champion
+                # values an identical hand 3.4 HIGHER when the next player holds 1 card than
+                # when they hold 7, and it declines to block a one-card opponent even though
+                # blocking is worth +0.050 +/- 0.017 by rollout. A terminal penalty on the
+                # losing seats restores the sign: losing is no longer a way to stop paying.
+                r -= args.loss_penalty
             return r
 
         start = seat_rng.randrange(num_of_players)   # random opener; learner stays index 0
@@ -335,7 +351,7 @@ if __name__ == '__main__':
             s, a = pending[i]
             if done:
                 won = len(game.hands[i]) == 0
-                r = seat_reward(i, won)
+                r = seat_reward(i, won, terminal=True)
                 # Terminal: new_state is unused (target == reward), next_valid None.
                 dqn_agent.remember(s, a, r, game.observation(agent=i), True, None)
                 if i == 0:
