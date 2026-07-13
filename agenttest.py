@@ -584,6 +584,25 @@ class H1StructuralInvariantTest(unittest.TestCase):
         self.assertEqual(HeuristicAgent(weights=H1).play(g),
                          (Action.PLAY_CARD, Card(Type.KING)))
 
+    def test_h4_structural_never_declines_a_kings_follow_up_while_a_play_exists(self):
+        """H4: declining the King's free follow-up is a REFUSAL, so under H1 no weight may
+        buy it. It was already dead code (0 fires in 200 games at the shipped -2.0) — but
+        the measurement showed that ZEROING the weight wakes it up and costs -0.0004,
+        because at 0 it outbids negative-scoring plays. So the branch is gone under
+        'structural', and `score_decline_king` cannot resurrect it at any value."""
+        from agents.heuristic import H1
+        import dataclasses as dc
+        for value in (0.0, 50.0, 500.0):     # any of these would win a legacy max()
+            w = dc.replace(H1, score_decline_king=value)
+            g = make_game()
+            g.discard = [Card(Type.KING)]
+            g.state = State.KING
+            g.hands[0] = [Card(Type.NINE, Color.BLUE), Card(Type.TWO, Color.RED)]
+            moves = g.valid_moves()
+            self.assertIn((Action.CLOSE_TAKI, None), moves)     # declining IS on offer
+            action, _ = HeuristicAgent(weights=w).play(g)
+            self.assertEqual(action, Action.PLAY_CARD, f'declined at {value}')
+
     def test_holds_still_RANK_plays_under_h1_they_just_cannot_veto_playing(self):
         """H1 must not flatten the agent into `greedy`. The hold weights keep doing their
         job — reordering the plays — they simply cannot outvote playing at all. Here a
