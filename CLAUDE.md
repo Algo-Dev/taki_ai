@@ -35,10 +35,28 @@ information a human actually has** — and then to *interrogate the resulting po
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
 
-Current best model: **`models/checkpoint_a9rules_snap500000`** (A9-rules — the first model trained on
-the **corrected finishing rule**; 500k trials, seed 1, shaped, color-sym + rank-sym). Scores
-**0.348 vs 3 heuristic opponents** and 0.906 vs 3 random, at 3000 games. Chance baseline 0.25.
-**It is also the only checkpoint that exists** — see the two warnings below.
+Current best model: **`models/checkpoint_r6L60_snap100000`** (R6 — shaped reward **plus a terminal
+loss penalty**: `train.py --trials 100000 --seed 1 --reward shaped --loss-penalty 60`, color-sym +
+rank-sym). Scores **0.378 vs 3 heuristic opponents** and beats the previous champion by
+**+0.085 ± 0.011 per-seat** on the seat-swapped 2v2 promotion standard, replicated on three disjoint
+deck blocks (~8 SE). It reached that in **100k trials, not 500k**. Chance baseline 0.25.
+
+> **`--loss-penalty` is not the default (it defaults to 0.0), but the champion was trained WITH it.**
+> Any run meant to continue this lineage must pass `--loss-penalty 60`. Why it matters: without it a
+> **loss pays nothing** — the stream of `-len(hand)` step penalties simply stops — so *ending* the
+> game is itself a reward and an imminent defeat looks like a relief. B2 measured the champion
+> valuing an identical hand **3.4 higher** when the next player held 1 card than when they held 7.
+> See RESEARCH_LOG 2026-07-13 and `probes/b2_holding_back.md`.
+>
+> **It still does not block a near-winner.** R6's pre-registered acceptance test (`r6_accept.py`)
+> **failed**: `delta(k=1) = -0.87`, still negative. R6 fixed the *slope* (it now wants a +2 more as
+> the threat grows) but not the *intercept*. The +8.5 points did **not** come from blocking. Do not
+> assume the defect is fixed — the open fix is **PLAN R17** (potential-based shaping).
+
+Previous champion: `models/checkpoint_a9rules_snap500000` (A9-rules — the first model trained on the
+**corrected finishing rule**; 500k trials, shaped, no loss penalty). 0.348 vs heuristic, 0.906 vs
+random. Kept as the promotion baseline. These two are the **only** checkpoints that exist — see the
+warnings below.
 
 > **ALL PRE-2026-07-13 CHECKPOINTS ARE GONE FROM DISK.** `checkpoint_a8_snap455000` and
 > `checkpoint_a4a7_snap550000` were destroyed in the models-symlink incident (commits `0f96882` /
