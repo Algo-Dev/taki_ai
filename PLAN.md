@@ -365,6 +365,40 @@ net, AlphaZero-style with determinization); if it's small, the value function is
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
 
+**R7 (new, 2026-07-13, spun out of R6's failure). Potential-based shaping — the step term is a
+LENGTH TAX, and that is what actually blocks defence.**
+R6 (a terminal loss penalty) **fixed the valuation and not the policy** (RESEARCH_LOG). It confirmed
+B2's causal story — a near-winning opponent flipped from good news (Q -6.56) to bad news (-20.07) —
+but the champion still would not block. The reason is a tension B2 missed:
+
+> **One reward term is doing two jobs, and they conflict.** `-len(hand)` per step teaches *"never
+> refuse to play"* (worth ~13 pts, B2 Arm 1 — the champion's best habit). It **also charges ~3 per
+> extra turn**, and *every defensive move prolongs the game*. So the term that makes the agent good
+> at shedding is the term that makes it bad at defence. A one-off terminal penalty cannot outweigh a
+> per-turn tax.
+
+**The fix is to shape on the CHANGE in hand size, not its level.** Replace the level penalty with a
+potential-based term `F(s,s') = gamma*PHI(s') - PHI(s)`, `PHI(s) = -c*len(hand(s))`:
+- Shedding a card pays ~`+c`; drawing one pays ~`-c`. **So "never refuse to play" is preserved** —
+  which the B2 census can verify directly (the refusal rate must stay ~2%).
+- **Standing still pays ~`c*(1-gamma)*len(hand)` ~ 0.01c, i.e. nothing.** The length tax disappears,
+  and defence stops being punished for prolonging the game.
+- Ng et al.: potential-based shaping is **policy-invariant** w.r.t. the base reward — so the base
+  reward must then carry the real objective, i.e. **win bonus AND loss penalty** (R6's term, which we
+  now know is necessary but not sufficient).
+
+**Two things to get right, both easy to get wrong:**
+1. **`PHI(terminal) = 0` is required for the invariance theorem** — but taken literally it pays a
+   *losing* seat `+c*len(hand)` on its terminal transition (a bonus for losing with a big hand). That
+   is only sound because the base reward's loss penalty dominates it; size `L` against `c*8` and
+   check the sign, or the fix reintroduces the very pathology it is meant to remove.
+2. `train.py` currently stores `pending[seat] = (state, action)` and computes the reward at *close*
+   time from `len(hand)` then. PBRS needs `len(hand)` at **both** ends, so `pending` must also carry
+   the hand size at action time (a one-line change at train.py:336).
+
+**Acceptance test: `r6_accept.py` already exists and is pre-registered.** `delta(k=1)` must flip sign
+AND the refusal rate must not rise. R6 passed the second and failed the first; R7 must pass both.
+
 **R6. The loss signal is missing — losers get no terminal penalty. — PROVEN BY B2 (2026-07-13),
 BUT FOR THE OPPOSITE REASON TO THE ONE BELOW. Now the top-priority reward experiment.**
 B2 split this cleanly:
