@@ -49,7 +49,39 @@ constant terminal penalty cannot resolve it.
 penalty did not break the half of the reward that was working. Whatever the fix is, it need not
 trade one against the other.
 
-**Next.** (a) A larger penalty (L=60 running) directly tests the "the step tax dominates" explanation —
+### R6 attempt 2 (L=60, partial — 20k trials): the sign FLIPS, but it over-blocks and the guard-rail cracks
+
+| | baseline (500k) | L=20 (100k) | L=60 (20k, partial) |
+|---|---|---|---|
+| delta(k=1) | -4.01 | -3.23 | **+0.26 — SIGN FLIPPED** |
+| delta direction | falls as k falls (wrong) | falls (wrong) | **rises (right)** |
+| delta spread over k | 2.55 | 0.88 | **0.20** |
+| plays at k=1 | number | number | **the +2** |
+| plays at k=7 | number (correct) | number (correct) | **the +2 (WRONG — blocking costs -0.036 here)** |
+| census REFUSAL | 1.93% | **1.85%** (pass) | **5.67%** (elevated) |
+| vs 3x heuristic | 0.348 | **0.366** | 0.342 |
+
+**The magnitude hypothesis is confirmed and then punished.** L=60 does flip the sign — so the "step
+tax dominates" diagnosis was right — but it produces an agent that plays the +2 at **every** k,
+including where blocking is measurably worse. **The k-spread is 0.20**, i.e. it is not blocking
+*selectively*; it is just always blocking. A constant terminal penalty can shift **how much you fear
+losing**, but it cannot teach **when the threat is real** — which is precisely the k-sensitivity the
+probe asks for. L=20 under-blocks everywhere, L=60 over-blocks everywhere, and *neither has the
+spread*. That is a strong argument that the problem is **form, not magnitude** -> **R7**.
+
+**The unexpected win: L=20 is genuinely STRONGER.** 0.366 vs the champion's 0.348 against the
+heuristic yardstick (SE ~0.009, so ~2 SE) — while passing the refusal guard-rail. So a terminal loss
+penalty is worth keeping **even though it did not fix the behaviour it was built for**. Promotion is
+NOT claimed here: it needs a seat-swapped head-to-head against the champion, which was not run.
+
+**Caveats, load-bearing.** L=60 reached only **20k of 100k trials** before the time budget ran out, so
+its 0.342 and its 5.67% refusal are **confounded by short training** (early models refuse more) and
+must not be compared to the fully-trained rows as if they were peers. The sign flip and the near-zero
+k-spread are the parts that are safe to read at 20k, because the L=20 run's delta at 20k already
+matched its own final value. **A full L=60 run is the first thing to finish.**
+
+**Next.** (a) Finish the L=60 run (100k) and re-run `r6_accept.py`.
+(b) A larger penalty (L=60 running) directly tests the "the step tax dominates" explanation —
 it must eventually flip delta if the diagnosis is right; if even a large L fails, the problem is not
 magnitude but *form*. (b) The principled fix is **potential-based** (PLAN A9): shape on the *change*
 in hand size rather than its level, so a longer game is not intrinsically penalised and defence stops
