@@ -15,7 +15,7 @@ import dataclasses
 import itertools
 import time
 
-from agents.heuristic import Weights, HeuristicAgent
+from agents.heuristic import Weights, HeuristicAgent, B2_RETUNED
 from eval_headtohead import play_match, load_greedy_agent
 
 SEATS1 = [0, 2]          # alternating 2v2: STOP/+2/CHDIR never hit a teammate
@@ -74,9 +74,9 @@ def main():
     dqn = load_greedy_agent(args.model)
 
     # Start from B2's retuned point: every preference hold-back kept, every refusal removed.
-    best = dataclasses.replace(
-        Weights(), p_king=4.9, p_chcol=4.5, p_super_taki=4.5, w_reserve=4.0,
-        king_cancel_min_penalty=0, hold_wilds_in_run=False)
+    # Now the named, frozen version rather than a local copy (this copy had drifted to
+    # p_king=4.9 against b2_block_price.py's 5.0 — the drift the registry exists to stop).
+    best = B2_RETUNED
     t0 = time.time()
     best_m = margin(best, dqn, args.games, seeds)
     print(f'start (B2 retuned): {best_m:+.4f}   [{time.time()-t0:.0f}s]', flush=True)
