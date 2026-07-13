@@ -398,10 +398,20 @@ and `main.py`'s greedy demo already show every piece needed.
     *"(where it starts drawing)"* — and did not follow it. ~~Original item: "the hoard buys nothing —
     consider deleting B6 entirely ... complexity with no measurable payoff and a large downside".~~
 
-  - **H7. There is no RACE behaviour.** The agent knows how to *block* a near-winner, but not what to do
-    when it **cannot** block one (no STOP/+2 in hand). A human speeds up — dumps maximally, spends the
-    hoard, cashes the TAKI run — because the game is about to end. The agent's scoring does not change
-    at all in that situation. This is the natural counterpart to H2 and is currently absent.
+  - **H7. IMPLEMENTED AND REFUTED 2026-07-14 — racing LOSES, monotonically.** The behaviour ships
+    (`race`, `race_hand_threshold`, `race_hold_scale`) but is **off**, and should stay off. Vs `h1b2`,
+    20k games x 2: dropping the holds harder makes it *worse* (`race_hold_scale` 0.75 -> -0.003,
+    0.5 -> -0.014, 0.25 -> -0.023, **0.0 -> -0.035**) and racing more often makes it *worse*
+    (`race_hand_threshold` 1 -> -0.015, 2 -> -0.035, 3 -> -0.054, **4 -> -0.066**). Both knobs say the
+    same thing: **every increment of racing costs points; the optimum is not to race.** (Re-measured
+    after fixing a real bug in the first cut — racing forced the hoard open without checking the run
+    could legally be *ended*. The fix changed the number by 0.0001, so the result is the game, not the
+    bug.) **Why it is interesting:** this is H5/H6 from the other side. The hold-backs are worth
+    +1.1 (`w_nofin`), +2.9 (hoard) and +2.2 (blocker-spend), and they are worth **most in the
+    endgame** — which is precisely what racing discards. *Statement about Taki: when someone is about
+    to win, do not empty your hands faster; that is when your kept cards are worth the most.*
+    ~~Original item: "There is no RACE behaviour ... a human speeds up. This is the natural
+    counterpart to H2 and is currently absent."~~
 
   - **H8. Finish `tune_heuristic.py`.** Coordinate descent against the DQN champion, already written and
     running when B2's time budget ran out (it had improved `p_king`, `p_chcol`, `p_super_taki` in its

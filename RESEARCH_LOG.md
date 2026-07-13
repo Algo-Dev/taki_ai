@@ -14,6 +14,47 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-14 (later still) — H7: RACING LOSES. When someone is about to win, that is when your kept cards are worth the most
+
+H7 asked for the behaviour the agent visibly lacks: it knows how to *block* a near-winner but has no
+answer when it **cannot** block one, and its scoring does not change at all in that situation. A
+human speeds up. So: `race` (scale the hold-backs by `race_hold_scale`, cash the hoarded TAKI run).
+
+**It loses, and monotonically in both knobs** (vs `h1b2`, 2v2 seat-swap, 20,000 games x 2;
+`probes/h7_race.log`):
+
+| `race_hold_scale` (how hard it drops its holds) | margin | | `race_hand_threshold` (how often it races) | margin |
+|---|---|---|---|---|
+| 0.75 (barely) | -0.0029 +/- 0.0015 | | 1 (only vs a 1-card winner) | -0.0148 +/- 0.0019 |
+| 0.5 | -0.0144 +/- 0.0021 | | 2 | -0.0348 +/- 0.0028 |
+| 0.25 | -0.0234 +/- 0.0024 | | 3 | -0.0539 +/- 0.0033 |
+| **0.0** (ignore holds) | **-0.0348 +/- 0.0028** | | **4** | **-0.0664 +/- 0.0037** |
+
+Both gradients point the same way and neither has an interior optimum: **the best amount of racing
+is none.** Note `race_hold_scale = 1.0` *is* the no-race agent, so the first column is a clean dose-
+response curve down from zero.
+
+**This is H5/H6 seen from the other side, and together they make a real claim about Taki.** The
+hold-backs are worth **+1.1** (`w_nofin`), **+2.9** (the hoard) and **+2.2** (spending the blocker) —
+and they are worth most *in the endgame*, which is exactly the moment racing throws them away.
+
+> **Statement about Taki: when an opponent is about to win, do not empty your hand faster. That is
+> when your kept cards are worth the most** — the hoarded TAKI run, the finisher, the blocker. Tempo
+> is not the scarce resource at the end; *optionality* is.
+
+**Methodology note — a bug I nearly published.** The first cut forced the hoard open while racing
+*without* checking the run could legally be **ended** (`_hoard_plan` gates that on the group holding
+a number when the run would empty the hand), so a racing agent could open runs it could not finish.
+Re-measuring after the fix moved the headline from **-0.0348 to -0.0349**. The result is the game,
+not the bug — but the check was worth doing before publishing a negative result, and the habit is
+worth keeping.
+
+The knob ships **off**. It is kept rather than deleted because "why is racing bad?" is a live
+question for the behavioural-analysis half of the project — unlike `score_decline_king` (H4), it is
+explicitly off and documented as refuted, so it is not a phantom behaviour.
+
+---
+
 ## 2026-07-14 (later) — Step 4: EVERY pre-registered H-series prediction failed, and two REVERSED. B2's hold-back ablations were measuring the refusal cliff, not the hold-back
 
 All measured against the `h1b2` base **on H1's structure** (2v2 alternating, seat-swapped, paired,
