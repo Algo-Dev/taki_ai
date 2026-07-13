@@ -110,6 +110,9 @@ class Weights:
     # A threshold rather than a weight, but the same behaviour — eat 2 cards now to keep
     # the King for later. Ablating it means: always cancel with the King if you hold one.
     king_cancel_min_penalty: int = KING_CANCEL_MIN_PENALTY
+    # B7: a next player holding <= this many cards counts as a threat worth blocking.
+    # NOT a hold-back term — it decides WHEN to spend a blocker, i.e. selectivity.
+    block_hand_threshold: int = BLOCK_HAND_THRESHOLD
 
 
 #: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
@@ -409,7 +412,7 @@ class HeuristicAgent:
     def _threat_seat(self, game):
         """The next opponent, if they are close to winning (B7)."""
         nxt = (game.curr + game.dir) % len(game.agents)
-        if len(game.hands[nxt]) <= BLOCK_HAND_THRESHOLD:
+        if len(game.hands[nxt]) <= self.w.block_hand_threshold:
             return nxt
         return None
 
