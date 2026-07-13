@@ -475,6 +475,7 @@ answered: pre-commit the snapshot before the confirming head-to-head, and never 
 selection set as the edge.
 
 
+-- possibly remove all the co-authored by: claude
 -- possibly try a rewrite in pytorch. First as if there is advantage
    and train + test vs. random.
 
