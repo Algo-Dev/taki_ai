@@ -6,7 +6,7 @@ import math
 import time
 from agents.dqn import AIAgent
 from agents.random import RandomAgent
-from agents.heuristic import HeuristicAgent, Weights, GREEDY, ABLATIONS, ablated
+from agents.heuristic import make_heuristic
 from game import Game
 
 def load_greedy_agent(checkpoint_path):
@@ -18,40 +18,26 @@ def make_agent(spec):
     """Resolve an agent spec (PLAN.md B2 needs non-checkpoint opponents here).
 
       random                -> RandomAgent
-      heuristic             -> the full R3 heuristic
-      heuristic:greedy      -> every hold-back behaviour OFF (the B2 control)
-      heuristic:-<name>     -> the full agent with ONE hold-back behaviour off,
+      heuristic             -> the reference heuristic (agents.heuristic.REFERENCE)
+      heuristic:<version>   -> a named, frozen version: r3, b2, greedy
+      heuristic:-<name>     -> the reference with ONE hold-back behaviour off,
                                for name in ABLATIONS (hoard, wilds, blocker,
                                finisher, king_follow, king_cancel)
+      heuristic:k=v,k=v     -> the reference with weights overridden (sweeps)
       <path>                -> a DQN checkpoint
+
+    The spec grammar lives in agents.heuristic.resolve_weights — one definition,
+    shared with eval.py, so a version means the same thing in every harness.
     """
     if spec == 'random':
         return RandomAgent(seed=0)
     if spec == 'heuristic':
-        return HeuristicAgent()
+        return make_heuristic()
     if spec.startswith('heuristic:'):
-        variant = spec.split(':', 1)[1]
-        if variant == 'greedy':
-            return HeuristicAgent(weights=GREEDY)
-        if variant.startswith('-'):
-            name = variant[1:]
-            if name not in ABLATIONS:
-                raise SystemExit(f'unknown ablation {name!r}; '
-                                 f'choose from {sorted(ABLATIONS)}')
-            return HeuristicAgent(weights=ablated(name))
-        # Arbitrary overrides: "heuristic:w_reserve=3.0,p_king=2" — lets a weight be
-        # SWEPT rather than merely switched off, which is how we separate "decline to
-        # play the card" from "draw rather than play it" (the SCORE_DRAW=-5 threshold).
-        import dataclasses as _dc
-        fields = {f.name: f.type for f in _dc.fields(Weights)}
-        overrides = {}
-        for part in variant.split(','):
-            key, _, val = part.partition('=')
-            if key not in fields:
-                raise SystemExit(f'unknown weight {key!r}; choose from {sorted(fields)}')
-            overrides[key] = (val.lower() == 'true') if fields[key] is bool \
-                else (int(val) if fields[key] is int else float(val))
-        return HeuristicAgent(weights=_dc.replace(Weights(), **overrides))
+        try:
+            return make_heuristic(spec.split(':', 1)[1])
+        except ValueError as e:
+            raise SystemExit(str(e))
     return load_greedy_agent(spec)
 
 def play_match(seat_agents, games, seed=0, verbose=False):
