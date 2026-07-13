@@ -347,6 +347,12 @@ and `main.py`'s greedy demo already show every piece needed.
     Predicted fix: **threshold 1**. Cheap to test (`block_hand_threshold` is now a `Weights` field; one
     seat-swap run). *Caveat: those numbers were measured with the DQN as the acting seat; they are a
     property of the game, so they should transfer, but confirm with the heuristic as the actor.*
+    **RE-PRICED 2026-07-13 vs a COMPETENT pool — H2 SURVIVES, at half the stated price.** The original
+    rollout used the *shipped* (crippled) heuristic as the opponent, which flatters a tempo weapon.
+    Against the **retuned** pool (`b2_block_price.py`, 3 independent deck blocks): k=1 -> **+0.020 /
+    +0.038 / +0.045**, k=2 -> **-0.05** consistently. The sign flip that H2 rests on is intact; the
+    prize is **~2-4 points, not ~5** (RESEARCH_LOG correction). Threshold 1 remains the predicted fix,
+    and it is still unimplemented.
 
   - **H3. Ablate the SPEND side of blocking, not just the SAVE side.** B2 ablated `W_SAVE_BLOCKER`
     (hold the blocker when there is no threat: **+0.011 +/- 0.006**, barely significant) but never
@@ -427,7 +433,7 @@ net, AlphaZero-style with determinization); if it's small, the value function is
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
 
-**R7 (new, 2026-07-13, spun out of R6's failure). Potential-based shaping — the step term is a
+**R17 (new, 2026-07-13, spun out of R6's failure). Potential-based shaping — the step term is a
 LENGTH TAX, and that is what actually blocks defence.**
 R6 (a terminal loss penalty) **fixed the valuation and not the policy** (RESEARCH_LOG). It confirmed
 B2's causal story — a near-winning opponent flipped from good news (Q -6.56) to bad news (-20.07) —
@@ -459,7 +465,7 @@ potential-based term `F(s,s') = gamma*PHI(s') - PHI(s)`, `PHI(s) = -c*len(hand(s
    the hand size at action time (a one-line change at train.py:336).
 
 **Acceptance test: `r6_accept.py` already exists and is pre-registered.** `delta(k=1)` must flip sign
-AND the refusal rate must not rise. R6 passed the second and failed the first; R7 must pass both.
+AND the refusal rate must not rise. R6 passed the second and failed the first; R17 must pass both.
 
 **R6. The loss signal is missing — losers get no terminal penalty. — PROVEN BY B2 (2026-07-13),
 BUT FOR THE OPPOSITE REASON TO THE ONE BELOW. Now the top-priority reward experiment.**
