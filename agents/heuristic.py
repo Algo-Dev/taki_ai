@@ -114,6 +114,24 @@ class Weights:
     # NOT a hold-back term — it decides WHEN to spend a blocker, i.e. selectivity.
     block_hand_threshold: int = BLOCK_HAND_THRESHOLD
 
+    # --- H7: RACE — MEASURED AND REFUTED (2026-07-14). Off, and it should stay off. ------
+    # The idea: the agent knows how to BLOCK a near-winner but has no answer when it CANNOT
+    # block one. A human speeds up — a card kept for later has no later to be kept for — so
+    # racing scales the hold-backs by `race_hold_scale` (0.0 = ignore them) and cashes the
+    # hoarded TAKI run instead of guarding it.
+    #
+    # It LOSES, monotonically in both knobs (vs h1b2, 20k games x 2):
+    #     race_hold_scale  0.0 -> -0.035   0.25 -> -0.023   0.5 -> -0.014   0.75 -> -0.003
+    #     race_hand_thresh   1 -> -0.015      2 -> -0.035     3 -> -0.054     4 -> -0.066
+    # Every increment of racing costs points; the optimum is not to race at all. This is
+    # H5/H6 seen from the other side: the hold-backs are worth +1.1 (w_nofin), +2.9 (hoard)
+    # and +2.2 (blocker-spend), and they are worth MOST in the endgame — which is exactly
+    # what racing throws away. Kept (off) because "why is racing bad?" is a live question
+    # for behavioural analysis; do not turn it on expecting points.
+    race: bool = False
+    race_hand_threshold: int = 2      # an opponent at/below this many cards is about to win
+    race_hold_scale: float = 0.0      # multiplier on the hold-back terms while racing
+
     # --- Behaviour version (NOT a weight) -------------------------------------
     # Which DECISION STRUCTURE the agent uses, i.e. how refusing to play is decided:
     #   'legacy'     — `score_draw` is a finite score competing in the same `max` as
@@ -223,11 +241,17 @@ H1 = dataclasses.replace(R3, refusal_mode='structural')
 #: that leftover cliff finally cannot bite.
 H1_B2 = dataclasses.replace(B2_RETUNED, refusal_mode='structural')
 
+#: H7 (PLAN.md): H1_B2 plus the RACE behaviour — when a near-winner cannot be stopped, stop
+#: saving cards for a later that is not coming. Off in every earlier version, so `h7` vs
+#: `h1b2` isolates it.
+H7 = dataclasses.replace(H1_B2, race=True)
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
     'h1': H1,
     'h1b2': H1_B2,
+    'h7': H7,
     'greedy': GREEDY,
 }
 
@@ -243,17 +267,32 @@ def resolve_weights(spec=''):
     """Resolve a heuristic weight spec. The one grammar, shared by every entry point.
 
       ''  / 'reference'   -> the current reference version (REFERENCE)
-      '<version>'         -> a named version: r3, b2, greedy
-      '-<name>'           -> the reference with ONE hold-back behaviour ablated
-      'k=v,k=v'           -> the reference with individual weights overridden, which is
-                             how a weight gets SWEPT rather than merely switched off
+      '<version>'         -> a named version: r3, b2, h1, h1b2, greedy
+      '-<name>'           -> the base with ONE hold-back behaviour ablated
+      'k=v,k=v'           -> the base with individual weights overridden, which is how a
+                             weight gets SWEPT rather than merely switched off
+      '<version>,...'     -> any of the above, but based on THAT version instead of the
+                             reference: 'h1b2,block_hand_threshold=1', 'h1,-hoard'
+
+    The leading-version form is not sugar. Without it every override is implicitly based on
+    the REFERENCE — which is `r3`, i.e. the LEGACY structure — so an H-series ablation
+    like `block_hand_threshold=1` would have been measured on top of the very refusal
+    cliff H1 exists to remove, and its price would have been the cliff's, not its own.
     """
     spec = (spec or '').strip()
     if spec in ('', 'reference'):
         return VERSIONS[REFERENCE]
     if spec in VERSIONS:
         return VERSIONS[spec]
+
     base = VERSIONS[REFERENCE]
+    head, sep, rest = spec.partition(',')
+    if head.strip() in VERSIONS:            # '<version>,<modifiers...>'
+        base = VERSIONS[head.strip()]
+        spec = rest.strip()
+        if not spec:
+            return base
+
     if spec.startswith('-'):
         name = spec[1:]
         if name not in ABLATIONS:
@@ -442,8 +481,15 @@ class HeuristicAgent:
     # --- general scoring ------------------------------------------------------
 
     def _score_and_pick(self, game, hand, moves):
-        reserved, hoard_color, open_hoard = self._hoard_plan(game, hand)
+        reserved, hoard_color, open_hoard, legal_to_open = self._hoard_plan(game, hand)
+        racing = self._racing(game, hand)
+        if racing and legal_to_open:
+            # H7: cash the run, it is now or never — but only when the rules allow the run
+            # to be ENDED (see _hoard_plan). Forcing it open regardless would have the
+            # agent start runs it cannot legally finish, which is a bug, not a race.
+            open_hoard = True
         structural = self.w.refusal_mode == 'structural'
+        fallback = None
         scored = []
         for move in moves:
             action, card = move
@@ -454,26 +500,46 @@ class HeuristicAgent:
                     continue
                 score = self.w.score_draw
             elif action is Action.CLOSE_TAKI:  # only reachable declining a King
+                if structural:
+                    # H4: declining the King's free follow-up is a REFUSAL, so under H1 it
+                    # is not something a weight may buy either. It was already dead code —
+                    # 0 fires in 200 games at score_decline_king=-2.0 — but zeroing the
+                    # weight was measured to WAKE IT UP and cost -0.0004, because at 0 it
+                    # outbids negative-scoring plays. Hence: remove the branch, don't
+                    # neutralize the weight. Kept only as the fallback when the rules leave
+                    # nothing else (there is no DRAW to fall back on in State.KING).
+                    fallback = move
+                    continue
                 score = self.w.score_decline_king
             else:
                 score = self._score_play(game, hand, card, reserved,
-                                         hoard_color, open_hoard)
+                                         hoard_color, open_hoard, racing)
                 if structural and score == self.w.score_forbidden:
                     # The finishing rule forbids it (a lone PLUS). Not a preference — a
                     # rule. Dropping it here is what lets DRAW remain reachable when it is
                     # the ONLY thing the rules permit, without any weight voting for it.
                     continue
             scored.append((score, move))
-        if not scored:                       # structural: every play is rule-forbidden
-            return Action.DRAW, None
+        if not scored:
+            # structural: the rules left nothing playable. Decline the King's follow-up if
+            # that is the only move on offer (State.KING has no DRAW), else draw.
+            return fallback if fallback is not None else (Action.DRAW, None)
         best = max(scored, key=lambda s: (s[0], -action_to_scalar(*s[1])))
         return best[1]
 
-    def _score_play(self, game, hand, card, reserved, hoard_color, open_hoard):
+    def _score_play(self, game, hand, card, reserved, hoard_color, open_hoard,
+                    racing=False):
         w = self.w
         # B5 hard rule: never end the hand on a non-finisher (engine penalty).
         if len(hand) == 1 and card.type.value not in FINISHING_TYPE_VALUES:
             return w.score_forbidden
+
+        # H7: every hold-back term is a bet on a future turn. While racing there may not
+        # BE a future turn, so they are scaled down (0.0 = ignored). NB this is exactly the
+        # kind of unbounded rescaling that would have been unsafe before H1: shrinking a
+        # hold is harmless, but the same switch inverted could push one past |score_draw|
+        # and buy a refusal. Under 'structural' it simply cannot.
+        hold = w.race_hold_scale if racing else 1.0
 
         score = 0.0
         next_seat = self._seat_after_playing(game, card)
@@ -492,7 +558,7 @@ class HeuristicAgent:
         # B7 blocking economy.
         threat = self._threat_seat(game)
         if card.type in _BLOCKER_TYPES:
-            score += w.w_block if threat is not None else -w.w_save_blocker
+            score += w.w_block if threat is not None else -w.w_save_blocker * hold
         elif card.type is Type.CHDIR and threat is not None:
             behind = (game.curr - game.dir) % len(game.agents)
             if len(game.hands[behind]) > len(game.hands[threat]):
@@ -502,11 +568,11 @@ class HeuristicAgent:
 
         # B10 wild hold-penalties.
         if card.type is Type.CHCOL:
-            score -= w.p_chcol
+            score -= w.p_chcol * hold
         elif card.type is Type.KING:
-            score -= w.p_king
+            score -= w.p_king * hold
         elif card.type is Type.TAKI and card.color is Color.NONE:
-            score -= w.p_super_taki
+            score -= w.p_super_taki * hold
         elif card.type is Type.TAKI:
             # A colored TAKI opens a run: worth roughly the color group it dumps.
             group = sum(1 for c in hand
@@ -518,14 +584,14 @@ class HeuristicAgent:
         # B6 hoard reserve.
         if card in reserved and not (open_hoard and card.type is Type.TAKI
                                      and card.color is hoard_color):
-            score -= w.w_reserve
+            score -= w.w_reserve * hold
 
         # B5 soft: with a small hand, keep at least one finisher.
         if len(hand) <= SMALL_HAND:
             has_finisher_after = any(
                 c.type.value in FINISHING_TYPE_VALUES for c in hand if c is not card)
             if not has_finisher_after:
-                score -= w.w_nofin
+                score -= w.w_nofin * hold
 
         return score
 
@@ -546,14 +612,19 @@ class HeuristicAgent:
                     best = (card, group)
         taki, group = best
         if taki is None or len(group) < HOARD_MIN_GROUP:
-            return frozenset(), None, False
+            return frozenset(), None, False, False
         reserved = frozenset([id(taki)] + [id(c) for c in group])
         # Wrap membership test: Card defines value equality, so use identity.
         reserved_cards = _IdentitySet(reserved)
         outside = len(hand) - 1 - len(group)
         run_can_finish = any(c.type.value in NUMBER_TYPE_VALUES for c in group)
-        open_now = outside <= 1 and (run_can_finish or outside > 0)
-        return reserved_cards, taki.color, open_now
+        # The run may only be opened when it can also be ENDED: if it would empty the hand
+        # (outside == 0) the group must contain a number to close on. This is a rules
+        # constraint, not a preference — H7's race must respect it too, or it opens runs it
+        # cannot legally finish.
+        legal_to_open = run_can_finish or outside > 0
+        open_now = outside <= 1 and legal_to_open
+        return reserved_cards, taki.color, open_now, legal_to_open
 
     # --- helpers ----------------------------------------------------------------
 
@@ -577,6 +648,27 @@ class HeuristicAgent:
         if len(game.hands[nxt]) <= self.w.block_hand_threshold:
             return nxt
         return None
+
+    def _racing(self, game, hand):
+        """H7: someone is about to win and we CANNOT stop them, so the game is ending
+        whatever we do — shed cards now.
+
+        The "cannot stop them" half is the part that is easy to get wrong: STOP and +2 hit
+        the NEIGHBOUR, so holding a blocker is worthless against a near-winner sitting
+        anywhere else at the table. We are only safe from racing if the near-winner is the
+        next seat AND we hold something that lands on them.
+        """
+        if not self.w.race:
+            return False
+        me = game.curr
+        near = [s for s in range(len(game.agents))
+                if s != me and len(game.hands[s]) <= self.w.race_hand_threshold]
+        if not near:
+            return False
+        nxt = (me + game.dir) % len(game.agents)
+        have_blocker = any(c.type in _BLOCKER_TYPES for c in hand)
+        can_stop_them = have_blocker and near == [nxt]
+        return not can_stop_them
 
     def _best_by_color(self, game, plays):
         """Among same-type plays (e.g. +2s), pick by denial+richness, then B12."""

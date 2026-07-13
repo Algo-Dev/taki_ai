@@ -353,48 +353,65 @@ and `main.py`'s greedy demo already show every piece needed.
     voluntary draw.* B2's census (`holdback.py`) already measures exactly this (the ablated agent reads
     0.00% refusal), so the invariant is checkable, not just asserted.
 
-  - **H2. The blocker fires too late AND too widely — `BLOCK_HAND_THRESHOLD = 2` looks wrong.**
-    B2's rollout priced blocking a next player holding **k** cards: **k=1 -> +0.050 +/- 0.017**
-    (block!), **k=2 -> -0.050 +/- 0.017**, **k=3 -> -0.036**, **k=5 -> -0.036** (do NOT block). The
-    agent's threshold is `<= 2`, so it spends its blocker in exactly the case that **costs 5 points**.
-    Predicted fix: **threshold 1**. Cheap to test (`block_hand_threshold` is now a `Weights` field; one
-    seat-swap run). *Caveat: those numbers were measured with the DQN as the acting seat; they are a
-    property of the game, so they should transfer, but confirm with the heuristic as the actor.*
-    **RE-PRICED 2026-07-13 vs a COMPETENT pool — H2 SURVIVES, at half the stated price.** The original
-    rollout used the *shipped* (crippled) heuristic as the opponent, which flatters a tempo weapon.
-    Against the **retuned** pool (`b2_block_price.py`, 3 independent deck blocks): k=1 -> **+0.020 /
-    +0.038 / +0.045**, k=2 -> **-0.05** consistently. The sign flip that H2 rests on is intact; the
-    prize is **~2-4 points, not ~5** (RESEARCH_LOG correction). Threshold 1 remains the predicted fix,
-    and it is still unimplemented.
+  > **STEP 4 IS DONE (2026-07-14) AND IT WENT BADLY FOR THIS LIST.** Every pre-registered prediction
+  > below failed; H5 and H6 **reversed sign**. The cause is one thing, and it is worth internalising
+  > before writing any further H item: **B2's hold-back ablations were measuring the REFUSAL CLIFF,
+  > not the hold-back.** Any weight B2 priced at or above 5.0 was priced against that confound. See
+  > RESEARCH_LOG 2026-07-14 (later) and `probes/h6_cliff_confound.log`, which sweeps `w_reserve` on
+  > both structures and shows LEGACY's "catastrophe" tracking the refusal count exactly while
+  > STRUCTURAL merely goes flat.
 
-  - **H3. Ablate the SPEND side of blocking, not just the SAVE side.** B2 ablated `W_SAVE_BLOCKER`
-    (hold the blocker when there is no threat: **+0.011 +/- 0.006**, barely significant) but never
-    `W_BLOCK` (spend it when there IS one). Given H2, the spend side may be *mis-aimed* rather than
-    merely weak. This is a hole in B2's coverage.
+  - **H2. REFUTED 2026-07-14 — threshold 1 is WORSE (-0.0112 +/- 0.0024, ~5 SE).** The shipped
+    threshold of 2 is at or near the optimum; widening to 3 is free (+0.0010, tie). *The caveat B2
+    wrote down was the whole story:* its rollout priced the block with the **DQN as the acting seat**
+    and noted "they should transfer, but confirm with the heuristic as the actor" — **they did not
+    transfer.** A per-decision rollout price (k=1 -> +0.02..+0.045) did not survive being wired into
+    an agent that then has to live with the consequences. Treat that gap as the standing lesson: a
+    priced *decision* is not a priced *policy*. ~~Original item below.~~
+    ~~The blocker fires too late AND too widely — `BLOCK_HAND_THRESHOLD = 2` looks wrong. Predicted
+    fix: threshold 1, worth ~2-4 points.~~
 
-  - **H4. `SCORE_DECLINE_KING` is dead code — a phantom behaviour.** The census shows the agent declines
-    a King's follow-up **0 times in 200 games**, and the `king_follow` ablation measured **exactly
-    +0.0000 +/- 0.0000** (two instruments agreeing that the path never binds). Either delete it or find
-    the position that should trigger it. As written, the agent *believes* it has a behaviour it does
-    not have.
+  - **H3. DONE 2026-07-14. The spend side EARNS its keep: `w_block=0` costs -0.0223 +/- 0.0026.**
+    So blocking is neither mis-aimed nor merely weak — it is worth **+2.2 points**, the largest
+    single behaviour measured in the agent. The hole in B2's coverage is filled. **New finding:**
+    `w_chdir_block` is **dead weight** (-0.0010 +/- 0.0015, tie) — a candidate for deletion on
+    simplification grounds, not performance.
 
-  - **H5. `W_NOFIN = 8.0` is a refusal-risk guarding a nearly-vacuous rule.** Since the finishing-rule
-    fix, **every card except PLUS is a finisher**, so "keep a finisher" now only ever means "do not end
-    up holding nothing but PLUS cards". Yet its weight (8.0) sits **above the draw threshold**, so this
-    almost-dead rule can still make the agent refuse to play. Reformulate as "avoid a PLUS-only hand"
-    and drop it below the threshold. (H1 would make this safe automatically — which is the point of H1.)
+  - **H4. CONFIRMED dead 2026-07-14 — delete the branch, do NOT zero the weight.** `score_decline_king`
+    fires **0 times in 200 games in every version**, and `-100` changes nothing (+0.0001 +/- 0.0001),
+    so removing it is free. But setting it to **0** measures **-0.0004 +/- 0.0002**: at 0 the option
+    starts *winning* the `max()` against negative-scoring plays and the phantom behaviour wakes up —
+    badly. That is the general lesson for retiring dead code here: **remove the branch, don't
+    neutralize the weight.**
 
-  - **H6. The hoard buys nothing — consider deleting B6 entirely.** Sweeping `w_reserve`: 0 -> -0.013,
-    2 -> -0.003, 4 -> +0.003, 6 -> +0.004 — **flat, all within noise of zero** — and then catastrophic
-    at 8/10 (where it starts drawing). So the entire hoard apparatus (reserve set, release trigger,
-    identity-keyed membership) is **complexity with no measurable payoff and a large downside**. B1 said
-    keeping a TAKI group beats dumping it; B2 says it is a *wash*. Simplify unless H-series testing
-    finds a version that earns its keep.
+  - **H5. REFUTED 2026-07-14 — `w_nofin = 8.0` EARNS +1.1 points** (dropping it to 0 costs
+    -0.0107 +/- 0.0008; to 2, -0.0058). The premise was that it "guards a nearly-vacuous rule"; it
+    does not. What *was* real is the other half: at 8.0 it sat above the draw threshold and could
+    make the agent refuse — and B2's retune **missed it**, so B2's published point still drew 4 times
+    in 40 games. **H1 already fixed that half by construction.** Keep the weight, keep the rule.
 
-  - **H7. There is no RACE behaviour.** The agent knows how to *block* a near-winner, but not what to do
-    when it **cannot** block one (no STOP/+2 in hand). A human speeds up — dumps maximally, spends the
-    hoard, cashes the TAKI run — because the game is about to end. The agent's scoring does not change
-    at all in that situation. This is the natural counterpart to H2 and is currently absent.
+  - **H6. REFUTED 2026-07-14 — the hoard is worth +2.2 to +2.9 points. B6 STAYS.** `w_reserve=0`
+    costs -0.0224 +/- 0.0029 and the full `-hoard` ablation costs -0.0289 +/- 0.0030. Both halves of
+    the original claim were wrong: the payoff is real, and the "large downside" (catastrophic at
+    8/10) was **the refusal cliff, not the hoard** — under H1 those same values are ties (-0.003 at
+    `w_reserve=20`, with zero voluntary draws). B2 even named the mechanism in its own parenthesis —
+    *"(where it starts drawing)"* — and did not follow it. ~~Original item: "the hoard buys nothing —
+    consider deleting B6 entirely ... complexity with no measurable payoff and a large downside".~~
+
+  - **H7. IMPLEMENTED AND REFUTED 2026-07-14 — racing LOSES, monotonically.** The behaviour ships
+    (`race`, `race_hand_threshold`, `race_hold_scale`) but is **off**, and should stay off. Vs `h1b2`,
+    20k games x 2: dropping the holds harder makes it *worse* (`race_hold_scale` 0.75 -> -0.003,
+    0.5 -> -0.014, 0.25 -> -0.023, **0.0 -> -0.035**) and racing more often makes it *worse*
+    (`race_hand_threshold` 1 -> -0.015, 2 -> -0.035, 3 -> -0.054, **4 -> -0.066**). Both knobs say the
+    same thing: **every increment of racing costs points; the optimum is not to race.** (Re-measured
+    after fixing a real bug in the first cut — racing forced the hoard open without checking the run
+    could legally be *ended*. The fix changed the number by 0.0001, so the result is the game, not the
+    bug.) **Why it is interesting:** this is H5/H6 from the other side. The hold-backs are worth
+    +1.1 (`w_nofin`), +2.9 (hoard) and +2.2 (blocker-spend), and they are worth **most in the
+    endgame** — which is precisely what racing discards. *Statement about Taki: when someone is about
+    to win, do not empty your hands faster; that is when your kept cards are worth the most.*
+    ~~Original item: "There is no RACE behaviour ... a human speeds up. This is the natural
+    counterpart to H2 and is currently absent."~~
 
   - **H8. Finish `tune_heuristic.py`.** Coordinate descent against the DQN champion, already written and
     running when B2's time budget ran out (it had improved `p_king`, `p_chcol`, `p_super_taki` in its
