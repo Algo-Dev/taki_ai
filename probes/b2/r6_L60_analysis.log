@@ -1,0 +1,60 @@
+########## R6 L=60 (100k, seed 1) — pre-registered acceptance test ##########
+==============================================================================
+R6 ACCEPTANCE TEST — checking B2's pre-registered prediction
+==============================================================================
+
+### 1. Weapon timing: delta(k=1) must FLIP SIGN (the defect R6 targets)
+
+
+=== weapon timing: checkpoint_a9rules_snap500000 ===
+  delta(k) = Q(red +2) - Q(red 5).  Strategy: delta should RISE as k falls.
+  k (next player cards)       Q(+2)  Q(red 5)    delta   picks
+  --------------------------------------------------------------
+  1                          -10.58     -6.56    -4.01   play red 5
+  2                          -10.72     -7.98    -2.74   play red 5
+  3                          -11.36     -9.00    -2.36   play red 5
+  4                          -11.54     -9.33    -2.22   play red 5
+  5                          -11.74     -9.66    -2.08   play red 5
+  6                          -11.95     -9.98    -1.97   play red 5
+  7                          -11.40     -9.93    -1.47   play red 5
+
+  spread over k: 2.55   (a flat delta means the opponent-hand-size feature is not used here)
+
+=== weapon timing: snap100000 ===
+  delta(k) = Q(red +2) - Q(red 5).  Strategy: delta should RISE as k falls.
+  k (next player cards)       Q(+2)  Q(red 5)    delta   picks
+  --------------------------------------------------------------
+  1                          -50.12    -49.25    -0.87   play red 5
+  2                          -48.48    -46.15    -2.33   play red 5
+  3                          -46.48    -43.68    -2.81   play red 5
+  4                          -45.48    -42.66    -2.82   play red 5
+  5                          -44.49    -41.68    -2.81   play red 5
+  6                          -43.49    -40.70    -2.79   play red 5
+  7                          -42.49    -39.72    -2.77   play red 5
+
+  spread over k: 1.95   (a flat delta means the opponent-hand-size feature is not used here)
+
+--- verdict on prediction 1 ---
+  baseline delta(k=1) = -4.01   (champion: wrong sign — will not block)
+  R6 model delta(k=1) = -0.87
+  monotone in k? baseline falls as k falls; R6 rises as k falls (should RISE)
+  => FAIL: still will not block
+
+### 2. Guard-rail: the REFUSAL rate must NOT rise
+
+  baseline refusal 1.75%   R6 refusal 2.92%
+  => PASS: the good half of the reward survived
+
+### 3. Strength vs the heuristic yardstick (NOT vs random — see R3/B2)
+
+  checkpoint_a9rules_snap500000      ?
+  snap100000                         ?
+
+==============================================================================
+PREDICTION 1 (blocks a near-winner): FAIL
+PREDICTION 2 (did not break shedding): PASS
+==============================================================================
+
+########## strength vs the heuristic yardstick (3000 games, parity 0.250) ##########
+  checkpoint_a9rules_snap500000 1045/3000 = 0.348
+  snap100000               1134/3000 = 0.378

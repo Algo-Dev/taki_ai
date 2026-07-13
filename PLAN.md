@@ -464,40 +464,46 @@ potential-based term `F(s,s') = gamma*PHI(s') - PHI(s)`, `PHI(s) = -c*len(hand(s
    time from `len(hand)` then. PBRS needs `len(hand)` at **both** ends, so `pending` must also carry
    the hand size at action time (a one-line change at train.py:336).
 
+**The evidence for R17 is now much stronger than when it was written.** R6 was run to completion at
+two magnitudes and the pattern is unambiguous: **L=20 -> delta(k=1) = -3.23; L=60 -> -0.87.** The
+curve is being *shifted*, not *reshaped* — a terminal penalty moves the intercept a little and cannot
+cross zero, because it is fighting a **per-turn** tax with a **one-off** payment. Meanwhile the
+*slope* is already correct at L=60, i.e. **the agent knows the threat is there and still will not
+spend a card on it.** That is exactly a length-tax signature. Removing the tax (shape on the CHANGE
+in hand size) is the only lever left that addresses the mechanism rather than shouting over it.
+
 **Acceptance test: `r6_accept.py` already exists and is pre-registered.** `delta(k=1)` must flip sign
-AND the refusal rate must not rise. R6 passed the second and failed the first; R17 must pass both.
+AND the refusal rate must not rise. **R6 passed the second and failed the first at BOTH L=20 and
+L=60; R17 must pass both.** Note R6 also shipped a new champion while failing this test — so R17 must
+be judged on the *test*, not on win rate alone, or it will be mis-graded the same way.
 
-**R6. The loss signal is missing — losers get no terminal penalty. — PROVEN BY B2 (2026-07-13),
-BUT FOR THE OPPOSITE REASON TO THE ONE BELOW. Now the top-priority reward experiment.**
-B2 split this cleanly:
-- **The hold-back justification is DEAD.** "The shaped reward biases toward greedy shedding" is false:
-  its `-len(hand)` term is what teaches the policy *never to refuse a play*, which B2 measured as the
-  single most valuable discipline in the game (worth ~13 pts). Do not touch that term.
-- **The defensive justification is EXACTLY RIGHT, and now measured.** `train.py:288-290` pays
-  `-len(hand)` every step (always negative) and a bonus **only on a win** — **a loss pays nothing, the
-  penalty stream simply stops.** So *an imminent loss is rewarded*: it truncates the stream. The
-  champion values the identical hand at **-6.56 when the next player holds 1 card** vs **-9.93 at 7** —
-  it thinks a near-winning opponent is **good news** — and therefore **declines to block** a one-card
-  opponent, which rollout prices at **+0.050 +/- 0.017** for blocking. It is right at every opponent hand size
-  except the one that matters, and most confident precisely there.
-- **The fix — IMPLEMENTED and RUNNING (2026-07-13).** `train.py --loss-penalty X` adds a penalty to
-  the TERMINAL transition of a seat that did not win. `seat_reward` previously could not tell a losing
-  terminal from an ordinary step (both passed `won=False`), which is *why* the signal was missing; a
-  `terminal` flag now distinguishes them. Default 0.0, so the pre-B2 behaviour is bit-identical unless
-  asked for. The pinning test states the defect in one line: **with no penalty, losing scores exactly
-  the same as playing on** (-4 == -4).
-- **Pre-registered acceptance test** (`r6_accept.py`, written BEFORE the runs finished, able to fail):
-  1. `delta(k=1) = Q(+2) - Q(number)` must **flip sign** — the agent must want to block a one-card
-     opponent. (Rollout: blocking is worth +0.050 +/- 0.017 at k=1 and -0.04..-0.05 at k>=2, so a
-     correct policy's delta crosses zero between k=1 and k=2.)
-  2. **Guard-rail:** the census's REFUSAL rate must NOT rise. The `-len(hand)` term is what teaches
-     "never refuse to play" (~13 pts). If the loss penalty broke that, R6 is a regression regardless
-     of what it did for defence.
-  Runs in flight: 100k trials, seed 1, `--loss-penalty 10` and `20` (the win bonus is ~15, so these
-  bracket "a loss costs about what a win pays"). Training is cheap now — the A9 run was flat after 25k.
+**R6. The loss signal is missing — DONE (2026-07-13). Shipped a NEW CHAMPION (+8.5 pts), and STILL
+FAILED its behavioural test. Both halves matter.**
+`train.py --loss-penalty` (default 0.0; the champion is trained with **60**). B2 found the reward pays
+`-len(hand)` every step and a bonus only on a win — **a loss pays nothing**, so ending the game is
+itself a reward and an imminent defeat is a relief.
+- **STRENGTH: a decisive win.** `checkpoint_r6L60_snap100000` beats the previous champion by
+  **+0.085 +/- 0.011 per-seat** (seat-swapped 2v2, three disjoint deck blocks, ~8 SE) and scores
+  **0.378 vs 3 heuristic** (was 0.348) — in **100k trials, not 500k**. Strength is **monotone in the
+  penalty** (L=0 -> 0.348, L=20 -> 0.366, L=60 -> 0.378), so one more run at a larger L is cheap and
+  probably still worth it.
+- **BEHAVIOUR: the pre-registered test FAILED, and this is the finding.** `delta(k=1) = -0.87` —
+  much closer to zero than the old champion's -4.01, but **still negative: it does not block a
+  one-card opponent.** What changed is the **slope**: the old champion wanted the +2 *least* when the
+  threat was greatest (backwards); R6 wants it *most* then (correct). **R6 fixed the sign of the
+  derivative, not the intercept.** It learned *that a near-winner is dangerous* without learning *to
+  spend a card on one*.
+- **So strength and the behavioural fix came apart.** The +8.5 points did **not** come from blocking —
+  it still does not block. They come from removing the "imminent loss is a relief" pathology
+  *everywhere*. **Had we only measured win rate we would have declared the defect fixed.** That
+  dissociation is precisely what the pre-registered test existed to reveal, and it is the strongest
+  argument in this file for keeping behavioural probes alongside win rates.
+- **Guard-rail passed** (census refusal 2.92% vs 1.75%): "never refuse to play" survived.
+- **Remaining defect -> R17.** Playing the +2 still *prolongs the game*, and `-len(hand)` still charges
+  ~3 per extra turn. A terminal penalty shifts the whole `delta` curve but cannot pay off a *per-turn
+  tax* on defence — the level term is an **intercept** problem. Out-shouting it does not work.
 
-Original note follows (its diagnosis was right; only its "defensive play is under-incentivised"
-framing needed the evidence B2 now supplies).
+Original note follows (its diagnosis was right).
 
 **R6. The loss signal is missing — losers get no terminal penalty.**
 In `train.py`'s `seat_reward`, a losing seat's terminal transition is just `-len(hand)` — there is
