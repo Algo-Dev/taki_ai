@@ -320,6 +320,68 @@ and `main.py`'s greedy demo already show every piece needed.
   > **Statement about Taki: never draw to protect a plan.** Keeping a card by playing something else
   > is free or better; keeping it by passing costs more than the card is ever worth.
 
+- **H-series (new, 2026-07-13, spun out of B2). Rebuild the heuristic around the refusal/preference
+  distinction.** B2 measured that *how* you hold a card back matters more than *whether* you do:
+  **refusal** (decline to play at all) is worth **-13 pts**, **preference** (play a different card) is
+  worth **+2..+7**. The agent has no way to express the second without risking the first, which makes
+  every one of its hold weights a latent cliff. These items follow directly.
+
+  - **H1. Make "never refuse to play" a STRUCTURAL INVARIANT, not a tuning accident.** *(The headline.)*
+    Today `SCORE_DRAW = -5.0` is a finite score competing in the same `max` as the plays, so any hold
+    penalty above 5.0 silently converts "I would rather keep this" into "I would rather not play at
+    all" — a **13-point cliff** that `p_king = 6.0` (the shipped default!) falls straight off. Split
+    the decision in two:
+      1. **Refuse?** Only when a *rule* says so: no legal play, or every play is forbidden by the
+         finishing rule (a lone PLUS). Never because a card is precious.
+      2. **Which play?** Rank by preference. Hold penalties live *here*, where they can reorder plays
+         but can never outvote playing at all.
+    Then hold weights become **unbounded-safe** — you can say "I really want to keep the King" without
+    that ever meaning "so I will draw instead". Pin it with a test: *no weight assignment can produce a
+    voluntary draw.* B2's census (`holdback.py`) already measures exactly this (the ablated agent reads
+    0.00% refusal), so the invariant is checkable, not just asserted.
+
+  - **H2. The blocker fires too late AND too widely — `BLOCK_HAND_THRESHOLD = 2` looks wrong.**
+    B2's rollout priced blocking a next player holding **k** cards: **k=1 -> +0.050 +/- 0.017**
+    (block!), **k=2 -> -0.050 +/- 0.017**, **k=3 -> -0.036**, **k=5 -> -0.036** (do NOT block). The
+    agent's threshold is `<= 2`, so it spends its blocker in exactly the case that **costs 5 points**.
+    Predicted fix: **threshold 1**. Cheap to test (`block_hand_threshold` is now a `Weights` field; one
+    seat-swap run). *Caveat: those numbers were measured with the DQN as the acting seat; they are a
+    property of the game, so they should transfer, but confirm with the heuristic as the actor.*
+
+  - **H3. Ablate the SPEND side of blocking, not just the SAVE side.** B2 ablated `W_SAVE_BLOCKER`
+    (hold the blocker when there is no threat: **+0.011 +/- 0.006**, barely significant) but never
+    `W_BLOCK` (spend it when there IS one). Given H2, the spend side may be *mis-aimed* rather than
+    merely weak. This is a hole in B2's coverage.
+
+  - **H4. `SCORE_DECLINE_KING` is dead code — a phantom behaviour.** The census shows the agent declines
+    a King's follow-up **0 times in 200 games**, and the `king_follow` ablation measured **exactly
+    +0.0000 +/- 0.0000** (two instruments agreeing that the path never binds). Either delete it or find
+    the position that should trigger it. As written, the agent *believes* it has a behaviour it does
+    not have.
+
+  - **H5. `W_NOFIN = 8.0` is a refusal-risk guarding a nearly-vacuous rule.** Since the finishing-rule
+    fix, **every card except PLUS is a finisher**, so "keep a finisher" now only ever means "do not end
+    up holding nothing but PLUS cards". Yet its weight (8.0) sits **above the draw threshold**, so this
+    almost-dead rule can still make the agent refuse to play. Reformulate as "avoid a PLUS-only hand"
+    and drop it below the threshold. (H1 would make this safe automatically — which is the point of H1.)
+
+  - **H6. The hoard buys nothing — consider deleting B6 entirely.** Sweeping `w_reserve`: 0 -> -0.013,
+    2 -> -0.003, 4 -> +0.003, 6 -> +0.004 — **flat, all within noise of zero** — and then catastrophic
+    at 8/10 (where it starts drawing). So the entire hoard apparatus (reserve set, release trigger,
+    identity-keyed membership) is **complexity with no measurable payoff and a large downside**. B1 said
+    keeping a TAKI group beats dumping it; B2 says it is a *wash*. Simplify unless H-series testing
+    finds a version that earns its keep.
+
+  - **H7. There is no RACE behaviour.** The agent knows how to *block* a near-winner, but not what to do
+    when it **cannot** block one (no STOP/+2 in hand). A human speeds up — dumps maximally, spends the
+    hoard, cashes the TAKI run — because the game is about to end. The agent's scoring does not change
+    at all in that situation. This is the natural counterpart to H2 and is currently absent.
+
+  - **H8. Finish `tune_heuristic.py`.** Coordinate descent against the DQN champion, already written and
+    running when B2's time budget ran out (it had improved `p_king`, `p_chcol`, `p_super_taki` in its
+    first pass). With H1 in place the search space becomes safe to explore — no candidate can fall off
+    the refusal cliff — which is precisely what makes automated tuning trustworthy here.
+
 - **B5 (new, spun out of B2). Promote the retuned heuristic as the project yardstick — and re-run
   what was ranked against the old one.** R3's heuristic ships with a **17-point tuning bug**: its
   hold-back weights sit *above* its own draw threshold, so it draws rather than plays. Fixing only
