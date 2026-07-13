@@ -1,0 +1,24 @@
+######## Did B2's hold-back sweeps measure the HOLD, or the CLIFF?  2026-07-14T02:30:46+03:00 ########
+## Same w_reserve sweep, same weights, ONLY the decision structure differs.
+## Each candidate is played against ITS OWN base, so the two columns are comparable.
+## |score_draw| = 5.0, so w_reserve > 5 can refuse under LEGACY but never under STRUCTURAL.
+
+════════════ base=b2  (LEGACY structure  — B2's retuned weights)
+   w_reserve=0       -0.0218 +/- 0.0041  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 4
+   w_reserve=2       -0.0080 +/- 0.0029  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 4
+   w_reserve=4       +0.0000 +/- 0.0000  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 5
+   w_reserve=6       -0.0033 +/- 0.0021  Verdict: Tie (margin within 2 paired SE) | refusal-draws/200g: 4
+   w_reserve=8       -0.0282 +/- 0.0044  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 52
+   w_reserve=10      -0.0575 +/- 0.0050  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 118
+   w_reserve=20      -0.0752 +/- 0.0050  Verdict: heuristic:b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 130
+
+════════════ base=h1b2  (STRUCTURAL (H1)   — the same weights)
+   w_reserve=0       -0.0212 +/- 0.0041  Verdict: heuristic:h1b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=2       -0.0081 +/- 0.0029  Verdict: heuristic:h1b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=4       +0.0000 +/- 0.0000  Verdict: heuristic:h1b2 stronger (margin > 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=6       -0.0028 +/- 0.0020  Verdict: Tie (margin within 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=8       -0.0030 +/- 0.0024  Verdict: Tie (margin within 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=10      -0.0024 +/- 0.0025  Verdict: Tie (margin within 2 paired SE) | refusal-draws/200g: 0
+   w_reserve=20      -0.0032 +/- 0.0025  Verdict: Tie (margin within 2 paired SE) | refusal-draws/200g: 0
+
+######## DONE 2026-07-14T02:34:46+03:00 ########
