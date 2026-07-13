@@ -1,4 +1,5 @@
 """Tests for the public-event history log (game.py) and the R3 HeuristicAgent."""
+import dataclasses
 import unittest
 
 from game import *
@@ -335,3 +336,127 @@ class WeightsAblationTest(unittest.TestCase):
                         voluntary += 1
                 g.next_turn()
         self.assertEqual(voluntary, 0)
+
+
+class FrozenVersionTest(unittest.TestCase):
+    """The heuristic is the project's ranking metric, so a named version must be a
+    FROZEN artifact: every published "vs heuristic" number refers to one. These tests
+    are what make the freeze real rather than a naming convention — they fail loudly if
+    an H-series edit silently redefines the yardstick past numbers were measured against.
+    """
+
+    def test_r3_is_the_agent_the_published_numbers_were_measured_against(self):
+        """R3's exact scoring economy, pinned. Includes its 17-point tuning bug
+        (p_king=6.0 above |score_draw|=5.0, so it DRAWS rather than play its King).
+        That bug is not to be fixed here — it is what the yardstick was."""
+        from agents.heuristic import R3
+        self.assertEqual(
+            dataclasses.asdict(R3),
+            dict(w_deny=3.0, w_rich=0.8, w_block=4.0, w_chdir_block=2.0,
+                 w_plus_tempo=1.0, w_taki_dump=1.2, score_draw=-5.0,
+                 score_forbidden=-100.0, w_save_blocker=0.7, w_nofin=8.0,
+                 w_reserve=10.0, w_open_hoard=15.0, p_chcol=3.0, p_super_taki=4.0,
+                 p_king=6.0, score_decline_king=-2.0, hold_wilds_in_run=True,
+                 king_cancel_min_penalty=4, block_hand_threshold=2,
+                 refusal_mode='legacy'))
+
+    def test_b2_retuned_is_pinned(self):
+        """The single definition of "retuned" — b2_block_price.py and tune_heuristic.py
+        each used to carry their own copy, and they had drifted (p_king 5.0 vs 4.9)."""
+        from agents.heuristic import B2_RETUNED
+        self.assertEqual(
+            (B2_RETUNED.p_king, B2_RETUNED.p_chcol, B2_RETUNED.p_super_taki,
+             B2_RETUNED.w_reserve, B2_RETUNED.king_cancel_min_penalty,
+             B2_RETUNED.hold_wilds_in_run),
+            (5.0, 4.5, 4.5, 4.0, 0, False))
+
+    def test_b2_retuned_pulled_the_WILD_holds_below_the_draw_threshold_but_not_w_nofin(self):
+        """B2's whole point: a hold ABOVE |score_draw| is a REFUSAL (-13 pts), not a
+        preference. B2 pulled the wild-hold penalties down — but it never touched
+        `w_nofin`, which is still 8.0, i.e. still a refusal. That is PLAN.md H5, and it
+        means B2's retuned point is NOT refusal-free (see the characterization test
+        below). Pinned as the published artifact, defect included.
+
+        NB `p_king == 5.0 == |score_draw|` EXACTLY: at the threshold, not below it. The
+        King is still played, but only because the tie-break prefers the lower action
+        scalar (King 62 < DRAW 63) — a zero-margin accident, which is precisely the
+        fragility H1 removes. Pinned as published; do not 'fix' it to 4.9 here."""
+        from agents.heuristic import B2_RETUNED as w
+        for name in ('p_king', 'p_chcol', 'p_super_taki', 'w_reserve'):
+            self.assertLessEqual(getattr(w, name), abs(w.score_draw), f'{name} refuses')
+        self.assertGreater(w.w_nofin, abs(w.score_draw))   # H5: the one B2 missed
+
+    def test_b2_retuned_STILL_REFUSES_the_defect_h1_must_remove(self):
+        """CHARACTERIZATION, not an endorsement. B2's retuned agent — the one that scored
+        0.899 vs random and reached parity with the 500k champion — still voluntarily
+        DRAWS while holding a legal play, because `w_nofin=8.0` outvotes `score_draw=-5.0`.
+
+        So "retuning the weights" did NOT remove the refusal cliff; it only moved it. That
+        is the argument for H1 making refusal structural rather than a tuning outcome.
+
+        This test records today's count so H1 can be shown to drive it to ZERO. When H1's
+        version lands, it gets the same test asserting 0 — and this one stays, pinning
+        what the old yardstick did."""
+        from agents.heuristic import B2_RETUNED
+        self.assertEqual(self._voluntary_draws(B2_RETUNED, games=40), 4)
+
+    def test_r3_refuses_even_more(self):
+        """The shipped yardstick, for contrast: its p_king=6.0 refusal is on top of
+        w_nofin's, which is why B2 priced the whole bug at ~17 points."""
+        from agents.heuristic import R3
+        self.assertGreater(self._voluntary_draws(R3, games=40), 4)
+
+    def _voluntary_draws(self, weights, games):
+        """A refusal: DRAW while a legal, non-forbidden play exists. H1's invariant is
+        that this is 0 for EVERY weight assignment; today it is a tuning outcome."""
+        agent = HeuristicAgent(weights=weights)
+        voluntary = 0
+        for seed in range(games):
+            g = Game([HeuristicAgent(weights=weights) for _ in range(4)], seed=seed)
+            for _ in range(120):
+                if g.done():
+                    break
+                action, _ = agent.play(g)
+                plays = [(a, c) for a, c in g.valid_moves() if a is Action.PLAY_CARD]
+                if action is Action.DRAW and plays:
+                    if not all(len(g.hands[g.curr]) == 1
+                               and c.type.value not in FINISHING_TYPE_VALUES
+                               for _, c in plays):
+                        voluntary += 1
+                g.next_turn()
+        return voluntary
+
+    def test_the_reference_is_r3_until_b5_promotes_a_successor(self):
+        """A bare `heuristic` spec must keep meaning what every published number means.
+        Changing REFERENCE is a deliberate act (B5) that requires re-running the
+        champion against the new reference — not a side effect of an H-series edit."""
+        from agents.heuristic import REFERENCE, resolve_weights, R3
+        self.assertEqual(REFERENCE, 'r3')
+        self.assertEqual(resolve_weights(), R3)
+        self.assertEqual(resolve_weights(''), R3)
+
+    def test_spec_grammar(self):
+        from agents.heuristic import resolve_weights, R3, B2_RETUNED, GREEDY
+        self.assertEqual(resolve_weights('r3'), R3)
+        self.assertEqual(resolve_weights('b2'), B2_RETUNED)
+        self.assertEqual(resolve_weights('greedy'), GREEDY)
+        # ablations and overrides apply to the reference
+        self.assertEqual(resolve_weights('-hoard').w_reserve, 0.0)
+        self.assertEqual(resolve_weights('p_king=1.5').p_king, 1.5)
+        self.assertEqual(resolve_weights('block_hand_threshold=1').block_hand_threshold, 1)
+        self.assertIs(resolve_weights('hold_wilds_in_run=false').hold_wilds_in_run, False)
+        # unchanged fields keep the reference's values
+        self.assertEqual(resolve_weights('p_king=1.5').w_nofin, R3.w_nofin)
+        for bad in ('nonesuch', '-nonesuch', 'not_a_weight=3'):
+            with self.assertRaises(ValueError):
+                resolve_weights(bad)
+
+    def test_refusal_mode_is_validated(self):
+        """The version anchor: H1 changes the DECISION STRUCTURE, so freezing the weight
+        vector alone would not freeze behaviour. A version pins its mode; an unknown mode
+        must fail loudly rather than silently fall back to the legacy scoring path."""
+        from agents.heuristic import Weights
+        with self.assertRaises(ValueError):
+            Weights(refusal_mode='structural')   # H1 implements it; not yet
+        with self.assertRaises(ValueError):
+            Weights(refusal_mode='typo')

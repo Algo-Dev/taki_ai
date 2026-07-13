@@ -114,6 +114,27 @@ class Weights:
     # NOT a hold-back term — it decides WHEN to spend a blocker, i.e. selectivity.
     block_hand_threshold: int = BLOCK_HAND_THRESHOLD
 
+    # --- Behaviour version (NOT a weight) -------------------------------------
+    # Which DECISION STRUCTURE the agent uses, i.e. how refusing to play is decided:
+    #   'legacy'     — `score_draw` is a finite score competing in the same `max` as
+    #                  the plays, so a hold penalty above 5.0 turns "I would rather
+    #                  keep this" into "I would rather not play at all" (the 13-point
+    #                  refusal cliff B2 measured). This is what R3 shipped.
+    #   'structural' — H1: refusal is decided by the RULES alone, never by a weight.
+    #                  Not implemented yet; H1 adds it.
+    # Pinned per named version below, so a frozen yardstick stays reproducible even
+    # after the default flips.
+    refusal_mode: str = 'legacy'
+
+    def __post_init__(self):
+        if self.refusal_mode not in REFUSAL_MODES:
+            raise ValueError(f'unknown refusal_mode {self.refusal_mode!r}; '
+                             f'choose from {sorted(REFUSAL_MODES)}')
+
+
+#: Decision structures the scoring code implements. H1 adds 'structural'.
+REFUSAL_MODES = ('legacy',)
+
 
 #: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
 #: it can and never draws when a legal play exists. This is the B2 control.
@@ -145,6 +166,106 @@ ABLATIONS = {
 def ablated(name):
     """The full agent with exactly one hold-back behaviour removed."""
     return dataclasses.replace(Weights(), **ABLATIONS[name])
+
+
+# --- Named versions: the yardstick, frozen ----------------------------------
+# The heuristic is the project's ranking metric (CLAUDE.md: "rank on the heuristic,
+# not on random"), so CHANGING IT SILENTLY REWRITES THE PROJECT'S HISTORY: every
+# published "vs heuristic" number (R3's 0.343 for A8, A9-rules' 0.348, R6's 0.378)
+# was measured against R3 as shipped. The H-series improves this agent, so each
+# version it passes through is pinned here by name and never edited again.
+#
+# A version pins BEHAVIOUR, not just numbers: `refusal_mode` freezes the decision
+# structure too, so H1's rewrite cannot retroactively change what 'r3' means.
+
+#: R3 as shipped (2026-07-12) — the opponent every pre-H-series number was measured
+#: against. It carries B2's 17-point tuning bug (p_king=6.0 > |score_draw|=5.0, so it
+#: DRAWS rather than play its King). Preserved deliberately: it is the yardstick those
+#: numbers refer to. Do not "fix" it — fix its successor.
+R3 = Weights(refusal_mode='legacy')
+
+#: B2's retuned point (RESEARCH_LOG 2026-07-13): the WILD hold-penalties pulled down to
+#: the draw threshold. Worth 0.850 -> 0.899 vs random and parity with the DQN champion.
+#: The single source of truth for "retuned" — b2_block_price.py and tune_heuristic.py
+#: each had their own copy, and they had already drifted apart (p_king 5.0 vs 4.9).
+#:
+#: IT IS NOT REFUSAL-FREE, contrary to how B2 described it. `w_nofin` is still 8.0 —
+#: above |score_draw|=5.0 — and it still makes the agent DRAW while holding a legal play
+#: (4 voluntary draws in 40 games; `agenttest.FrozenVersionTest`). B2 moved the cliff
+#: rather than removing it. That is PLAN.md H5, and it is the case for H1: as long as
+#: refusal is a scoring outcome, retuning can always leave one behind.
+B2_RETUNED = Weights(
+    refusal_mode='legacy',
+    p_king=5.0,
+    p_chcol=4.5,
+    p_super_taki=4.5,
+    w_reserve=4.0,
+    king_cancel_min_penalty=0,
+    hold_wilds_in_run=False,
+)
+
+VERSIONS = {
+    'r3': R3,
+    'b2': B2_RETUNED,
+    'greedy': GREEDY,
+}
+
+#: The reference opponent: what a bare `heuristic` spec means, and therefore what
+#: `eval.py --opponent heuristic` measures. STAYS 'r3' until B5 formally promotes a
+#: successor — so no existing command changes meaning while the H-series is in flight.
+#: Promoting = change this line, then re-run the champion against the new reference and
+#: record BOTH numbers in RESEARCH_LOG.md.
+REFERENCE = 'r3'
+
+
+def resolve_weights(spec=''):
+    """Resolve a heuristic weight spec. The one grammar, shared by every entry point.
+
+      ''  / 'reference'   -> the current reference version (REFERENCE)
+      '<version>'         -> a named version: r3, b2, greedy
+      '-<name>'           -> the reference with ONE hold-back behaviour ablated
+      'k=v,k=v'           -> the reference with individual weights overridden, which is
+                             how a weight gets SWEPT rather than merely switched off
+    """
+    spec = (spec or '').strip()
+    if spec in ('', 'reference'):
+        return VERSIONS[REFERENCE]
+    if spec in VERSIONS:
+        return VERSIONS[spec]
+    base = VERSIONS[REFERENCE]
+    if spec.startswith('-'):
+        name = spec[1:]
+        if name not in ABLATIONS:
+            raise ValueError(f'unknown ablation {name!r}; choose from {sorted(ABLATIONS)}')
+        return dataclasses.replace(base, **ABLATIONS[name])
+    fields = {f.name: f.type for f in dataclasses.fields(Weights)}
+    overrides = {}
+    for part in spec.split(','):
+        key, sep, val = part.partition('=')
+        key = key.strip()
+        if not sep:
+            raise ValueError(
+                f'unknown heuristic spec {spec!r}; expected a version '
+                f'{sorted(VERSIONS)}, an ablation -<name>, or k=v overrides')
+        if key not in fields:
+            raise ValueError(f'unknown weight {key!r}; choose from {sorted(fields)}')
+        overrides[key] = _coerce(fields[key], val.strip())
+    return dataclasses.replace(base, **overrides)
+
+
+def _coerce(ftype, val):
+    if ftype is bool:
+        return val.lower() in ('1', 'true', 'yes')
+    if ftype is int:
+        return int(val)
+    if ftype is str:
+        return val
+    return float(val)
+
+
+def make_heuristic(spec=''):
+    """A HeuristicAgent from a spec string (see resolve_weights)."""
+    return HeuristicAgent(weights=resolve_weights(spec))
 
 
 class _OpponentModel:

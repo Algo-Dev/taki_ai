@@ -44,7 +44,7 @@ from matplotlib import pyplot as plt
 from game import Game
 from agents.dqn import AIAgent
 from agents.random import RandomAgent
-from agents.heuristic import HeuristicAgent
+from agents.heuristic import REFERENCE
 from eval_headtohead import make_agent as resolve_agent
 
 # A game only ends when a hand empties (State.FINISHED); a deck-exhaustion stalemate
@@ -128,7 +128,8 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate Taki DQN agents vs fixed opponents.')
     parser.add_argument('--model', default=None,
                         help='mode A: a single checkpoint to test against the opponents, or the '
-                             'sentinel "heuristic" to test the hand-crafted HeuristicAgent (R3)')
+                             'sentinel "heuristic" (optionally "heuristic:<version>") to test the '
+                             'hand-crafted agent itself')
     parser.add_argument('--run-dir', default=None,
                         help='mode B: a run directory of snap<NNNN> checkpoints to chart progression')
     parser.add_argument('--baseline', default=None,
@@ -144,8 +145,11 @@ def main():
                         help='games per matchup for mode B (per snapshot, per reference)')
     parser.add_argument('--opponent', default='random',
                         help='what fills the N-1 opponent seats (modes A and B\'s vs-opponent '
-                             'curve). "heuristic" = the hand-crafted R3 agent — a harder, '
-                             'non-lineage yardstick than random. Default: random.')
+                             'curve). "heuristic" = the hand-crafted reference agent (currently '
+                             f'{REFERENCE!r}) — a harder, non-lineage yardstick than random. '
+                             '"heuristic:<version>" pins a specific frozen version (r3, b2, '
+                             'greedy); every published "vs heuristic" number to date is vs r3. '
+                             'Default: random.')
     parser.add_argument('--num-players', type=int, default=4)
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()

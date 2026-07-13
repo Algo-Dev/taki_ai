@@ -14,16 +14,15 @@ import dataclasses as dc
 
 import numpy as np
 
-from agents.heuristic import HeuristicAgent, Weights
+from agents.heuristic import HeuristicAgent, R3, B2_RETUNED
 from probe import load_probe_agent, mc_line, paired_se
 from scenarios_b2 import KS, b2_weapon
 
-# The retuned weights from B2 Result 5: hold-back terms pulled below the draw threshold.
-# 0.850 -> 0.899 vs random, and parity with the 500k champion.
-RETUNED = Weights(p_king=5.0, p_chcol=4.5, p_super_taki=4.5, w_reserve=4.0,
-                  king_cancel_min_penalty=0, hold_wilds_in_run=False)
-
-POOLS = {'shipped': Weights(), 'retuned': RETUNED}
+# Both pools are now named, frozen versions (agents/heuristic.py) rather than local
+# copies: 'shipped' is R3 as published, 'retuned' is B2 Result 5's point (hold-back
+# terms pulled below the draw threshold; 0.850 -> 0.899 vs random, parity with the
+# 500k champion). The local copy of the retuned vector had drifted from the tuner's.
+POOLS = {'shipped': R3, 'retuned': B2_RETUNED}
 
 
 def price(learner, weights, games, seed):
