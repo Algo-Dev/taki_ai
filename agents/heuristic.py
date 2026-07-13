@@ -459,6 +459,7 @@ class HeuristicAgent:
     def _score_and_pick(self, game, hand, moves):
         reserved, hoard_color, open_hoard = self._hoard_plan(game, hand)
         structural = self.w.refusal_mode == 'structural'
+        fallback = None
         scored = []
         for move in moves:
             action, card = move
@@ -469,6 +470,16 @@ class HeuristicAgent:
                     continue
                 score = self.w.score_draw
             elif action is Action.CLOSE_TAKI:  # only reachable declining a King
+                if structural:
+                    # H4: declining the King's free follow-up is a REFUSAL, so under H1 it
+                    # is not something a weight may buy either. It was already dead code —
+                    # 0 fires in 200 games at score_decline_king=-2.0 — but zeroing the
+                    # weight was measured to WAKE IT UP and cost -0.0004, because at 0 it
+                    # outbids negative-scoring plays. Hence: remove the branch, don't
+                    # neutralize the weight. Kept only as the fallback when the rules leave
+                    # nothing else (there is no DRAW to fall back on in State.KING).
+                    fallback = move
+                    continue
                 score = self.w.score_decline_king
             else:
                 score = self._score_play(game, hand, card, reserved,
@@ -479,8 +490,10 @@ class HeuristicAgent:
                     # the ONLY thing the rules permit, without any weight voting for it.
                     continue
             scored.append((score, move))
-        if not scored:                       # structural: every play is rule-forbidden
-            return Action.DRAW, None
+        if not scored:
+            # structural: the rules left nothing playable. Decline the King's follow-up if
+            # that is the only move on offer (State.KING has no DRAW), else draw.
+            return fallback if fallback is not None else (Action.DRAW, None)
         best = max(scored, key=lambda s: (s[0], -action_to_scalar(*s[1])))
         return best[1]
 
