@@ -451,6 +451,22 @@ class FrozenVersionTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_weights(bad)
 
+    def test_a_spec_can_be_based_on_a_version_other_than_the_reference(self):
+        """H-series ablations must be measured on top of H1's STRUCTURE. Without this, an
+        override is implicitly based on REFERENCE ('r3' = legacy), so testing e.g.
+        `block_hand_threshold=1` would price it on top of the refusal cliff H1 removed —
+        measuring the cliff, not the blocker."""
+        from agents.heuristic import resolve_weights, H1_B2
+        w = resolve_weights('h1b2,block_hand_threshold=1')
+        self.assertEqual(w.refusal_mode, 'structural')      # the base's structure, kept
+        self.assertEqual(w.block_hand_threshold, 1)         # the override, applied
+        self.assertEqual(w.p_king, H1_B2.p_king)            # everything else from the base
+        self.assertEqual(resolve_weights('h1,-hoard').refusal_mode, 'structural')
+        self.assertEqual(resolve_weights('h1,-hoard').w_reserve, 0.0)
+        self.assertEqual(resolve_weights('h1b2,'), H1_B2)   # trailing comma is a no-op
+        # and the un-based forms still resolve against the reference, unchanged
+        self.assertEqual(resolve_weights('block_hand_threshold=1').refusal_mode, 'legacy')
+
     def test_refusal_mode_is_validated(self):
         """The version anchor: H1 changes the DECISION STRUCTURE, so freezing the weight
         vector alone would not freeze behaviour. A version pins its mode; an unknown mode

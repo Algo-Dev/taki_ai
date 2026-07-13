@@ -243,17 +243,32 @@ def resolve_weights(spec=''):
     """Resolve a heuristic weight spec. The one grammar, shared by every entry point.
 
       ''  / 'reference'   -> the current reference version (REFERENCE)
-      '<version>'         -> a named version: r3, b2, greedy
-      '-<name>'           -> the reference with ONE hold-back behaviour ablated
-      'k=v,k=v'           -> the reference with individual weights overridden, which is
-                             how a weight gets SWEPT rather than merely switched off
+      '<version>'         -> a named version: r3, b2, h1, h1b2, greedy
+      '-<name>'           -> the base with ONE hold-back behaviour ablated
+      'k=v,k=v'           -> the base with individual weights overridden, which is how a
+                             weight gets SWEPT rather than merely switched off
+      '<version>,...'     -> any of the above, but based on THAT version instead of the
+                             reference: 'h1b2,block_hand_threshold=1', 'h1,-hoard'
+
+    The leading-version form is not sugar. Without it every override is implicitly based on
+    the REFERENCE — which is `r3`, i.e. the LEGACY structure — so an H-series ablation
+    like `block_hand_threshold=1` would have been measured on top of the very refusal
+    cliff H1 exists to remove, and its price would have been the cliff's, not its own.
     """
     spec = (spec or '').strip()
     if spec in ('', 'reference'):
         return VERSIONS[REFERENCE]
     if spec in VERSIONS:
         return VERSIONS[spec]
+
     base = VERSIONS[REFERENCE]
+    head, sep, rest = spec.partition(',')
+    if head.strip() in VERSIONS:            # '<version>,<modifiers...>'
+        base = VERSIONS[head.strip()]
+        spec = rest.strip()
+        if not spec:
+            return base
+
     if spec.startswith('-'):
         name = spec[1:]
         if name not in ABLATIONS:
