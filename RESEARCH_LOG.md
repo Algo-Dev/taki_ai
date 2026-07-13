@@ -14,6 +14,56 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-13 (later still) — R6 FINISHED (L=60, 100k): a NEW CHAMPION (+8.5 pts), but it still will not block. Strength and the behavioural fix came apart
+
+Run `models/run1783959155.016766` (100k trials, seed 1, shaped, `--loss-penalty 60`). Promoted as
+**`checkpoint_r6L60_snap100000`**. Supersedes the partial (20k) L=60 read in the entry below, which
+was **misleading** — see the caveat there, which is why it was flagged.
+
+**PROMOTED: it beats the champion decisively, on the promotion standard.**
+Seat-swapped alternating 2v2 (`--team1-seats 0,2 --seat-swap`), 3000 games x 2, **three disjoint
+deck blocks**: **+0.0850 / +0.0850 / +0.0907 +/- 0.011** — ~8 SE, and it replicates. Vs the heuristic
+yardstick (1-vs-3, parity 0.250): **0.378** vs the champion's **0.348**. And it took **100k trials,
+not 500k**.
+
+| | champion (500k) | L=20 (100k) | **L=60 (100k)** |
+|---|---|---|---|
+| vs 3x heuristic | 0.348 | 0.366 | **0.378** |
+| seat-swap vs champion | — | (not run) | **+0.085 +/- 0.011** |
+| census REFUSAL | 1.75% | 1.85% | 2.92% (pass) |
+| delta(k=1) | -4.01 | -3.23 | **-0.87** |
+| delta slope | **falls** as k falls (WRONG) | falls (wrong) | **RISES as k falls (RIGHT)** |
+| delta spread | 2.55 | 0.88 | 1.95 |
+
+**But the pre-registered prediction still FAILED, and that is the interesting part.**
+`delta(k=1) = -0.87`: much closer to zero, but **still negative — it does not block.** What *did*
+change is the **slope**: the champion wanted the +2 *least* when the opponent was closest to winning
+(backwards); L=60 wants it *most* then (correct). **R6 fixed the sign of the derivative but not the
+intercept.** It learned *that a near-winner is dangerous* without learning *to spend a card on it*.
+
+**So strength and the behavioural fix came apart.** +8.5 points did NOT come from blocking, because
+it still does not block. It presumably comes from R6 removing the "an imminent loss is a relief"
+pathology *everywhere* — the agent now plays to avoid losing in general, which is worth a lot even
+though the one probe we built it for still fails. **A pre-registered test that fails while the model
+gets much better is exactly the situation the test exists to reveal.** Had we only measured win rate
+we would have declared the defect fixed.
+
+**Why the intercept does not move, and why this is the case for R17.** Playing the +2 still
+*prolongs the game*, and `-len(hand)` still charges ~3 per extra turn. A terminal penalty shifts the
+whole `delta` curve but cannot pay off a *per-turn* tax on defence — the level term is an
+**intercept** problem. **Out-shouting it does not work; removing it might.** That is precisely
+**R17** (potential-based shaping: shape on the CHANGE in hand size, so a longer game costs nothing).
+Strength is also **monotone in L** (0.348 -> 0.366 -> 0.378), so a larger L is worth one more run,
+but the delta curve says the ceiling of this approach is near.
+
+**Guard-rail passed:** refusal 2.92% vs the champion's 1.75%. Elevated but well within tolerance —
+"never refuse to play" survived. (The 5.67% in the 20k partial was a training-length artefact, as
+flagged.)
+
+**Method note:** the 20k partial read of this same configuration showed `delta(k=1) = +0.26` and the
+agent blocking at every k. **At 100k it settled to -0.87 and blocks at none.** Early-training reads of
+a Q-landscape are not directional evidence. The caveat on that entry was correct and load-bearing.
+
 ## 2026-07-13 (later) — R6 attempt 1: a terminal loss penalty fixes the VALUATION but not the POLICY. The step term taxes defence
 
 Branch `b2-holdback`. `train.py --loss-penalty`. Run `models/run1783898274.148395` (100k trials,

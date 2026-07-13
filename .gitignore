@@ -14,3 +14,9 @@ __pycache__/
 # training log is ~10 MB of "Trial n/N". Root-level only: probes/*.log are deliberate artefacts
 # of a probe write-up and stay tracked.
 /*.log
+
+# Training progress logs: one line per trial (100k+ lines), regenerable, and train.py
+# already tees a copy into models/run<ts>/train.log (gitignored). Never commit these.
+probes/**/r6_*_full.log
+probes/**/r6_L*.log
+probes/**/tune.log
