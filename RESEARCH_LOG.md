@@ -14,6 +14,75 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-14 (later) — Step 4: EVERY pre-registered H-series prediction failed, and two REVERSED. B2's hold-back ablations were measuring the refusal cliff, not the hold-back
+
+All measured against the `h1b2` base **on H1's structure** (2v2 alternating, seat-swapped, paired,
+20,000 games x 2). Log: `probes/h_ablations.log`. This is what H1 was *for*: before it, none of
+these numbers meant what they appeared to mean.
+
+| item | PLAN predicted | measured | verdict |
+|---|---|---|---|
+| **H2** `block_hand_threshold` 2 -> 1 | **+0.02 .. +0.045** | **-0.0112 +/- 0.0024** | **REFUTED — worse** |
+| H2 control: threshold 3 (wider) | — | +0.0010 +/- 0.0027 | tie |
+| **H3** `w_block=0` (the SPEND side) | untested hole in B2 | **-0.0223 +/- 0.0026** | blocking **earns +2.2** |
+| H3 `w_chdir_block=0` | — | -0.0010 +/- 0.0015 | tie — **dead weight** |
+| **H4** decline-King | dead code | -100: tie; **0: -0.0004** | dead as shipped; **safe to delete** |
+| **H5** drop `w_nofin` (8.0) | "nearly vacuous, drop it" | **-0.0107 +/- 0.0008** | **REFUTED — earns +1.1** |
+| **H6** delete the hoard (B6) | "buys nothing, delete it" | **-0.0289 +/- 0.0030** | **REFUTED — earns +2.9** |
+
+### The finding behind the reversals
+
+H5 and H6 did not fail by chance. **Every hold-back conclusion B2 drew was confounded by the
+refusal cliff**, and H1 is what makes that visible. The same `w_reserve` sweep, the same weights,
+with *only the decision structure* changed (`probes/h6_cliff_confound.log`; 10,000 games x 2; the
+census column is voluntary draws per 200 games):
+
+| `w_reserve` | LEGACY margin | draws | STRUCTURAL margin | draws |
+|---|---|---|---|---|
+| 0 | -0.0218 | 4 | -0.0212 | 0 |
+| 2 | -0.0080 | 4 | -0.0081 | 0 |
+| 4 (base) | 0 | 5 | 0 | 0 |
+| 6 | -0.0033 | 4 | -0.0028 | 0 |
+| **8** | **-0.0282** | **52** | **-0.0030** (tie) | **0** |
+| **10** | **-0.0575** | **118** | **-0.0024** (tie) | **0** |
+| **20** | **-0.0752** | **130** | **-0.0032** (tie) | **0** |
+
+Below the cliff the two structures agree to three decimals — as they must, since nothing refuses
+there. Above it, LEGACY's collapse tracks the refusal count *exactly*, while STRUCTURAL simply goes
+flat: the hold saturates and costs nothing. So B2's "**catastrophic at 8/10 (where it starts
+drawing)**" was never a fact about hoarding. It was the cliff, and B2 even named the mechanism in
+its own parenthesis without drawing the conclusion.
+
+**What this invalidates:** B2 concluded "the hoard buys nothing — the entire apparatus is complexity
+with no measurable payoff and a large downside". Both halves are wrong. The payoff is **+2.2 to
++2.9 points** (0 vs 4, and the full `-hoard` ablation), and the "large downside" was the cliff,
+which no longer exists. **B6 stays.** More generally: *any* hold-back weight B2 priced near or above
+5.0 was priced against a confound, and its ablation numbers should not be trusted.
+
+**What survives:** the hold-back *preference* story is intact and stronger — holds are worth real
+points (`w_nofin` +1.1, hoard +2.9, blocker-spend +2.2). What died is the claim that big holds are
+dangerous. Under H1 they are merely *saturating*.
+
+### H2 is refuted, and that is a genuine surprise
+
+B2's rollout priced blocking a 1-card next player at **+0.020 / +0.038 / +0.045** across three deck
+blocks and a 2-card one at **-0.05**, so narrowing the threshold to 1 looked like free money. With
+the **heuristic itself as the actor**, threshold 1 measures **-0.0112 +/- 0.0024** — a loss, at ~5
+SE. The caveat B2 wrote down ("those numbers were measured with the DQN as the acting seat ... they
+should transfer, but confirm with the heuristic as the actor") turns out to have been the whole
+story: **they did not transfer.** Widening to 3 is free (+0.0010, tie), so the shipped threshold of
+2 is at or near the optimum and the "fires too late AND too widely" framing is simply wrong.
+
+### H4: dead, but do not set it to zero
+
+`score_decline_king` fires **0 times in 200 games** in every version, and setting it to `-100`
+changes nothing (+0.0001 +/- 0.0001) — so *deleting* it is free, as PLAN says. But setting it to
+**0** measures **-0.0004 +/- 0.0002**, a small real loss: at 0 the option starts *winning* the
+`max()` against negative-scoring plays, i.e. the phantom behaviour wakes up and it is bad. The lesson
+is about how to retire dead code — remove the branch, don't neutralize the weight.
+
+---
+
 ## 2026-07-14 — H1: the heuristic's 18-point defect was its STRUCTURE, not its weights. Fixed by construction, with zero weights changed
 
 H-series steps 1+2 (freeze the yardstick) and H1 (structural refusal). Worktree `taki-ai-hseries`.
