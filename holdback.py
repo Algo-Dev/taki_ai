@@ -31,7 +31,7 @@ import time
 from game import (Game, Card, Action, State, Type, Color, FINISHING_TYPE_VALUES,
                   action_to_scalar)
 from agents.random import RandomAgent
-from agents.heuristic import HeuristicAgent, Weights, GREEDY
+from agents.heuristic import HeuristicAgent, Weights, GREEDY, make_heuristic
 
 TURN_CAP = 2000
 
@@ -255,21 +255,16 @@ class Recorder:
 # ---------------------------------------------------------------------------------
 
 def make_agent(spec):
+    """The shared spec grammar (agents.heuristic.resolve_weights) — versions, ablations
+    and k=v overrides alike. This file used to carry its OWN parser, which knew nothing
+    about named versions: `holdback.py heuristic:h1` would have silently censused the
+    R3 weights with an unknown key. One grammar, one meaning, everywhere."""
     if spec == 'random':
         return RandomAgent(seed=0)
     if spec == 'heuristic':
-        return HeuristicAgent()
-    if spec == 'heuristic:greedy':
-        return HeuristicAgent(weights=GREEDY)
+        return make_heuristic()
     if spec.startswith('heuristic:'):
-        import dataclasses as dc
-        fields = {f.name: f.type for f in dc.fields(Weights)}
-        ov = {}
-        for part in spec.split(':', 1)[1].split(','):
-            k, _, v = part.partition('=')
-            ov[k] = (v.lower() == 'true') if fields[k] is bool \
-                else (int(v) if fields[k] is int else float(v))
-        return HeuristicAgent(weights=dc.replace(Weights(), **ov))
+        return make_heuristic(spec.split(':', 1)[1])
     from agents.dqn import AIAgent
     return AIAgent(epsilon=0.0, epsilon_min=0.0, load_model=spec)
 

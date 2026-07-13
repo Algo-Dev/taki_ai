@@ -14,6 +14,89 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-14 — H1: the heuristic's 18-point defect was its STRUCTURE, not its weights. Fixed by construction, with zero weights changed
+
+H-series steps 1+2 (freeze the yardstick) and H1 (structural refusal). Worktree `taki-ai-hseries`.
+
+### The headline
+
+**H1 carries R3's exact weight vector — `p_king = 6.0` and all — and beats it by +0.183.**
+
+| head-to-head (2v2 alternating, seat-swapped, paired; parity 0.0) | paired margin |
+|---|---|
+| **`h1` vs `r3`** (structure alone; **identical weights**) | **+0.1826 +/- 0.0042** |
+| `h1` vs `b2` (structure alone vs retuning alone) | -0.0066 +/- 0.0034 |
+| `h1b2` vs `b2` (does structure add anything, once retuned?) | -0.0003 +/- 0.0011 (tie) |
+| `h1b2` vs `h1` (does retuning add anything, once structural?) | +0.0075 +/- 0.0033 |
+
+20,000 games x 2 runs each. Read together they say one thing: **the ~18 points were the refusal
+cliff, entire.** You can remove it by retuning the weights under it (B2) or by removing the cliff
+(H1) — and *they do not stack*. `b2 ~= h1b2 > h1 >> r3`.
+
+**Prefer H1 anyway, and not for the win rate.** B2's route leaves the cliff in place and merely
+parks the weights below it, which is why B2 *itself* still refused (below). H1's route means no
+weight assignment can fall off it — that is what makes H8's automated tuning trustworthy, and it is
+a property, not a number.
+
+### Against the R6 champion (2v2 seat-swap, 3000 games x 2)
+
+| heuristic version | vs R6 champion | vs 3 random |
+|---|---|---|
+| `r3` (the shipped yardstick) | **-0.2630 +/- 0.0117** | 0.850 |
+| `h1` (structure only) | -0.0793 +/- 0.0118 | 0.896 |
+| `b2` (retuned only) | -0.0647 +/- 0.0116 | 0.899 |
+| **`h1b2`** (both) | **-0.0647 +/- 0.0117** | 0.897 |
+
+The heuristic closes from **-26.3 to -6.5** points behind the champion. It does **not** reach parity
+with R6 — and that is consistent, not a contradiction of B2: B2's "parity with the champion" was
+measured against **A9-rules**, and R6 beats A9-rules by **+8.5**. Two independent measurements
+agreeing to within a point is a genuine cross-check on both.
+
+### The invariant, verified rather than asserted
+
+PLAN pre-registered the test *no weight assignment can produce a voluntary draw*. As a property test
+over 12 random weight vectors with holds up to **500** (far past the old cliff at 5.0): `structural`
+**never** draws while a legal play exists; `legacy` on those same vectors refuses constantly (also
+asserted, so the test cannot pass by being vacuous). `holdback.py` census, 200 games x 4 seats:
+
+| | draw refusals | close-TAKI refusals | decline-King |
+|---|---|---|---|
+| `r3` | **1293** | 145 | 0 |
+| `b2` | 15 | 0 | 0 |
+| `h1` | **0** | 84 | 0 |
+| `h1b2` | **0** | 0 | 0 |
+
+### Three findings that were not the point of the exercise
+
+1. **B2's retuned agent still refused.** `w_nofin` was never retuned — still 8.0, above the 5.0
+   threshold — so the version that scored 0.899 and reached parity with A9-rules was *still* taking
+   4 voluntary draws in 40 games. **Retuning moved the cliff; it did not remove it.** This is exactly
+   PLAN's H5, and it is the whole argument for H1: while refusal is a scoring *outcome*, a retune can
+   always leave one behind.
+2. **The costliest refusal was invisible to the `max()`.** `_play_draw_two` declines to King-cancel a
+   pending +2 in order to keep the King — a voluntary draw of `2 * draw_num` **cards**, bought by
+   `king_cancel_min_penalty`. It lives outside `_score_and_pick`, so no amount of staring at
+   `score_draw` would have found it. H1 covers it.
+3. **H4 confirmed by a second instrument.** `decline-King` fires **0 times in 200 games in every
+   version**. The census and the `king_follow` ablation (+0.0000 +/- 0.0000) now agree: it is dead
+   code. The agent believes it has a behaviour it does not have.
+
+**Residual, deliberately left:** `h1` still shows 84 **close-TAKI** refusals — `hold_wilds_in_run`
+closing a run rather than spending a wild. That is a different cliff (it costs no card), and it is
+H4/H6's business, not H1's. `h1b2` has none because B2 already turned that hold off.
+
+### Reproduce
+
+```bash
+python eval_headtohead.py heuristic:h1 heuristic:r3 --team1-seats 0,2 --seat-swap --games 20000
+python holdback.py heuristic:h1 --games 200        # draw refusals: 0
+```
+
+Full log: `probes/h1_eval.log`. **REFERENCE is still `r3`** — promoting a successor is B5, and it is
+deliberately the *last* step of the series, not a side effect of this one.
+
+---
+
 ## 2026-07-13 (later still) — R6 FINISHED (L=60, 100k): a NEW CHAMPION (+8.5 pts), but it still will not block. Strength and the behavioural fix came apart
 
 Run `models/run1783959155.016766` (100k trials, seed 1, shaped, `--loss-penalty 60`). Promoted as

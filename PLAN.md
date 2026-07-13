@@ -326,7 +326,20 @@ and `main.py`'s greedy demo already show every piece needed.
   worth **+2..+7**. The agent has no way to express the second without risking the first, which makes
   every one of its hold weights a latent cliff. These items follow directly.
 
-  - **H1. Make "never refuse to play" a STRUCTURAL INVARIANT, not a tuning accident.** *(The headline.)*
+  - **H1. DONE 2026-07-14 — and it was worth +0.183, with ZERO weights changed.** `refusal_mode=
+    'structural'` ships; versions `h1` (R3's weights + structure) and `h1b2` (B2's weights +
+    structure) are frozen in `agents/heuristic.py`. The pre-registered invariant holds as a property
+    test (no weight assignment, up to holds of 500, can produce a voluntary draw) and in the census
+    (draw refusals: R3 1293 -> H1 **0**). Vs the R6 champion the heuristic closes from **-0.263 to
+    -0.065**. **What it settled:** the ~18 points were the cliff *entire* — retuning (B2) and
+    restructuring (H1) recover the same points and **do not stack** (`h1` vs `b2` = -0.007, a tie).
+    H1 is still the one to keep, because it makes the fix a *property* rather than a tuning outcome —
+    which is precisely what makes H8 safe to run. **Also found:** B2's retuned point *still refused*
+    (via `w_nofin`, untouched at 8.0 — H5 was real), and the costliest refusal in the agent was
+    `_play_draw_two` eating a +2 pile to keep the King, which lives outside the `max()` entirely.
+    See RESEARCH_LOG 2026-07-14. *(Original item below, for the record.)*
+
+  - ~~**H1. Make "never refuse to play" a STRUCTURAL INVARIANT, not a tuning accident.**~~ *(The headline.)*
     Today `SCORE_DRAW = -5.0` is a finite score competing in the same `max` as the plays, so any hold
     penalty above 5.0 silently converts "I would rather keep this" into "I would rather not play at
     all" — a **13-point cliff** that `p_king = 6.0` (the shipped default!) falls straight off. Split
