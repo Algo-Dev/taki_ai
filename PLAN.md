@@ -413,22 +413,37 @@ and `main.py`'s greedy demo already show every piece needed.
     ~~Original item: "There is no RACE behaviour ... a human speeds up. This is the natural
     counterpart to H2 and is currently absent."~~
 
-  - **H8. Finish `tune_heuristic.py`.** Coordinate descent against the DQN champion, already written and
-    running when B2's time budget ran out (it had improved `p_king`, `p_chcol`, `p_super_taki` in its
-    first pass). With H1 in place the search space becomes safe to explore — no candidate can fall off
-    the refusal cliff — which is precisely what makes automated tuning trustworthy here.
+  - **H8. DONE 2026-07-14 — and the freed space was EMPTY.** Version `h8` ships. 2 passes x 44
+    candidates x 12k games from `h1b2` vs the R6 champion. **Not one hold-back weight moved**
+    (`p_king` 5.0, `w_reserve` 4.0, `w_nofin` 8.0, `w_open_hoard` 15.0 — all unchanged); every gain
+    came from ordinary terms (`w_deny` 3->1.5, `w_block` 4->6, `w_chdir_block` 2->0, `w_plus_tempo`
+    1->2, `w_save_blocker` 0.7->0). H8's whole rationale was that H1 lets the search go **above the
+    old cap of 5.0** — it went, and came back with nothing, because up there the holds **saturate**
+    (`p_king` at 6/9/14 returns margins identical to four decimals: past a threshold the hold is
+    already decisive and more cannot move the `argmax`). **The cap was never costing anything; the
+    cliff was.** H1 was still necessary — it is what makes the search *safe* — but the points were
+    not hiding up there. **Winner's curse, observed as pre-registered:** in-search -0.0472 did not
+    replicate; held out, `h8` beats `h1b2` by a real but smaller **+0.0118 +/- 0.0035** (20k common
+    decks) and reaches **0.906** vs random. Two independent confirmations of H3 fell out — the tuner
+    zeroed `w_chdir_block` (dead weight) and `w_save_blocker` (a tax on the agent's best behaviour).
 
-- **B5 (new, spun out of B2). Promote the retuned heuristic as the project yardstick — and re-run
-  what was ranked against the old one.** R3's heuristic ships with a **17-point tuning bug**: its
-  hold-back weights sit *above* its own draw threshold, so it draws rather than plays. Fixing only
-  that (`p_king=5, p_chcol=4.5, p_super_taki=4.5, w_reserve=4, king_cancel_min_penalty=0,
-  hold_wilds_in_run=false`) takes it from **0.850 -> 0.899** vs random and to **statistical parity
-  with the 500k-trial DQN champion** (3 disjoint seeds: +0.018 / -0.018 / +0.005). Consequences:
-  (a) R3's headline — "A8 is genuinely better, 0.343 vs 3 heuristics" — was measured against a
-  crippled opponent and must be re-run; (b) **the plateau story gets much sharper**: against a
-  competent opponent the champion is at parity with hand-written rules, which says far more than
-  vs-random ever did; (c) the weights are un-broken, not optimised — a real tuner would likely go
-  further, and a heuristic that *beats* the DQN would be a significant result.
+- **B5. DONE 2026-07-14 — PROMOTED. `REFERENCE` is now `h8`, and the champion got smaller.**
+  Mode A, 1-vs-3, parity 0.250 (the `r3` column reproduces the published numbers exactly, which is
+  the check that the harness is faithful):
+
+  | | vs `r3` (old) | vs **`h8`** (new) |
+  |---|---|---|
+  | **R6 champion** | **0.378** | **0.297** |
+  | A9-rules | 0.348 | 0.271 |
+
+  **The champion's headline was inflated by ~8 points by a yardstick with a 13-point bug in it.**
+  R6 beats a *competent* heuristic by **+4.7 points over chance, not +12.8**. It is still genuinely
+  ahead — the DQN does beat the best hand-written rules we have — but by less than half what the
+  record claimed. **(b) from the original item is answered, and it cuts the other way from what B2
+  guessed:** against a competent opponent the champion is *not* at parity with hand-written rules;
+  it is ahead, but modestly. **(c) is answered too:** a real tuner (H8) went further and the
+  heuristic still does not beat the DQN. **Every "vs heuristic" number published before 2026-07-14
+  refers to `r3`** and is not comparable to one measured after; `heuristic:r3` still runs.
 
 - **B3. Scenario battery + human-readable output.** Generalize B1/B2 into a small suite of named
   positions with an expected/interesting line each, and report the policy's Q-ranking per scenario.
