@@ -430,14 +430,27 @@ class FrozenVersionTest(unittest.TestCase):
                 g.next_turn()
         return voluntary
 
-    def test_the_reference_is_r3_until_b5_promotes_a_successor(self):
-        """A bare `heuristic` spec must keep meaning what every published number means.
-        Changing REFERENCE is a deliberate act (B5) that requires re-running the
-        champion against the new reference — not a side effect of an H-series edit."""
-        from agents.heuristic import REFERENCE, resolve_weights, R3
-        self.assertEqual(REFERENCE, 'r3')
-        self.assertEqual(resolve_weights(), R3)
-        self.assertEqual(resolve_weights(''), R3)
+    def test_the_reference_is_h8_promoted_from_r3_by_b5(self):
+        """B5 (2026-07-14): the yardstick was PROMOTED r3 -> h8, deliberately, with both
+        numbers re-run and recorded (R6: 0.378 vs r3 -> 0.297 vs h8; A9: 0.348 -> 0.271).
+
+        Changing REFERENCE is never a side effect — it silently redefines every "vs
+        heuristic" number the project reports. This test exists so that a future edit that
+        moves it has to say so out loud."""
+        from agents.heuristic import REFERENCE, resolve_weights, H8
+        self.assertEqual(REFERENCE, 'h8')
+        self.assertEqual(resolve_weights(), H8)
+        self.assertEqual(resolve_weights(''), H8)
+
+    def test_r3_still_runs_so_the_old_published_numbers_stay_reproducible(self):
+        """Promotion must not orphan the history. Everything published before 2026-07-14
+        was measured against r3, and `heuristic:r3` must go on meaning exactly that."""
+        from agents.heuristic import resolve_weights, R3, VERSIONS
+        self.assertEqual(resolve_weights('r3'), R3)
+        self.assertEqual(R3.refusal_mode, 'legacy')     # bug and all
+        self.assertEqual(R3.p_king, 6.0)                # the 17-point tuning bug, preserved
+        for name in ('r3', 'b2', 'h1', 'h1b2', 'h7', 'h8', 'greedy'):
+            self.assertIn(name, VERSIONS)
 
     def test_spec_grammar(self):
         from agents.heuristic import resolve_weights, R3, B2_RETUNED, GREEDY
@@ -468,8 +481,12 @@ class FrozenVersionTest(unittest.TestCase):
         self.assertEqual(resolve_weights('h1,-hoard').refusal_mode, 'structural')
         self.assertEqual(resolve_weights('h1,-hoard').w_reserve, 0.0)
         self.assertEqual(resolve_weights('h1b2,'), H1_B2)   # trailing comma is a no-op
-        # and the un-based forms still resolve against the reference, unchanged
-        self.assertEqual(resolve_weights('block_hand_threshold=1').refusal_mode, 'legacy')
+        # An un-based override still resolves against REFERENCE — which B5 promoted from r3
+        # to h8, so it now inherits the STRUCTURAL mode. (Before the promotion this same
+        # spec silently carried r3's legacy structure, which is exactly why the leading-
+        # version form had to exist.)
+        self.assertEqual(resolve_weights('block_hand_threshold=1').refusal_mode, 'structural')
+        self.assertEqual(resolve_weights('r3,block_hand_threshold=1').refusal_mode, 'legacy')
 
     def test_refusal_mode_is_validated(self):
         """The version anchor: H1 changes the DECISION STRUCTURE, so freezing the weight

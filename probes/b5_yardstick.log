@@ -1,0 +1,17 @@
+######## B5: re-rank the champions against the NEW yardstick  2026-07-14T05:12:38+03:00 ########
+## Mode A, 1-vs-3 (one DQN + three heuristics), parity 0.250. 3000 games, seed 0.
+## The published numbers (R6 0.378 / A9 0.348) were measured vs r3 -- the CRIPPLED yardstick.
+
+════════ opponent = heuristic:r3 ════════
+   R6-champion    0.378  vs 1/N 0.250  -> ABOVE chance
+   A9-rules       0.348  vs 1/N 0.250  -> ABOVE chance
+
+════════ opponent = heuristic:h1b2 ════════
+   R6-champion    0.307  vs 1/N 0.250  -> ABOVE chance
+   A9-rules       0.263  vs 1/N 0.250  -> ABOVE chance
+
+════════ opponent = heuristic:h8 ════════
+   R6-champion    0.297  vs 1/N 0.250  -> ABOVE chance
+   A9-rules       0.271  vs 1/N 0.250  -> ABOVE chance
+
+######## DONE 2026-07-14T05:13:55+03:00 ########

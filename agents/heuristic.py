@@ -246,21 +246,53 @@ H1_B2 = dataclasses.replace(B2_RETUNED, refusal_mode='structural')
 #: `h1b2` isolates it.
 H7 = dataclasses.replace(H1_B2, race=True)
 
+#: H8: the coordinate-descent point (2026-07-14), tuned against the R6 champion from H1_B2
+#: over 2 passes x 44 candidates x 12,000 games. `probes/h8_tune.log`.
+#:
+#: THE INTERESTING PART IS WHAT IT DID NOT CHANGE. H8 waited for H1 so the search could go
+#: ABOVE the old hold cap of 5.0 (below which the tuner had been confined, because above it
+#: a hold bought a refusal). Given that freedom, the tuner went there and came back: not one
+#: hold-back weight moved — `p_king` 5.0, `w_reserve` 4.0, `w_nofin` 8.0, `w_open_hoard`
+#: 15.0 all unchanged — and every gain came from ORDINARY scoring terms. The step-4 sweeps
+#: had already shown why: above their optimum the holds SATURATE (identical margins to three
+#: decimals, because the argmax stops moving), so there were never any points up there.
+#: The cap was not costing anything; the cliff was.
+H8 = dataclasses.replace(
+    H1_B2,
+    w_deny=1.5,             # was 3.0 — deny the next player's color HALF as hard
+    w_block=6.0,            # was 4.0 — H3 said blocking is the biggest behaviour; press it
+    w_chdir_block=0.0,      # was 2.0 — dead weight, and H3's ablation independently agreed
+    w_plus_tempo=2.0,       # was 1.0 — the free extra turn is worth twice what R3 thought
+    w_save_blocker=0.0,     # was 0.7 — do not hold the blocker back; spend it
+    p_super_taki=4.0,       # was 4.5 — noise-level
+)
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
     'h1': H1,
     'h1b2': H1_B2,
     'h7': H7,
+    'h8': H8,
     'greedy': GREEDY,
 }
 
 #: The reference opponent: what a bare `heuristic` spec means, and therefore what
-#: `eval.py --opponent heuristic` measures. STAYS 'r3' until B5 formally promotes a
-#: successor — so no existing command changes meaning while the H-series is in flight.
-#: Promoting = change this line, then re-run the champion against the new reference and
-#: record BOTH numbers in RESEARCH_LOG.md.
-REFERENCE = 'r3'
+#: `eval.py --opponent heuristic` measures.
+#:
+#: PROMOTED r3 -> h8 on 2026-07-14 (PLAN.md B5), the last act of the H-series and a
+#: deliberate one. Both numbers were re-run and recorded (RESEARCH_LOG 2026-07-14, B5):
+#:
+#:                      vs r3 (old)   vs h8 (new)   parity
+#:     R6 champion         0.378         0.297       0.250
+#:     A9-rules            0.348         0.271       0.250
+#:
+#: **Every "vs heuristic" number published before this date refers to `r3`** and is NOT
+#: comparable to one measured after it. The champion's headline was inflated by ~8 points
+#: by the crippled yardstick: R6 beats a COMPETENT heuristic by +4.7 points over chance,
+#: not +12.8. Cite the old numbers as `heuristic:r3`, which still runs and still means
+#: exactly what it always meant.
+REFERENCE = 'h8'
 
 
 def resolve_weights(spec=''):

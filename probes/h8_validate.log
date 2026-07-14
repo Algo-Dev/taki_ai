@@ -1,0 +1,35 @@
+######## H8 held-out validation  2026-07-14T05:07:29+03:00 ########
+## Coordinate descent maxes over ~88 noisy candidates, so its own -0.0472 is biased UP.
+## The tuner saw deck blocks [0,3000) and [500000,503000). These decks are DISJOINT.
+
+======== 1. vs the R6 champion, FRESH decks (in-search claim: -0.0472, base h1b2: -0.0638)
+--- deck block [1000000, 1000000+3000) ---
+    heuristic:h8: 0.231
+    checkpoint_r6L60_snap100000: 0.269
+    -0.0757 +/- 0.0120  (paired SE over 3000 common decks)
+Verdict: checkpoint_r6L60_snap100000 stronger (margin > 2 paired SE)
+--- deck block [2000000, 2000000+3000) ---
+    heuristic:h8: 0.232
+    checkpoint_r6L60_snap100000: 0.268
+    -0.0727 +/- 0.0117  (paired SE over 3000 common decks)
+Verdict: checkpoint_r6L60_snap100000 stronger (margin > 2 paired SE)
+
+======== 2. vs h1b2 head to head — is the gain real, or just fitted to THIS DQN?
+    +0.0118 +/- 0.0035  (paired SE over 20000 common decks)
+Verdict: heuristic:h8 stronger (margin > 2 paired SE)
+
+======== 3. vs the OLD champion A9-rules (a DQN the tuner never saw)
+    +0.0100 +/- 0.0118  (paired SE over 3000 common decks)
+Verdict: Tie (margin within 2 paired SE)
+
+======== 4. vs 3 random (smoke test)
+heuristic:h8 vs random: 2718/3000 = 0.906  vs 1/N 0.250  -> ABOVE chance
+
+======== 5. census: H1's invariant must still hold
+  REFUSAL hold-back (declined to play while a play was legal):
+    total                 0  =  0.00% of free decisions
+      draw                0
+      close TAKI          0
+      decline King        0
+
+######## DONE 2026-07-14T05:10:15+03:00 ########
