@@ -14,6 +14,88 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-14 (last) — H8 + B5: the tuner went above the old cap and came back empty. And the champion's headline was inflated ~8 points by the crippled yardstick
+
+### H8 — coordinate descent, and a clean winner's-curse lesson
+
+2 passes x 44 candidates x 12,000 games each, from `h1b2`, against the R6 champion (`probes/
+h8_tune.log`, 7,886s). **In-search: -0.0638 -> -0.0472.** Held out on decks the tuner never
+saw, that gain **did not replicate**:
+
+| | vs R6 champion |
+|---|---|
+| in-search (biased: a max over ~88 noisy candidates) | **-0.0472** |
+| fresh deck block [1,000,000) | -0.0757 |
+| fresh deck block [2,000,000) | -0.0727 |
+
+**But the honest comparison needs the base on the SAME decks**, and that flips the reading —
+`h1b2`'s champion margin swings a lot by deck block, so my first cross-block read was an
+artifact:
+
+| deck block | `h1b2` vs R6 | `h8` vs R6 |
+|---|---|---|
+| [1,000,000) | -0.1067 | **-0.0757** (h8 +0.031) |
+| [2,000,000) | -0.0720 | -0.0727 (tie) |
+
+**Deck-block heterogeneity is large** (`h1b2` vs R6 reads -0.065 / -0.107 / -0.072 on three
+blocks, SE 0.012 each). A single-block champion comparison is weak evidence; the high-N paired
+numbers are the ones to trust:
+
+- **`h8` beats `h1b2` +0.0118 +/- 0.0035** (20,000 common decks, fresh) — real, 3.4 SE.
+- **vs random: 0.906** (best of any version; `r3` 0.850, `h1b2` 0.897).
+- Census: **0 refusals of any kind.** H1's invariant survives tuning, which is the point of it.
+
+So H8 is a genuine but modest improvement — **not** the +0.017 the search advertised. *Lesson,
+pre-registered and then observed: coordinate descent's own margin is biased upward; the "keep"
+rule latched candidates worth +0.0001. Always re-measure on held-out decks, against the base,
+on the same decks.*
+
+### The H8 result that actually matters: the freed space was empty
+
+H8 waited for H1 so the search could finally go **above the old hold cap of 5.0** (below which
+the tuner had been confined, because above it a hold bought a refusal). Given that freedom, the
+tuner went up there and **came back with nothing**:
+
+    p_king 5.0    w_reserve 4.0    w_nofin 8.0    w_open_hoard 15.0     <- ALL UNCHANGED
+
+**Not one hold-back weight moved.** Every gain came from ordinary scoring terms:
+`w_deny 3.0->1.5`, `w_block 4.0->6.0`, `w_chdir_block 2.0->0.0`, `w_plus_tempo 1.0->2.0`,
+`w_save_blocker 0.7->0.0`, `p_super_taki 4.5->4.0`.
+
+The step-4 sweeps had already explained why, and the tuner's own log shows it directly: above
+their optimum the holds **saturate** — `p_king` at 6/9/14 and `w_open_hoard` at 5/25/40 return
+margins identical *to four decimal places*, because past a threshold the hold is already
+decisive and more of it cannot move the `argmax`. **The cap was never costing anything. The
+cliff was.** H1 was still necessary — it is what makes the search *safe* — but the points it
+unlocked were not hiding above 5.0.
+
+Two independent confirmations fell out: `w_chdir_block -> 0` (H3's ablation called it dead
+weight; the tuner deleted it) and `w_save_blocker -> 0` (H3 found spending the blocker is the
+agent's most valuable behaviour, so the term that *saved* it was a tax).
+
+### B5 — PROMOTED: the yardstick is now `h8`, and the champions get smaller
+
+`REFERENCE` moves `r3` -> `h8`. Mode A, 1-vs-3, 3000 games, parity 0.250
+(`probes/b5_yardstick.log`). The r3 column reproduces the published numbers exactly, which is
+the check that the harness is faithful:
+
+| | vs `r3` (old, crippled) | vs `h1b2` | vs **`h8`** (new) |
+|---|---|---|---|
+| **R6 champion** | **0.378** | 0.307 | **0.297** |
+| A9-rules | 0.348 | 0.263 | 0.271 |
+| *parity* | 0.250 | 0.250 | 0.250 |
+
+> **The champion's headline was inflated by ~8 points by a yardstick with a 13-point bug in it.**
+> R6 beats a *competent* heuristic by **+4.7 points over chance, not +12.8**. It is still
+> genuinely ahead — the DQN really does beat the best hand-written rules we have — but the
+> margin is less than half what the record claimed.
+
+**Every "vs heuristic" number published before 2026-07-14 refers to `r3`** and is not comparable
+to one measured after. `heuristic:r3` still runs and still means exactly what it always meant —
+that is what the freeze is for. Cite the old numbers by that name.
+
+---
+
 ## 2026-07-14 (later still) — H7: RACING LOSES. When someone is about to win, that is when your kept cards are worth the most
 
 H7 asked for the behaviour the agent visibly lacks: it knows how to *block* a near-winner but has no

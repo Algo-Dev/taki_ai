@@ -37,9 +37,15 @@ DQN agent learning to play Taki (an UNO-like card game) via self-play, using Ker
 
 Current best model: **`models/checkpoint_r6L60_snap100000`** (R6 — shaped reward **plus a terminal
 loss penalty**: `train.py --trials 100000 --seed 1 --reward shaped --loss-penalty 60`, color-sym +
-rank-sym). Scores **0.378 vs 3 heuristic opponents** and beats the previous champion by
-**+0.085 ± 0.011 per-seat** on the seat-swapped 2v2 promotion standard, replicated on three disjoint
-deck blocks (~8 SE). It reached that in **100k trials, not 500k**. Chance baseline 0.25.
+rank-sym). Beats the previous champion by **+0.085 ± 0.011 per-seat** on the seat-swapped 2v2
+promotion standard, replicated on three disjoint deck blocks (~8 SE). It reached that in **100k
+trials, not 500k**. Chance baseline 0.25.
+
+> **Its "0.378 vs 3 heuristic opponents" is a RETIRED number — it was measured against `r3`, the
+> yardstick with a 13-point bug in it.** Against the current reference (`h8`) R6 scores **0.297**
+> (parity 0.250), i.e. it beats a *competent* heuristic by **+4.7 points over chance, not +12.8**.
+> Still genuinely ahead, but less than half the claimed margin. See B5 below and RESEARCH_LOG
+> 2026-07-14. Anything you compare against must be measured against the SAME version.
 
 > **`--loss-penalty` is not the default (it defaults to 0.0), but the champion was trained WITH it.**
 > Any run meant to continue this lineage must pass `--loss-penalty 60`. Why it matters: without it a
@@ -54,8 +60,8 @@ deck blocks (~8 SE). It reached that in **100k trials, not 500k**. Chance baseli
 > assume the defect is fixed — the open fix is **PLAN R17** (potential-based shaping).
 
 Previous champion: `models/checkpoint_a9rules_snap500000` (A9-rules — the first model trained on the
-**corrected finishing rule**; 500k trials, shaped, no loss penalty). 0.348 vs heuristic, 0.906 vs
-random. Kept as the promotion baseline. These two are the **only** checkpoints that exist — see the
+**corrected finishing rule**; 500k trials, shaped, no loss penalty). 0.348 vs `heuristic:r3` (0.271
+vs the current `h8` reference), 0.906 vs random. Kept as the promotion baseline. These two are the **only** checkpoints that exist — see the
 warnings below.
 
 > **ALL PRE-2026-07-13 CHECKPOINTS ARE GONE FROM DISK.** `checkpoint_a8_snap455000` and
@@ -69,10 +75,14 @@ warnings below.
 > RULES.md). Every pre-A9 checkpoint learned that other game. Cross-rule win rates are not
 > comparable in either direction.
 
-**Rank on the heuristic, not on random.** `--opponent heuristic` (R3) is the yardstick; vs-random
-is saturated and misleading — A9-rules reaches 0.902 vs random by **trial 25,000** and then does not
-improve for the remaining 475k trials, while the same run's heuristic score is only 0.348. A high
-vs-random number means almost nothing (R3: A8 scored 0.912 vs random but 0.343 vs heuristic).
+**Rank on the heuristic, not on random.** `--opponent heuristic` is the yardstick; vs-random is
+saturated and misleading — A9-rules reaches 0.902 vs random by **trial 25,000** and then does not
+improve for the remaining 475k trials, while the same run's heuristic score is only 0.348 (vs `r3`).
+A high vs-random number means almost nothing (A8 scored 0.912 vs random but 0.343 vs heuristic). Note
+the heuristic itself now reaches **0.906 vs random** — *exactly matching A9-rules' 0.906* — while
+losing to that same DQN on the discriminating metric. A few hundred lines of rules and a 500k-trial
+network are indistinguishable on vs-random; that is the clearest possible statement that it has no
+resolution left at the top.
 
 ## The heuristic is a VERSIONED, FROZEN yardstick (H-series, 2026-07-14)
 
@@ -85,18 +95,21 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 
 | version | what it is | vs R6 champion | vs random |
 |---|---|---|---|
-| `r3` | **the yardstick** — as shipped; every published "vs heuristic" number refers to THIS | -0.263 | 0.850 |
+| `r3` | the **retired** yardstick — as shipped, 13-point bug and all. Every "vs heuristic" number published **before 2026-07-14** refers to THIS | -0.263 | 0.850 |
 | `b2` | B2's retuned weights (legacy structure) | -0.065 | 0.899 |
-| `h1` | **R3's exact weights** + H1's structure | -0.079 | 0.896 |
-| `h1b2` | B2's weights + H1's structure — the best hand-set point | **-0.065** | 0.897 |
+| `h1` | **R3's exact weights** + H1's structure (the +0.183 result) | -0.079 | 0.896 |
+| `h1b2` | B2's weights + H1's structure | -0.065 | 0.897 |
+| **`h8`** | **the REFERENCE** — H8's tuned point on H1's structure | **-0.073** | **0.906** |
 | `h7` | `h1b2` + the RACE behaviour — **refuted, off** (racing loses monotonically) | — | — |
 | `greedy` | every hold-back off (the B2 control) | — | — |
 
-**`REFERENCE = 'r3'`** — a bare `heuristic` still means what it always meant. Promoting a successor
-is a deliberate one-line act (**B5**) that requires re-running the champion against the new reference
-and recording *both* numbers. Do not change it as a side effect.
+**`REFERENCE = 'h8'` — promoted from `r3` on 2026-07-14 (B5).** Changing it silently redefines every
+"vs heuristic" number the project reports, so it is a deliberate act that requires re-running the
+champions against the new reference and recording *both* numbers. Do not change it as a side effect.
+`heuristic:r3` still runs, and still means exactly what it always meant — cite the old numbers by
+that name.
 
-**The two facts to carry forward** (RESEARCH_LOG 2026-07-14):
+**The facts to carry forward** (RESEARCH_LOG 2026-07-14):
 1. **The heuristic's 18-point defect was STRUCTURAL, not a bad weight.** `score_draw = -5.0` competed
    in the same `max()` as the plays, so any hold above 5.0 bought a *refusal* (-13 pts) instead of a
    *preference*. H1 (`refusal_mode='structural'`) makes refusing rules-only, so **no weight
@@ -107,6 +120,16 @@ and recording *both* numbers. Do not change it as a side effect.
    *earn* points (`w_nofin` +1.1, the hoard +2.9, spending the blocker +2.2) rather than buying
    nothing, and big holds are not "catastrophic" but merely *saturating*. Do not cite B2's ablation
    numbers without re-measuring under `structural`.
+3. **The hold-backs are the endgame skill — do not "simplify" them away.** PLAN wanted B6 (the hoard)
+   deleted; it is worth **+2.9**. H7 added the natural-looking RACE behaviour (when a near-winner
+   cannot be blocked, dump maximally); it **loses monotonically**, because racing discards exactly
+   the holds that pay most at the end. *Statement about Taki: when an opponent is about to win, do
+   not empty your hand faster — that is when your kept cards are worth the most.*
+4. **The H-series' predictions failed far more often than they succeeded, and the failures taught
+   more than the wins.** H2, H5, H6, H7 all refuted; H8's freed search space turned out empty. What
+   actually paid was the one *structural* change (H1). Be suspicious of a weight-level fix for a
+   structure-level bug — and of a per-decision rollout price (H2's) surviving contact with a policy
+   that has to live with the consequences.
 
 A8's architecture is still what trains: self-play collects transitions from all four seats via
 `train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k), on the 147-float A4+A7

@@ -1,0 +1,112 @@
+2026-07-14 02:54:55.432373: I tensorflow/compiler/jit/xla_cpu_device.cc:41] Not creating XLA devices, tf_xla_enable_xla_devices not set
+2026-07-14 02:54:55.432529: I tensorflow/core/platform/cpu_feature_guard.cc:142] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  SSE4.1 SSE4.2 AVX AVX2 AVX512F FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+start (h1b2): -0.0638   [84s]
+
+--- pass 1 ---
+  p_king             5.0 -> 2.0    -0.0683
+  p_king             5.0 -> 4.0    -0.0655
+  p_king             5.0 -> 6.0    -0.0638
+  p_king             5.0 -> 9.0    -0.0638
+  p_king             5.0 -> 14.0   -0.0638
+  p_chcol            4.5 -> 1.5    -0.1253
+  p_chcol            4.5 -> 3.0    -0.0752
+  p_chcol            4.5 -> 7.0    -0.0695
+  p_chcol            4.5 -> 11.0   -0.0728
+  p_super_taki       4.5 -> 2.0    -0.0670
+  p_super_taki       4.5 -> 4.0    -0.0637  <- keep
+  p_super_taki       4.0 -> 4.5    -0.0638
+  p_super_taki       4.0 -> 7.0    -0.0655
+  p_super_taki       4.0 -> 11.0   -0.0655
+  w_reserve          4.0 -> 2.0    -0.0773
+  w_reserve          4.0 -> 6.0    -0.0682
+  w_reserve          4.0 -> 10.0   -0.0670
+  w_reserve          4.0 -> 16.0   -0.0675
+  w_open_hoard      15.0 -> 5.0    -0.0637
+  w_open_hoard      15.0 -> 25.0   -0.0637
+  w_open_hoard      15.0 -> 40.0   -0.0637
+  w_save_blocker     0.7 -> 0.0    -0.0637
+  w_save_blocker     0.7 -> 2.0    -0.0717
+  w_save_blocker     0.7 -> 5.0    -0.0920
+  w_nofin            8.0 -> 2.0    -0.0690
+  w_nofin            8.0 -> 4.0    -0.0640
+  w_nofin            8.0 -> 14.0   -0.0637
+  w_nofin            8.0 -> 20.0   -0.0637
+  w_deny             3.0 -> 0.0    -0.0687
+  w_deny             3.0 -> 1.5    -0.0618  <- keep
+  w_deny             1.5 -> 3.0    -0.0637
+  w_deny             1.5 -> 5.0    -0.0688
+  w_rich             0.8 -> 0.0    -0.0895
+  w_rich             0.8 -> 1.6    -0.2018
+  w_rich             0.8 -> 2.5    -0.2513
+  w_block            4.0 -> 2.0    -0.0633
+  w_block            4.0 -> 6.0    -0.0612  <- keep
+  w_block            6.0 -> 8.0    -0.0615
+  w_chdir_block      2.0 -> 0.0    -0.0610  <- keep
+  w_chdir_block      0.0 -> 2.0    -0.0612
+  w_chdir_block      0.0 -> 4.0    -0.0617
+  w_plus_tempo       1.0 -> 0.0    -0.1203
+  w_plus_tempo       1.0 -> 2.0    -0.0530  <- keep
+  w_taki_dump        1.2 -> 0.5    -0.1205
+  w_taki_dump        1.2 -> 2.0    -0.0585
+  w_taki_dump        1.2 -> 3.0    -0.0678
+  block_hand_threshold     2 -> 1      -0.0657
+  block_hand_threshold     2 -> 3      -0.0560
+
+  best after pass 1: -0.0530
+  h1b2,w_deny=1.5,w_block=6.0,w_chdir_block=0.0,w_plus_tempo=2.0,p_super_taki=4.0
+
+--- pass 2 ---
+  p_king             5.0 -> 2.0    -0.0577
+  p_king             5.0 -> 4.0    -0.0530
+  p_king             5.0 -> 6.0    -0.0530
+  p_king             5.0 -> 9.0    -0.0530
+  p_king             5.0 -> 14.0   -0.0530
+  p_chcol            4.5 -> 1.5    -0.1103
+  p_chcol            4.5 -> 3.0    -0.0618
+  p_chcol            4.5 -> 7.0    -0.0615
+  p_chcol            4.5 -> 11.0   -0.0638
+  p_super_taki       4.0 -> 2.0    -0.0587
+  p_super_taki       4.0 -> 4.5    -0.0533
+  p_super_taki       4.0 -> 7.0    -0.0538
+  p_super_taki       4.0 -> 11.0   -0.0538
+  w_reserve          4.0 -> 2.0    -0.0683
+  w_reserve          4.0 -> 6.0    -0.0562
+  w_reserve          4.0 -> 10.0   -0.0560
+  w_reserve          4.0 -> 16.0   -0.0568
+  w_open_hoard      15.0 -> 5.0    -0.0530
+  w_open_hoard      15.0 -> 25.0   -0.0530
+  w_open_hoard      15.0 -> 40.0   -0.0530
+  w_save_blocker     0.7 -> 0.0    -0.0472  <- keep
+  w_save_blocker     0.0 -> 0.7    -0.0530
+  w_save_blocker     0.0 -> 2.0    -0.0577
+  w_save_blocker     0.0 -> 5.0    -0.0823
+  w_nofin            8.0 -> 2.0    -0.0478
+  w_nofin            8.0 -> 4.0    -0.0478
+  w_nofin            8.0 -> 14.0   -0.0472
+  w_nofin            8.0 -> 20.0   -0.0472
+  w_deny             1.5 -> 0.0    -0.0547
+  w_deny             1.5 -> 3.0    -0.0505
+  w_deny             1.5 -> 5.0    -0.0553
+  w_rich             0.8 -> 0.0    -0.0870
+  w_rich             0.8 -> 1.6    -0.1802
+  w_rich             0.8 -> 2.5    -0.2555
+  w_block            6.0 -> 2.0    -0.0487
+  w_block            6.0 -> 4.0    -0.0473
+  w_block            6.0 -> 8.0    -0.0472
+  w_chdir_block      0.0 -> 2.0    -0.0497
+  w_chdir_block      0.0 -> 4.0    -0.0498
+  w_plus_tempo       2.0 -> 0.0    -0.1158
+  w_plus_tempo       2.0 -> 1.0    -0.0585
+  w_taki_dump        1.2 -> 0.5    -0.1180
+  w_taki_dump        1.2 -> 2.0    -0.0520
+  w_taki_dump        1.2 -> 3.0    -0.0613
+  block_hand_threshold     2 -> 1      -0.0515
+  block_hand_threshold     2 -> 3      -0.0552
+
+  best after pass 2: -0.0472
+  h1b2,w_deny=1.5,w_block=6.0,w_chdir_block=0.0,w_plus_tempo=2.0,w_save_blocker=0.0,p_super_taki=4.0
+
+=== BEST (margin heuristic - DQN = -0.0472) ===
+  spec: heuristic:h1b2,w_deny=1.5,w_block=6.0,w_chdir_block=0.0,w_plus_tempo=2.0,w_save_blocker=0.0,p_super_taki=4.0
+  (took 7886s)
