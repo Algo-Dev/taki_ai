@@ -442,6 +442,121 @@ class FrozenVersionTest(unittest.TestCase):
         self.assertEqual(resolve_weights(), H8)
         self.assertEqual(resolve_weights(''), H8)
 
+    #: Move-sequence fingerprints: the sha256 of every (seat, action, card) each version
+    #: chooses across 60 seeded 4-player games — thousands of decisions, hashed.
+    #:
+    #: WHY THIS EXISTS, when `test_r3_is_the_agent_...` already pins the weight vector:
+    #: the pin catches a WEIGHT changing; this catches BEHAVIOUR changing while the
+    #: weights look untouched. That is not hypothetical — it is precisely what H1 did.
+    #: H1 changed no weight at all and moved the agent by +0.183, by editing the scoring
+    #: STRUCTURE. Had it been done without a version flag, every pin above would have
+    #: stayed green while `--opponent heuristic` silently began measuring a different
+    #: opponent, and R6's published 0.378 would have quietly become incomparable to
+    #: itself. Edit `_score_play`, reorder a tie-break, add a branch to the scoring loop:
+    #: the weights still read 6.0, and only this test notices.
+    #:
+    #: A characterization test: it asserts nothing is CORRECT, only that it is UNCHANGED.
+    #: That is the right instrument for an artifact whose whole value is being stable.
+    #:
+    #: IF THIS FAILS: do not reach for the new hash. A frozen version drifting means the
+    #: numbers published against it no longer describe the agent in the tree. Either the
+    #: change was unintended (fix it), or it is a real behaviour change and belongs in a
+    #: NEW version (add it to VERSIONS; leave the old one alone). Updating a hash here is
+    #: only correct when the fingerprint HARNESS below changed — never the agent.
+    FINGERPRINTS = {
+        'r3':     '0d4600063ed4c97e6a5fa086e64c3b58',
+        'b2':     'ae58704e10f83caec60f3e2305cdbff2',
+        'h1':     '928ecd4889b8324fefa7e7ce5fec3338',
+        'h1b2':   '1e69928cb5851479969e99eda1773e14',
+        'h7':     '6e8b0616229f20d10dcb7e1d8dc21f90',
+        'h8':     'f0bad5eb23c388d0ee41fabe209ece7f',
+        'greedy': 'fbe35ae20ec60454be487304467eb5a1',
+    }
+
+    def test_every_registered_version_is_fingerprinted(self):
+        """A new version must not be able to join VERSIONS without getting pinned — that is
+        how a yardstick quietly stops being frozen."""
+        from agents.heuristic import VERSIONS
+        self.assertEqual(set(self.FINGERPRINTS), set(VERSIONS))
+
+    def _fingerprint(self, version):
+        """Hash the full move sequence `version` plays across 60 seeded 4-player games."""
+        import hashlib
+        from agents.heuristic import make_heuristic
+        h = hashlib.sha256()
+
+        class Tap:
+            """Wraps an agent, hashing every move it chooses."""
+            def __init__(self, inner, tag):
+                self.inner, self.tag = inner, tag
+
+            def play(self, game):
+                move = self.inner.play(game)
+                h.update(f'{self.tag}:{game.curr}:{move[0]}:{move[1]}|'.encode())
+                return move
+
+        for seed in range(60):
+            game = Game([Tap(make_heuristic(version), i) for i in range(4)], seed=seed)
+            turns = 0
+            while not game.done() and turns < 600:
+                game.next_turn()
+                turns += 1
+            winners = [i for i, hand in enumerate(game.hands) if not hand]
+            h.update(f'END{seed}:{winners}:{turns}|'.encode())
+        return h.hexdigest()[:32]
+
+    def test_versions_are_behaviourally_frozen(self):
+        """Every frozen version must still play move-for-move as it did when its numbers
+        were published. See FINGERPRINTS above — including what to do if this fails."""
+        for version, expected in self.FINGERPRINTS.items():
+            self.assertEqual(
+                self._fingerprint(version), expected,
+                f'\n\n*** FROZEN VERSION {version!r} HAS DRIFTED ***\n'
+                f'It no longer plays the game it played when its numbers were published,\n'
+                f'so every result measured against it is now describing a different agent.\n'
+                f'Do NOT just paste in the new hash — see FINGERPRINTS in agenttest.py.\n')
+
+    def test_the_fingerprint_actually_detects_a_behaviour_change(self):
+        """The guard on the guard. A fingerprint that cannot fail is decoration: a harness
+        bug making `_fingerprint` constant (or no longer exercising the agent) would leave
+        every assertion above passing vacuously, forever. So perturb one weight by 0.1 and
+        require the hash to move.
+
+        It must be `w_rich`, and the reason is a finding rather than a detail. The holds
+        SATURATE (H8, RESEARCH_LOG 2026-07-14): `p_king` 5.0 -> 6.0 is INVISIBLE here —
+        the hold is already decisive, so more of it flips no argmax and not one move
+        changes. `w_rich` is the sensitive dimension (the tuner measured 0.8 -> 1.6 at
+        -0.14), and it detects 0.1. A mutation test has to perturb somewhere the agent can
+        actually feel."""
+        import dataclasses as dc
+        from agents.heuristic import VERSIONS, H8
+        try:
+            VERSIONS['_mutant'] = dc.replace(H8, w_rich=H8.w_rich + 0.1)
+            self.assertNotEqual(self._fingerprint('_mutant'), self._fingerprint('h8'),
+                                'the fingerprint cannot detect a behaviour change')
+        finally:
+            VERSIONS.pop('_mutant', None)
+
+    def test_the_weight_pin_and_the_fingerprint_cover_each_others_blind_spots(self):
+        """Why BOTH guards are needed — neither is sufficient alone, and each one's blind
+        spot is exactly the other's job:
+
+          * the fingerprint is blind to a behaviourally-inert weight edit (`p_king` 5.0 ->
+            6.0 on a saturated hold: same hash, different data). The WEIGHT PIN catches it.
+          * the weight pin is blind to a structural edit that leaves the weights alone
+            (H1: same data, +0.183 of different behaviour). The FINGERPRINT catches it.
+
+        Together they pin the version as both a value and an agent."""
+        import dataclasses as dc
+        from agents.heuristic import VERSIONS, H8
+        try:
+            # Inert to behaviour, visible in the data.
+            VERSIONS['_inert'] = dc.replace(H8, p_king=6.0)
+            self.assertEqual(self._fingerprint('_inert'), self._fingerprint('h8'))
+            self.assertNotEqual(dc.asdict(VERSIONS['_inert']), dc.asdict(H8))
+        finally:
+            VERSIONS.pop('_inert', None)
+
     def test_r3_still_runs_so_the_old_published_numbers_stay_reproducible(self):
         """Promotion must not orphan the history. Everything published before 2026-07-14
         was measured against r3, and `heuristic:r3` must go on meaning exactly that."""
