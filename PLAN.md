@@ -688,6 +688,8 @@ answered: pre-commit the snapshot before the confirming head-to-head, and never 
 selection set as the edge.
 
 
+-- I am training a model for 2p game against the heuristic agent. Then refine the heu. agent if possible also separately for 2p and 3p game. rerunning the trainings with one hot encoding of the number of players. Only then consider next step.
+
 -- possibly remove all the co-authored by: claude
 -- possibly try a rewrite in pytorch. First as if there is advantage
    and train + test vs. random.
