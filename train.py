@@ -102,13 +102,20 @@ if __name__ == '__main__':
     parser.add_argument('--model', default=None,
                         help='checkpoint to warm-start the learner and opponents from')
     parser.add_argument('--opponent-model', default=None,
-                        help='checkpoint for the 3 opponent seats (default: same as --model). '
+                        help='checkpoint for the opponent seats (default: same as --model). '
                              'With --freeze-opponents this is the fixed policy the learner is '
                              'trained to best-respond to.')
     parser.add_argument('--freeze-opponents', action='store_true',
                         help='exploitability probe: never sync the learner into the opponents, '
                              'and collect transitions from the learner seat only. Turns '
                              'self-play into best-response training against a fixed policy.')
+    parser.add_argument('--num-players', type=int, default=4,
+                        help='seats at the table (default 4, the count every published number '
+                             'was trained at). The observation is already count-agnostic — '
+                             'OPP_HAND_SLOTS zero-pads below 4 seats — so the 147-float contract '
+                             'is unchanged and checkpoints stay loadable across counts. Note the '
+                             'game differs by count, not just in size: STOP is a free extra turn '
+                             'at 2 seats, and CHDIR is a no-op at 2 / identical to STOP at 3.')
     parser.add_argument('--trials', type=int, default=100)
     parser.add_argument('--epsilon-start', type=float, default=1.0,
                         help='initial exploration rate (default 1.0). Lower it (down to '
@@ -175,7 +182,7 @@ if __name__ == '__main__':
     trials = args.trials
     trial_len = args.trial_len
     update_target_network = args.target_sync_every
-    num_of_players = 4
+    num_of_players = args.num_players
 
     # The learner sits at list index 0; the opener is randomised per trial (A4), so the learner
     # no longer goes first 100% of the time. The opponents play mostly-greedily on their own nets.
