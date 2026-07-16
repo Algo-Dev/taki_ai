@@ -223,13 +223,15 @@ if __name__ == '__main__':
     sys.stdout = _Tee(sys.stdout, f'{run_dir}/train.log')
     print(f'run_dir: {run_dir}  (progress mirrored to {run_dir}/train.log)')
     # Printed after the tee is installed, so the run's own log records what it was.
+    num_opponents = num_of_players - 1
     if args.freeze_opponents:
-        print(f'Exploitability probe: best response against 3 FROZEN greedy seats '
+        print(f'Exploitability probe: best response against {num_opponents} FROZEN greedy seats '
               f'({opponent_model}) — no opponent sync, learner-seat collection only '
               f'(reward={args.reward}, color_sym={args.color_sym}, rank_sym={args.rank_sym})')
     else:
-        print(f'Training a DQN agent via self-play against 3 opponents '
-              f'(reward={args.reward}, color_sym={args.color_sym}, rank_sym={args.rank_sym})')
+        print(f'Training a DQN agent via self-play against {num_opponents} opponents '
+              f'({num_of_players} seats, reward={args.reward}, color_sym={args.color_sym}, '
+              f'rank_sym={args.rank_sym})')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
