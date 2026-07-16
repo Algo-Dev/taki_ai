@@ -109,6 +109,15 @@ champions against the new reference and recording *both* numbers. Do not change 
 `heuristic:r3` still runs, and still means exactly what it always meant — cite the old numbers by
 that name.
 
+**The freeze is enforced by TWO guards, and you need both** (`agenttest.FrozenVersionTest`). The
+**weight pin** asserts each version's `Weights` values; the **move-sequence fingerprint** hashes every
+decision it makes across 60 seeded games. They cover each other's blind spots: a structural edit
+changes behaviour while the weights read identical (H1: +0.183, zero weights touched — the pin is
+blind), and a saturated-hold edit changes the data while behaviour is identical (`p_king` 5.0→6.0
+flips no argmax — the fingerprint is blind). **If a fingerprint fails, do not paste in the new hash**
+— a frozen version drifting means the numbers published against it no longer describe the agent in
+the tree. Real behaviour changes get a **new version**; the old one is never edited.
+
 **The facts to carry forward** (RESEARCH_LOG 2026-07-14):
 1. **The heuristic's 18-point defect was STRUCTURAL, not a bad weight.** `score_draw = -5.0` competed
    in the same `max()` as the plays, so any hold above 5.0 bought a *refusal* (-13 pts) instead of a
