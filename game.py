@@ -167,6 +167,16 @@ MAX_PLUS_TWO_STACK = 8  # number of +2 cards, i.e. the largest meaningful draw_n
 # so the vector stays constant-length across the supported 2..10 player counts (zero-padded
 # when there are fewer opponents, truncated when there are more).
 OPP_HAND_SLOTS = 3
+# One-hot of the number of seats at the table, so one net can be trained and played across
+# player counts and tell them apart explicitly. The count is *nearly* inferable from the block
+# above already (a zero-padded opponent slot means "no such seat"), but not cleanly: a real
+# opponent holding 0 cards has just won and reads as the same zero. More to the point, the count
+# changes the GAME and not just the table size — STOP is a free extra turn at 2 seats, and CHDIR
+# is a no-op at 2 / identical to STOP at 3 — so the policy has to condition on it rather than
+# infer it. Slots cover 2, 3 and 4-or-more seats; the last saturates, matching how the opponent
+# hand slots already truncate above 4. A 1-player game does not exist, so 2 is the low end.
+NUM_PLAYER_SLOTS = 3
+MIN_PLAYERS = 2
 # A fresh deck builds to this many cards (see _setup_round): 14 colored types x 4 colors x 2
 # + 2 Super TAKI + 4 Change Color + 2 King = 120. Normaliser for the deck-size feature.
 TOTAL_DECK_CARDS = 120
@@ -176,10 +186,10 @@ TOTAL_KING = 2
 TOTAL_CHCOL = 4
 # Extra scalar features appended to the observation (see Game.observation):
 #   turn direction(1) + opponent hand sizes in turn order(OPP_HAND_SLOTS) + deck size(1)
-#   + unseen +2 / King / Change-Color counts(3) = 8.
-EXTRA_FEATURES = 1 + OPP_HAND_SLOTS + 1 + 3
+#   + unseen +2 / King / Change-Color counts(3) + player-count one-hot(NUM_PLAYER_SLOTS) = 11.
+EXTRA_FEATURES = 1 + OPP_HAND_SLOTS + 1 + 3 + NUM_PLAYER_SLOTS
 # observation() = hand(63) + state one-hot(len(State)) + draw_num(1)
-#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(8)
+#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(11)
 # The discard pile is deliberately NOT exposed as a histogram (only the shown top card is);
 # the net gets a coarse card-count sense via the unseen +2/King/CHCOL features instead, rather
 # than a full memory of everything that has been played.
@@ -334,8 +344,8 @@ def _tables_from_card_maps(card_f, color_f=None):
     if color_f is not None:
         obs_f[:, _TAKI_COLOR_OFF:_TAKI_COLOR_OFF + NUM_PLAY_COLORS] = _TAKI_COLOR_OFF + color_f
     # Everything else — the state one-hot, draw_num, and the extra features (turn direction,
-    # opponent hand sizes, deck size, unseen +2/King/CHCOL counts) — is invariant under both
-    # relabelings and stays at its own index.
+    # opponent hand sizes, deck size, unseen +2/King/CHCOL counts, player-count one-hot) — is
+    # invariant under both relabelings and stays at its own index.
     gather = np.empty((n, OBSERVATION_SIZE), dtype=np.intp)
     np.put_along_axis(gather, obs_f, np.tile(np.arange(OBSERVATION_SIZE), (n, 1)), axis=1)
     return gather, act_f
@@ -756,7 +766,7 @@ class Game:
         """
         # hand + state(one-hot) + draw_num + open-TAKI-color(one-hot) + card shown
         #      + [direction, OPP_HAND_SLOTS opponent hand sizes in turn order, deck size,
-        #         unseen +2 / King / Change-Color counts]
+        #         unseen +2 / King / Change-Color counts, player-count one-hot]
         # The discard pile is intentionally NOT exposed as a histogram; only the shown top
         # card is, plus the coarse unseen +2/King/CHCOL counts (see A7 scoping).
         # Count features are normalised (see the *_NORM / TOTAL_* constants) so every input
@@ -784,12 +794,17 @@ class Game:
             seen = (sum(1 for c in hand if c.type is ctype)
                     + sum(1 for c in self.discard if c.type is ctype))
             return (total - seen) / total
+        # Player-count one-hot over 2 / 3 / 4-or-more seats; saturating at the top like the
+        # opponent hand slots, which cannot show a 5th seat either.
+        n_players_vec = np.zeros(NUM_PLAYER_SLOTS)
+        n_players_vec[min(num_players, MIN_PLAYERS + NUM_PLAYER_SLOTS - 1) - MIN_PLAYERS] = 1
         extra = np.array([self.dir,
                           *opp_sizes,
                           len(self.deck) / TOTAL_DECK_CARDS,
                           _unseen(Type.PLUSTWO, TOTAL_PLUS_TWO),
                           _unseen(Type.KING, TOTAL_KING),
-                          _unseen(Type.CHCOL, TOTAL_CHCOL)])
+                          _unseen(Type.CHCOL, TOTAL_CHCOL),
+                          *n_players_vec])
         return np.concatenate(
             (hand_vec / CARD_COPIES_NORM,
              state_to_vector(self.state),

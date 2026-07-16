@@ -326,9 +326,10 @@ class GameFlowTest(unittest.TestCase):
         self.assertEqual(state_block.sum(), 1.0)
 
     def test_unseen_counts_and_turn_order_hand_sizes(self):
-        # Extra-feature tail (indices 139..146): dir, 3 opponent hand sizes in turn order,
-        # deck size, unseen +2 / King / Change-Color. Unseen counts are by card TYPE over
-        # the current hand + discard (robust to a recoloured CHCOL landing in a colored slot).
+        # Extra-feature tail (indices 139..149): dir, 3 opponent hand sizes in turn order,
+        # deck size, unseen +2 / King / Change-Color, player-count one-hot. Unseen counts are
+        # by card TYPE over the current hand + discard (robust to a recoloured CHCOL landing
+        # in a colored slot).
         g = self.make_game(players=2)
         g.curr = 0
         g.hands[0] = [Card(Type.KING), Card(Type.CHCOL),
@@ -349,6 +350,20 @@ class GameFlowTest(unittest.TestCase):
         self.assertAlmostEqual(obs[140], 1 / INITIAL_HAND_SIZE)
         self.assertEqual(obs[141], 0.0)
         self.assertEqual(obs[142], 0.0)
+
+    def test_player_count_one_hot(self):
+        # The tail one-hot names the seat count, which the zero-padded opponent slots above
+        # cannot do unambiguously (a real opponent down to 0 cards reads as absent too).
+        for players, slot in ((2, 0), (3, 1), (4, 2)):
+            g = self.make_game(players=players)
+            block = g.observation()[-NUM_PLAYER_SLOTS:]
+            self.assertEqual(block.sum(), 1.0)
+            self.assertEqual(block[slot], 1.0)
+        # Above 4 seats the block saturates on its last slot, the same way the opponent hand
+        # slots truncate: the observation cannot show a 5th seat either.
+        g = self.make_game(players=5)
+        np.testing.assert_array_equal(g.observation()[-NUM_PLAYER_SLOTS:],
+                                      self.make_game(players=4).observation()[-NUM_PLAYER_SLOTS:])
 
     def _take_turn(self, game, action, card):
         """Drive one full turn (action + advancement) the way next_turn would."""
