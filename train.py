@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from agents.dqn import AIAgent  # configures TF threading on import; keep before tensorflow use
 import tensorflow as tf
-from game import Game, action_to_scalar
+from game import Game, MIN_PLAYERS, action_to_scalar
 
 class _Tee:
     """Mirror stdout into run_dir/train.log so a run's progress survives the process.
@@ -109,13 +109,18 @@ if __name__ == '__main__':
                         help='exploitability probe: never sync the learner into the opponents, '
                              'and collect transitions from the learner seat only. Turns '
                              'self-play into best-response training against a fixed policy.')
-    parser.add_argument('--num-players', type=int, default=4,
-                        help='seats at the table (default 4, the count every published number '
-                             'was trained at). The observation is already count-agnostic — '
-                             'OPP_HAND_SLOTS zero-pads below 4 seats — so the 147-float contract '
-                             'is unchanged and checkpoints stay loadable across counts. Note the '
-                             'game differs by count, not just in size: STOP is a free extra turn '
-                             'at 2 seats, and CHDIR is a no-op at 2 / identical to STOP at 3.')
+    parser.add_argument('--num-players', default='4',
+                        help='seats at the table: one count ("4", the default, and what every '
+                             'published number was trained at) or a comma-separated set '
+                             '("2,3,4") for MIXED-COUNT training, which samples a count '
+                             'uniformly per trial and so keeps every count in the gradient. '
+                             'The counts are different games rather than different sizes — STOP '
+                             'is a free extra turn at 2 seats, CHDIR is a no-op at 2 and '
+                             'identical to STOP at 3 — so the policy must condition on the '
+                             'count, which is what the observation\'s seat-count one-hot is for. '
+                             'That one-hot is CONSTANT within a single-count run and therefore '
+                             'inert there (a constant input folds into the next layer\'s bias); '
+                             'it only carries information when the count varies, i.e. here.')
     parser.add_argument('--trials', type=int, default=100)
     parser.add_argument('--epsilon-start', type=float, default=1.0,
                         help='initial exploration rate (default 1.0). Lower it (down to '
@@ -182,7 +187,19 @@ if __name__ == '__main__':
     trials = args.trials
     trial_len = args.trial_len
     update_target_network = args.target_sync_every
-    num_of_players = args.num_players
+    # One count ("4") or a set to sample per trial ("2,3,4"). Sorted+deduped so the spec's
+    # order cannot silently change the sampling.
+    try:
+        seat_counts = sorted({int(x) for x in args.num_players.split(',')})
+    except ValueError:
+        parser.error(f'--num-players must be a count or comma-separated counts, got '
+                     f'{args.num_players!r}')
+    if any(c < MIN_PLAYERS for c in seat_counts):
+        parser.error(f'--num-players: every count must be >= {MIN_PLAYERS}, got {seat_counts}')
+    mixed_counts = len(seat_counts) > 1
+    # The opponent pool is sized to the LARGEST count; a smaller trial seats the first n-1 of
+    # them. They all carry the same (synced) weights, so which ones sit out is immaterial.
+    max_players = max(seat_counts)
 
     # The learner sits at list index 0; the opener is randomised per trial (A4), so the learner
     # no longer goes first 100% of the time. The opponents play mostly-greedily on their own nets.
@@ -202,7 +219,10 @@ if __name__ == '__main__':
     opp_epsilon = 0.0 if args.freeze_opponents else 0.1
     opponents = [AIAgent(epsilon=opp_epsilon, epsilon_min=opp_epsilon,
                          load_model=opponent_model)
-                 for _ in range(num_of_players - 1)]
+                 for _ in range(max_players - 1)]
+    # ONE Game instance for the whole run, reseated per trial under mixed counts. The deck RNG
+    # lives on the instance, so building a fresh Game per trial would restart its stream and
+    # deal identical cards every trial.
     game = Game([dqn_agent, *opponents], seed=args.seed)
 
     # One run directory shared by all snapshots and the final checkpoint/plot, so they
@@ -223,15 +243,16 @@ if __name__ == '__main__':
     sys.stdout = _Tee(sys.stdout, f'{run_dir}/train.log')
     print(f'run_dir: {run_dir}  (progress mirrored to {run_dir}/train.log)')
     # Printed after the tee is installed, so the run's own log records what it was.
-    num_opponents = num_of_players - 1
+    seats_desc = (f'seats sampled uniformly per trial from {seat_counts}' if mixed_counts
+                  else f'{max_players} seats')
     if args.freeze_opponents:
-        print(f'Exploitability probe: best response against {num_opponents} FROZEN greedy seats '
+        print(f'Exploitability probe: best response against FROZEN greedy seats '
               f'({opponent_model}) — no opponent sync, learner-seat collection only '
-              f'(reward={args.reward}, color_sym={args.color_sym}, rank_sym={args.rank_sym})')
-    else:
-        print(f'Training a DQN agent via self-play against {num_opponents} opponents '
-              f'({num_of_players} seats, reward={args.reward}, color_sym={args.color_sym}, '
+              f'({seats_desc}, reward={args.reward}, color_sym={args.color_sym}, '
               f'rank_sym={args.rank_sym})')
+    else:
+        print(f'Training a DQN agent via self-play ({seats_desc}, reward={args.reward}, '
+              f'color_sym={args.color_sym}, rank_sym={args.rank_sym})')
 
     def save_snapshot(trial_idx):
         """Save the learner's current weights as snap<NNNN> (zero-padded trial index)."""
@@ -249,22 +270,34 @@ if __name__ == '__main__':
     # Dedicated opener RNG (A4). Separate from the deck RNG (game.random) and the agents'
     # epsilon/replay streams, so existing seeded decks stay bit-reproducible.
     seat_rng = random.Random(args.seed)
+    # Separate stream again for the per-trial seat count, and only ever drawn from under mixed
+    # counts, so a single-count run's decks/openers stay bit-identical to before this feature.
+    count_rng = random.Random(args.seed)
 
     # Seat -> agent map for the all-seats collection (A8). Every seat plays the same DQN
     # policy (opponents synced to the learner every OPPONENT_SYNC_EVERY trials), and the
     # observation is egocentric, so every seat's transitions are valid learner training
     # data. They all feed the learner's single replay buffer.
     agents = [dqn_agent, *opponents]
+    # Per-count histogram, so the log records what the sampler actually dealt rather than what
+    # it was asked for.
+    trials_at_count = {c: 0 for c in seat_counts}
 
     # Which seats' transitions enter the learner's replay buffer. A8's all-seats collection
     # is only sound because every seat runs the learner's own (recently synced) policy. Under
     # --freeze-opponents the other three seats run a fixed foreign policy, so their
     # transitions are off-policy actions the learner would never take — collecting them would
     # train it to imitate A8 rather than to best-respond to it. Learner seat only.
-    collect_seats = {0} if args.freeze_opponents else set(range(num_of_players))
 
     for trial in range(trials):
         print(f"Trial {trial + 1}/{trials}")
+        # This trial's table. Under a single count this is the same every trial and no draw is
+        # made, so those runs are unchanged. Under mixed counts the learner (index 0) keeps its
+        # seat and the first n_seats-1 opponents fill the rest.
+        n_seats = count_rng.choice(seat_counts) if mixed_counts else max_players
+        trials_at_count[n_seats] += 1
+        trial_agents = agents[:n_seats]
+        collect_seats = {0} if args.freeze_opponents else set(range(n_seats))
         # Reward-anneal schedule for this trial (constant within the trial). p ramps 0->1 over
         # the first reward_anneal_fraction of trials, then holds; step_coef 1.0->floor scales
         # the dense per-step penalty, alpha 0->ALPHA_MAX blends the end-of-game reward.
@@ -315,13 +348,13 @@ if __name__ == '__main__':
                 r -= args.loss_penalty
             return r
 
-        start = seat_rng.randrange(num_of_players)   # random opener; learner stays index 0
-        game.reset(start_seat=start)
+        start = seat_rng.randrange(n_seats)          # random opener; learner stays index 0
+        game.reset(start_seat=start, agents=trial_agents)
         episode_reward = 0
         # All-seats collection (A8): one open transition per seat, closed when that seat is
         # about to act again (below) or when the game ends (terminal loop after the round).
         # This reproduces the old seat-0 transitions exactly and adds the other three seats.
-        pending = [None] * num_of_players            # pending[i] = (state, action)
+        pending = [None] * n_seats                   # pending[i] = (state, action)
         learner_steps = 0                            # counts seat-0 decisions (replay cadence)
         done = False
         # Turn-by-turn loop over whichever seat is to act. A seat may act several times in a
@@ -340,7 +373,7 @@ if __name__ == '__main__':
                     episode_reward += r
                 pending[seat] = None
             done, _ = game.next_turn()               # seat acts via play() (one card)
-            ag = agents[seat]
+            ag = trial_agents[seat]
             if seat in collect_seats:
                 pending[seat] = (ag.last_state, ag.last_action)
             if seat == 0:
@@ -354,7 +387,7 @@ if __name__ == '__main__':
                 learner_steps += 1
 
         # Round over (a win) or cut off by trial_len — close every still-open transition.
-        for i in range(num_of_players):
+        for i in range(n_seats):
             if pending[i] is None:
                 continue
             s, a = pending[i]
@@ -395,6 +428,13 @@ if __name__ == '__main__':
         # Periodic snapshot for the progression eval (snap0000 was the untrained net).
         if (trial + 1) % args.snapshot_every == 0:
             save_snapshot(trial + 1)
+
+    if mixed_counts:
+        # What the sampler actually dealt, not what it was asked for -- a skewed draw would
+        # otherwise be invisible and would quietly reweight which count the net is good at.
+        print('Trials per seat count: ' + ', '.join(
+            f'{c}p={trials_at_count[c]} ({trials_at_count[c] / trials:.1%})'
+            for c in seat_counts))
 
     plot_rewards(rewards, wins, 'Rewards over episodes',
                  save_path=f'./models/training{timestamp}{tag}.png', show=args.show)

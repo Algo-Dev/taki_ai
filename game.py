@@ -486,13 +486,21 @@ class Game:
                 a.append(self.deck.pop())
             self.hands.append(a)
 
-    def reset(self, start_seat=0):
+    def reset(self, start_seat=0, agents=None):
         """
         Resets the game state for a fresh game.
         :param start_seat: the seat that opens the round (default 0 preserves eval/main/demo
             behaviour). Randomised per trial in training so the learner no longer opens 100%
             of games (see A4).
+        :param agents: optionally reseat the table for this round. Mixed-count training samples
+            the seat count per trial, and a round is the only point where changing it is
+            meaningful. Reusing the Game object (rather than constructing a new one per trial)
+            is deliberate: the deck RNG lives on the instance, so a fresh Game per trial would
+            restart the stream and deal every trial the SAME cards.
         """
+        if agents is not None:
+            assert len(agents) >= MIN_PLAYERS
+            self.agents = agents
         assert 0 <= start_seat < len(self.agents)
         self.curr = start_seat
         self.dir = 1
