@@ -116,8 +116,18 @@ class AIAgent:
               f'{OBSERVATION_SIZE - dim} appended feature(s).')
 
     def create_model(self):
+        # Widened for the MIXED-COUNT capacity test (branch mixed-wider): the network must now
+        # represent three different games (2 / 3 / 4 seats), not one, and M1 sits ~1 SE below
+        # the per-count best at EVERY count -- the signature of multi-task interference, i.e. a
+        # net splitting capacity across tasks. This matches A10's exact widening
+        # (124->64  ->  256->128->64, +one layer, 2.72x params) SO THE RESULT IS COMPARABLE:
+        # A10 found this width inert at four seats SINGLE-COUNT, but that says nothing about the
+        # multi-task union, which is where capacity is most likely to bind. Input/output sizes
+        # are unchanged, so this is purely a hidden-capacity change; a narrow checkpoint (M1)
+        # still plays here via AIAgent's cross-architecture eval fallback.
         model = keras.Sequential()
-        model.add(layers.Dense(124, input_dim=OBSERVATION_SIZE, activation="relu"))
+        model.add(layers.Dense(256, input_dim=OBSERVATION_SIZE, activation="relu"))
+        model.add(layers.Dense(128, activation="relu"))
         model.add(layers.Dense(64, activation="relu"))
         model.add(layers.Dense(ACTION_SIZE))
         model.compile(loss="mean_squared_error",
