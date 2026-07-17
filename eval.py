@@ -59,8 +59,15 @@ STALL_CHECK = 8
 
 
 def load_greedy_agent(path):
-    """Load a snapshot as a fully-greedy (epsilon=0) AIAgent."""
-    return AIAgent(epsilon=0.0, epsilon_min=0.0, load_model=path)
+    """Load a snapshot as a fully-greedy (epsilon=0) AIAgent.
+
+    allow_obs_truncation: this is eval, so a checkpoint from an older, shorter observation
+    contract is played on exactly the leading floats it was trained on (the observation has
+    only ever grown by appending, so the prefix is bit-identical -- see AIAgent). Without
+    it, an observation change would make every earlier champion permanently unmeasurable
+    rather than merely stale.
+    """
+    return AIAgent(epsilon=0.0, epsilon_min=0.0, load_model=path, allow_obs_truncation=True)
 
 
 def play_match(test_agent, opponent_agent, num_players, games, seed=0):
@@ -149,7 +156,9 @@ def main():
                              f'{REFERENCE!r}) — a harder, non-lineage yardstick than random. '
                              '"heuristic:<version>" pins a specific frozen version (r3, b2, '
                              'greedy); every published "vs heuristic" number to date is vs r3. '
-                             'Default: random.')
+                             'A CHECKPOINT PATH fills the seats with that (greedy) net — the '
+                             'only way to run a 1-vs-N against a model at 2 or 3 seats, since '
+                             'eval_headtohead.py is 4-seat-only. "random" (default) = RandomAgent.')
     parser.add_argument('--num-players', type=int, default=4)
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
@@ -174,7 +183,13 @@ def main():
     def make_opponent():
         if args.opponent.startswith('heuristic'):
             return resolve_agent(args.opponent)
-        return RandomAgent(seed=args.seed)
+        if args.opponent == 'random':
+            return RandomAgent(seed=args.seed)
+        # A checkpoint path. Anything unrecognised used to fall through to RandomAgent, which
+        # meant a typo'd or checkpoint opponent silently measured vs-random while the printed
+        # label still named what you asked for -- a wrong number that looks entirely plausible.
+        # load_greedy_agent raises on a bad path instead.
+        return load_greedy_agent(args.opponent)
 
     if args.model:
         print(f'\n=== Mode A: {args.model} vs {args.num_players - 1} {args.opponent} opponents '
