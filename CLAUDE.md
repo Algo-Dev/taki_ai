@@ -47,6 +47,22 @@ trials, not 500k**. Chance baseline 0.25.
 > Still genuinely ahead, but less than half the claimed margin. See B5 below and RESEARCH_LOG
 > 2026-07-14. Anything you compare against must be measured against the SAME version.
 
+> **AND IT IS A FOUR-SEAT NUMBER. Every "beats the heuristic" claim in this project is.** The
+> engine and the observation support 2..10 seats (`OPP_HAND_SLOTS` zero-pads, so the 147-float
+> contract holds at every count and checkpoints load), and `eval.py --num-players N` has always
+> run. Measured there (P1, RESEARCH_LOG 2026-07-17), R6 vs `h8` is **0.413 at two seats (parity
+> 0.500 — it LOSES, 9.7 SE below)**, **0.342 at three (a tie)**, 0.297 at four. `h8` is not
+> flailing off its turf: it is at its *strongest* vs random at two seats (0.963) and still beats
+> its own `greedy` control there. **vs-random is blind to all of it** (0.91-0.96 in every cell).
+> Do not restate a champion's win rate without saying how many seats it means.
+>
+> **The counts are different games, not different sizes.** STOP is a free extra turn at two
+> seats; CHDIR is a no-op at two and *identical to STOP* at three (RULES.md). Training at four
+> seats measurably degrades two-seat play (Arm B: 0.413 -> 0.365, 3.8 SE). Warm-starting R6 at
+> two seats gains **+0.170 (13.4 SE)** in 100k trials — so the A10/A11/A12 "ceiling" is
+> **per-count**, not global: four seats is plateaued (another 100k buys 0.4 SE), two seats had 17
+> points sitting in it.
+
 > **`--loss-penalty` is not the default (it defaults to 0.0), but the champion was trained WITH it.**
 > Any run meant to continue this lineage must pass `--loss-penalty 60`. Why it matters: without it a
 > **loss pays nothing** — the stream of `-len(hand)` step penalties simply stops — so *ending* the
@@ -58,6 +74,16 @@ trials, not 500k**. Chance baseline 0.25.
 > **failed**: `delta(k=1) = -0.87`, still negative. R6 fixed the *slope* (it now wants a +2 more as
 > the threat grows) but not the *intercept*. The +8.5 points did **not** come from blocking. Do not
 > assume the defect is fixed — the open fix is **PLAN R17** (potential-based shaping).
+>
+> **But check R17's PREMISE before spending a run on it (P2, RESEARCH_LOG 2026-07-17).** Blocking
+> is **learnable without it** — warm-starting R6 at two seats flips `delta(k=1)` to **+2.24** and
+> passes the acceptance test, in the existing architecture, observation and reward. And **blocking
+> does not predict four-seat strength**: three nets score 0.308 (blocks), 0.302 (does not), 0.311
+> (does not) — the blocker is in the middle. It may be *correct* not to block at four seats (you
+> spend a card to delay one of three threats; at two seats you delay the only one), which would
+> make R6's "defect" an adaptation. R17 may fix the behaviour and buy no win rate. Unresolved
+> against this: `h8` blocks (`w_block` tuned UP 4.0->6.0) and beats its own `greedy` control at
+> four seats — so blocking pays in the *heuristic's* economy. Do not treat either side as settled.
 
 Previous champion: `models/checkpoint_a9rules_snap500000` (A9-rules — the first model trained on the
 **corrected finishing rule**; 500k trials, shaped, no loss penalty). 0.348 vs `heuristic:r3` (0.271

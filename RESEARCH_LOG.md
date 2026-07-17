@@ -131,6 +131,244 @@ here — mixed training produced the strongest all-round net without blocking.
 
 ---
 
+## 2026-07-17 — P2: forgetting scales with COUNT DISTANCE (2->3 keeps it, 2->4 destroys it). And blocking is DOUBLY DISSOCIATED from strength — it is not what two-seat training bought
+
+Three 100k warm-started runs, sequential, all from P1 or R6, identical hyperparameters
+(`--reward shaped --loss-penalty 60 --epsilon-start 0.1 --seed 1`). **Arm A** `2p->4p` (the
+curriculum), **Arm B** `R6->4p` continued (the budget control — without it Arm A's 200k total
+trials confound "the curriculum did it" with "it trained twice as long"), and **C** `2p->3p`.
+
+### The matrix — Mode A vs `h8`, 3000 games/cell, and the delta(k=1) probe
+
+| net | total trials | 2 seats (0.500) | 3 seats (0.333) | 4 seats (0.250) | delta(k=1) | blocks? |
+|---|---|---|---|---|---|---|
+| R6 (champion) | 100k @4 | 0.413 | 0.342 | 0.297 | -0.87 | FAIL |
+| **P1** = R6->2p | 200k | **0.583** | 0.364 | 0.284 | **+2.24** | PASS |
+| **Arm A** = P1->4p | 300k | 0.422 | 0.356 | 0.308 | **+1.55** | PASS |
+| **Arm B** = R6->4p | 200k | **0.365** | 0.338 | 0.302 | -3.71 | FAIL |
+| **C** = P1->3p | 300k | **0.553** | **0.382** | **0.311** | -3.65 | FAIL |
+
+### Forgetting is NOT uniform — it scales with the DISTANCE between counts
+
+This is the headline, and it **reverses the conclusion drawn from Arm A alone**:
+
+| starting from P1 (0.583 @ 2 seats), train 100k at... | 2-seat score after |
+|---|---|
+| 4 seats (Arm A) | **0.422** — 0.7 SE from R6. Gone. |
+| 3 seats (C) | **0.553** — 11.0 SE above R6, only 2.3 SE below P1. **Kept.** |
+
+C vs Arm A at 2 seats is **10.2 SE apart**. Same start, same budget, same everything except
+whether the next stage had three seats or four. **Training at an ADJACENT count preserves the
+skill; skipping a count destroys it.** And C did not merely retain — it *gained* 3 seats
+(0.382 vs R6's 0.342, **3.2 SE**), the best 3-seat number on record, while holding 4 seats at
+0.311 (the best 4-seat number on record, though only 1.2 SE over R6).
+
+> **`C` (2p->3p) is the best all-round net the project has**: strong at 2 seats, best at 3, and
+> at least as good as anything at 4. **This partially vindicates the `2p->3p->4p` proposal that
+> the Arm A result appeared to kill** — the intermediate 3-seat stage is exactly the thing that
+> makes stages accumulate. Whether a final `->4p` stage would then destroy the 2-seat skill
+> anyway is **untested and is the obvious next run**; Arm A says 4-seat training is what does
+> the damage, so expect it to.
+
+**Four-seat training actively DEGRADES two-seat play**: Arm B (R6 + 100k more @4) drops to 0.365
+from R6's 0.413, **3.8 SE**. Not drift — specialisation. It sharpens habits that are right at
+four seats and wrong at two, which is the same claim P1 makes from the other direction.
+
+### The four-seat plateau, confirmed at double the budget
+
+Arm B is R6 with **100k more trials at four seats** and gains **+0.005 (0.4 SE)**: 0.297 ->
+0.302. Doubling the budget at four seats buys nothing measurable. Converging with A10/A11/A12 —
+but note P1 found **+17 points sitting at two seats** with the same net and the same reward.
+**The ceiling is per-count, not global.**
+
+### Blocking is DOUBLY DISSOCIATED from strength
+
+Two arms, opposite dissociations, which together break the story P1 told:
+
+- **Arm A** (2p->4p): **lost** the 2-seat strength (0.422), **kept** the blocking (+1.55).
+- **C** (2p->3p): **kept** the 2-seat strength (0.553), **lost** the blocking (-3.65).
+
+> **Therefore blocking is NOT what two-seat training bought.** C plays 2-seat Taki at 0.553 —
+> +0.140 over R6, 11 SE — while failing the blocking test outright. At most ~0.030 of P1's
+> +0.170 (the P1-vs-C gap, 2.3 SE) could be blocking; **the large majority of the two-seat gain
+> is some other, still-unidentified two-seat competence.** The 2026-07-16 entry's framing —
+> "two seats taught the missing endgame skill" — is wrong on the mechanism, though its
+> *measurements* stand.
+
+**Blocking still does not predict four-seat strength**, now from three nets: 0.308 (blocks),
+0.302 (does not), 0.311 (does not). The one that blocks is in the *middle*. Whatever R17 buys by
+fixing this behaviour, this is more evidence it is not four-seat win rate.
+
+### CORRECTIONS
+
+1. **"The 2-seat stage caused the blocking, controlled" — WITHDRAWN.** It rested on Arm A
+   (blocks) vs Arm B (does not) at matched budget. But **C has the identical 2-seat stage and
+   does not block**. Blocking survived 100k trials at *four* seats and died after 100k at
+   *three* — which no "more seats -> less blocking" story explains. With **n=1 per arm** this
+   cannot be separated from run-to-run variance in where a run lands. The honest statement is
+   narrower: *P1 blocks; R6, Arm B and C do not; what makes it stick is unknown.*
+2. **"2-seat training improved 3 seats (+0.022, ~2.6 SE)" — WITHDRAWN** (already corrected in
+   the P1 entry). It used the single-sample SE instead of the SE of a difference: 1.8 SE, not
+   significant. C's 3-seat gain (+0.040, 3.2 SE) *is* significant — but C trained at 3 seats.
+
+### Caveats
+
+- **n=1 per arm.** Every cell above is one run. The project's own calibration entry
+  (2026-07-11) puts run-to-run sigma at ~0.5-0.7 pts on win rates; the delta(k) probe is a
+  **single position** and its run-to-run variance has never been calibrated at all. The 10-SE
+  win-rate contrasts are safe; **the blocking flips are not** — see correction 1.
+- **Mode A, not promotion.** `eval_headtohead.py` hardcodes four seats (`[agent2] * 4`,
+  `range(4)`); there is still no 1v1 or 1v2 seat-swap path. **C's 0.311 at four seats cannot be
+  promoted over R6 on this evidence** (1.2 SE, and Mode A is not the promotion standard).
+- **Refusal rates keep creeping**: 2.92% (R6) -> 4.39% (P1) -> 4.61% (Arm A) -> 5.21% (C). Each
+  passes the guard-rail; the trend does not reverse. Worth a `holdback.py` census.
+- `h8` is four-seat-tuned (competent at two — see the P1 entry — but not a two-seat optimum).
+- All runs thread-uncapped and mutually consistent; see the P1 entry's caveat on `train.py`.
+
+### Open
+
+- **Does `C -> 4p` keep the two-seat skill?** The direct test of `2p->3p->4p`. Arm A predicts no.
+- **What IS the two-seat competence**, if not blocking? P1 vs C at two seats (0.583 vs 0.553)
+  is the only handle, and it is 2.3 SE.
+- **Mixed-count training** remains the only design that keeps every count in the gradient. Needs
+  the `Game` rebuilt per trial (constructed once, outside the loop, train.py:196-199), and
+  probably an explicit count feature (147->150, invalidating every checkpoint).
+- **A 1v1 / 1v2 seat-swap path in `eval_headtohead.py`** — without it nothing here is promotable.
+
+---
+
+## 2026-07-16 — P1: the champion's edge is a FOUR-SEAT phenomenon. At two seats R6 loses to the heuristic — and two-seat self-play fixed the blocking defect R6 could not
+
+Branch `2p-selfplay`. The question was whether one model can play 2/3/4 players, and whether the
+observation blocks it. **It does not block it — the observation was already count-agnostic and
+nothing had to change.** `OPP_HAND_SLOTS` (game.py:166-169) reserves 3 opponent-hand slots and
+zero-pads below 4 seats, so the **147-float contract is unchanged**: every checkpoint stays
+loadable at every count, which is what made a warm-start from R6 possible. The count is encoded
+only *implicitly*, by which slots are zero (a live opponent never holds 0 cards — only a winner
+does, and then the game is over). `num_of_players` was a single local every downstream use
+derived from, so `--num-players` is a one-line change (`c353565`).
+
+### The survey: R6's edge exists only at four seats
+
+Mode A, 3000 games/cell, `eval.py --num-players N`. The 4-seat column reproduces the published
+numbers exactly, which is the check that the harness is faithful across counts:
+
+| seats | R6 vs `h8` (parity) | `h8` vs `greedy` (parity) | `h8` vs random |
+|---|---|---|---|
+| 2 | **0.413** (0.500) — **9.7 SE BELOW parity** | 0.565 (0.500) | 0.963 |
+| 3 | 0.342 (0.333) — 1.0 SE, a tie | 0.392 (0.333) | 0.925 |
+| 4 | 0.297 (0.250) — the published number | 0.302 (0.250) | 0.906 |
+
+> **The champion loses to a few hundred lines of hand-written rules at two seats, and merely
+> ties them at three.** Every "R6 beats the heuristic" claim in this log is a *4-seat* claim.
+
+**The yardstick is not flailing off its turf** — the obvious objection, and it fails. `h8` is at
+its *strongest* vs random at 2 seats (0.963), and its hold-backs still beat its own `greedy`
+control there (0.565 vs 0.500). R6 is losing to a competent opponent, not to a broken one. Its
+structure is genuinely count-generic (every seat derives from `len(game.agents)`); only its
+*tuning point* is 4-seat. Checked the paths that could break at n=2 — all correct, one by
+accident: `w_chdir_block` is dead code at 2 seats (`behind` and `nxt` are the same seat, so
+line 596 compares a hand to itself), which is the right behaviour since CHDIR is a no-op at
+2 seats (RULES.md), but not for the intended reason.
+
+**vs-random noticed none of this** (0.91-0.96 across every cell, every agent). The clearest
+demonstration yet of why it was retired as a ranking metric — it is blind to a sign flip.
+
+### P1: R6 -> 2 seats, 100k trials. The R6 acceptance test now PASSES
+
+    train.py --num-players 2 --trials 100000 --seed 1 --reward shaped --loss-penalty 60 \
+             --epsilon-start 0.1 --snapshot-every 2500 --model checkpoint_r6L60_snap100000
+
+Warm-started from R6, near-greedy continue. **`snap0000` scores 0.413 — R6's cold score to
+three decimals.** That is the control that makes the rest of the entry mean something: the
+warm-start loaded the champion faithfully, snapshot 0 is pre-training, so the whole delta is
+attributable to 2-seat *training* and not to distribution shift or a reload artifact.
+
+| snapshot | vs `h8` @ 2 seats (parity 0.500) |
+|---|---|
+| 0 (= R6) | 0.413 |
+| 12,500 | 0.546 |
+| 25,000 | 0.557 |
+| 50,000 | 0.548 |
+| 75,000 | 0.563 |
+| 100,000 | **0.583** (+0.170 vs R6, **13.4 SE**) |
+
+Most of the gain lands inside the first 12,500 trials and it is **still rising at 100k**. A fast
+concentrated gain is what one missing skill looks like, not a policy rebuild.
+
+> **CORRECTION (P2, 2026-07-17): the "one missing skill" is NOT the blocking.** `C` (`2p->3p`)
+> scores 0.553 at two seats — 11 SE above R6 — while *failing* the blocking test outright. The
+> measurements in this entry stand; the mechanism it implies does not. At most ~0.030 of the
+> +0.170 is attributable to blocking, and what the rest is remains unidentified.
+
+**`r6_accept.py` — the test R6 itself FAILED — now passes on both pre-registered predictions:**
+
+| k (next player's cards) | R6 delta(k) | P1 delta(k) | P1 picks |
+|---|---|---|---|
+| 1 | **-0.87** (wrong sign) | **+2.24** | play red +2 — **blocks** |
+| 2 | -2.33 | +0.52 | play red +2 — **blocks** |
+| 3 | -2.81 | -1.43 | play red 5 — sheds |
+| 7 | -2.77 | -3.64 | play red 5 — sheds |
+| *spread over k* | 1.95 | **5.88** | |
+
+It blocks at k<=2 and sheds at k>=3; the zero-crossing sits between k=2 and k=3 (B2 predicted
+between k=1 and k=2). The spread tripled, so it is not a shifted constant — it is *using* the
+opponent-hand-size feature, not merely valuing the position differently.
+
+> **The blocking defect is LEARNABLE inside the existing architecture, observation and reward.**
+> No potential-based shaping was required. What 100k trials at four seats could not teach, two
+> seats taught in 12,500. That makes it a **credit-assignment** problem — not a value-function
+> problem, not an information-set limit.
+
+### What it does NOT show (the honest half)
+
+**Transfer is flat, not positive.** Corrected statistics — the first read of this used the
+single-sample SE instead of the SE of a *difference*, which overstated the 3-seat cell:
+
+| seats | R6 | P1 (2p-trained) | delta | SE of diff (unpaired) | verdict |
+|---|---|---|---|---|---|
+| 2 | 0.413 | **0.583** | +0.170 | 0.0127 | **13.4 SE — real** |
+| 3 | 0.342 | 0.364 | +0.022 | 0.0123 | 1.8 SE — **NOT significant** |
+| 4 | 0.297 | 0.284 | -0.013 | 0.0117 | 1.1 SE — **NOT significant** |
+
+So: 2-seat training bought a large 2-seat gain and left 3 and 4 **statistically unchanged**.
+Nothing was traded away — but nothing transferred either. (`eval.py` uses common random
+numbers, so these unpaired SEs are conservative; pairing would tighten them.)
+
+**The tempting overclaim to avoid:** the `r6_accept` probe is a *4-player* position
+(`scenarios_b2`: `[agent] + [_Dummy()]*3`, `opp_sizes=(k,5,5)`). So P1 blocks correctly at a
+4-seat table while its 4-seat win rate does not move — which *looks* like proof that blocking
+was never the 4-seat bottleneck, and would undercut R17's premise directly. **It is not proof.**
+P1 at 4 seats is itself off-distribution; it may have gained blocking while shedding 4-seat
+competence, and the two could be cancelling. This run cannot separate them.
+
+### Caveats
+
+- **Mode A, not a promotion test.** `eval_headtohead.py` hardcodes 4 seats throughout
+  (`[agent2] * 4`, `range(4)`); there is no 1v1 seat-swap path yet. 0.583 is a 1-vs-1 rate, not
+  a paired promotion margin.
+- **The refusal rate rose 2.92% -> 4.39%** (+50% relative). It passed the `r6_accept` guard-rail
+  but is drifting the wrong way — watch it.
+- **`h8` is 4-seat-tuned.** Competent at 2 seats (above), so this is not a strawman, but a
+  2-seat-tuned version would be a sterner test. That was impossible before (`tune_heuristic.py`
+  tunes *against the champion*, and there was no 2-seat champion); P1 removes the circularity.
+- **`train.py` is thread-uncapped and inconsistent with `eval.py`.** `eval.py` sets
+  `OMP_NUM_THREADS=2` before the TF import (eval.py:29-31); `train.py` sets nothing, inheriting
+  only `agents/dqn.py`'s `tf.config.threading` (intra=4/inter=2). That caps TF's op pools but not
+  the Eigen/OpenMP kernels: the run took **35 threads / 1112% CPU** on a network CLAUDE.md says
+  "thrashes on default pools". Not fixed mid-series — every run here is uncapped, so they are at
+  least consistent with each other. Fix separately; it may make runs *faster*.
+- No `--num-players` sampling: this is a single-count run. Mixed-count training would need the
+  `Game` rebuilt per trial (it is constructed once, outside the loop, train.py:196-199).
+
+### In flight
+
+Three 100k runs queued sequentially (Arm A `2p->4p`, Arm B `R6->4p` control, then `2p->3p`).
+**All three landed — see the 2026-07-17 (P2) entry above, which answers the forgetting question
+and CORRECTS two claims made here and in-session.**
+
+---
+
 ## 2026-07-14 (last) — H8 + B5: the tuner went above the old cap and came back empty. And the champion's headline was inflated ~8 points by the crippled yardstick
 
 ### H8 — coordinate descent, and a clean winner's-curse lesson
