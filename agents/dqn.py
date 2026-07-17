@@ -34,7 +34,7 @@ class AIAgent:
 
     def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
                  epsilon_decay=0.995, learning_rate=0.001, load_model=None,
-                 color_sym=False, rank_sym=False):
+                 color_sym=False, rank_sym=False, allow_obs_truncation=False):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
@@ -57,6 +57,9 @@ class AIAgent:
         self.last_action = None
         self.model = self.create_model()
         self.target_model = self.create_model()
+        # How many leading floats of the observation this net actually consumes. Equal to
+        # OBSERVATION_SIZE for anything trained on the current contract; see _adopt_obs_size.
+        self.obs_size = OBSERVATION_SIZE
         if load_model is not None:
             # A failed load must stop the process: silently falling back to random weights
             # turns an intended warm-start into a cold-start without anyone noticing.
@@ -75,6 +78,42 @@ class AIAgent:
                 # new snapshots can still be compared/played against each other in-process.
                 self.model = loaded
                 self.target_model = keras.models.load_model(load_model)
+                self._adopt_obs_size(load_model, allow_obs_truncation)
+
+    def _adopt_obs_size(self, load_model, allow_obs_truncation):
+        """Let a net from an older, SHORTER observation contract still play.
+
+        Every observation change so far has APPENDED features, so today's vector is a strict
+        superset of yesterday's: obs[:147] is bit-identical to what a 147-float net was
+        trained on (pinned by gametest). Feeding such a net the leading prefix is therefore
+        exact, not an approximation -- it sees precisely its own observation, minus only the
+        features it never had. That is what lets a pre-one-hot champion like R6 sit at the
+        same table as a current net instead of being permanently uncomparable.
+
+        Opt-in and eval-only. Truncating during TRAINING would quietly train an old-contract
+        net while the new features went nowhere, so replay() refuses (see below) and
+        train.py never passes the flag.
+        """
+        dim = self.model.layers[0].input_shape[-1]
+        if dim == OBSERVATION_SIZE:
+            return
+        if dim > OBSERVATION_SIZE:
+            raise RuntimeError(
+                f"'{load_model}' expects {dim} observation floats but this build produces only "
+                f"{OBSERVATION_SIZE}. That checkpoint is from a LONGER contract (a removed "
+                f"feature, not an appended one), so no prefix of today's vector reconstructs "
+                f"it. It cannot be played here.")
+        if not allow_obs_truncation:
+            raise RuntimeError(
+                f"'{load_model}' expects {dim} observation floats, this build produces "
+                f"{OBSERVATION_SIZE}. It predates an observation change. Pass "
+                f"allow_obs_truncation=True to play it on the leading {dim} floats (exact -- "
+                f"the observation only ever grew by appending); this is for EVAL only, and "
+                f"warm-starting training across the boundary is not supported.")
+        self.obs_size = dim
+        print(f'NOTE: {load_model} is on an older observation contract ({dim} floats vs '
+              f'{OBSERVATION_SIZE}); playing it on the leading {dim}. It cannot see the '
+              f'{OBSERVATION_SIZE - dim} appended feature(s).')
 
     def create_model(self):
         model = keras.Sequential()
@@ -104,6 +143,14 @@ class AIAgent:
         return loss
 
     def replay(self):
+        # A truncated net is an eval adapter, not a trainable model: the symmetry tables and
+        # the observations in the buffer are both full-width, and training here would fit an
+        # old-contract net while the appended features silently went nowhere.
+        if self.obs_size != OBSERVATION_SIZE:
+            raise RuntimeError(
+                f'refusing to train a net on the older {self.obs_size}-float observation '
+                f'contract (this build produces {OBSERVATION_SIZE}); obs truncation is for '
+                f'eval only.')
         if len(self.memory) < self.batch_size:
             return
         samples = random.sample(self.memory, self.batch_size)
@@ -156,7 +203,9 @@ class AIAgent:
             return random.choice(actions)
         # Direct model() call (not model.predict) — this runs once per turn for every
         # agent, so its per-call overhead dominates the self-play loop.
-        x = state[np.newaxis, :].astype(np.float32)
+        # The slice is a no-op (obs_size == OBSERVATION_SIZE) for everything except a net
+        # loaded from an older, shorter contract; see _adopt_obs_size.
+        x = state[np.newaxis, :self.obs_size].astype(np.float32)
         q_values = self.model(x, training=False).numpy()[0]      # (ACTION_SIZE,)
         return actions[int(np.argmax(q_values[actions]))]
 
