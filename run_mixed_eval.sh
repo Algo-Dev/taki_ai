@@ -17,15 +17,11 @@
 set -u
 cd /home/orih/taki-ai-nplayers
 
-while tmux has-session -t takimix 2>/dev/null; do sleep 60; done
-
-# run_mixed.sh writes snapshots.env only after every stage succeeded. If it aborted, say so
-# plainly rather than dying on an unbound variable at 4am.
-if [ ! -f ./snapshots.env ]; then
-    echo "NO snapshots.env -- run_mixed.sh aborted or never finished. Nothing to evaluate."
-    echo "Check the tail of run_mixed.log for the failing stage."
-    exit 1
-fi
+# Wait on the training-complete SIGNAL, not on the tmux session: a session can outlive the
+# script that ran in it (a lingering pane keeps it alive), and watching it wedged this eval for
+# 18h once. run_mixed.sh writes snapshots.env only after every stage succeeded, so its presence
+# is exactly "training done" -- and no train.py still running guards a half-written file.
+while [ ! -f ./snapshots.env ] || pgrep -f 'train\.py' >/dev/null; do sleep 60; done
 
 source ~/miniconda3/etc/profile.d/conda.sh 2>/dev/null || source /opt/conda/etc/profile.d/conda.sh 2>/dev/null
 conda activate tensorflow_env
@@ -84,8 +80,10 @@ for snap in 100000 200000 300000; do
     [ -d "$M1_DIR/snap$snap" ] || continue
     printf "  snap%-7s " "$snap" | tee -a $OUT
     for n in 2 3 4; do
+        # Match the SCORE line ("1234/3000 = 0.428"), not eval.py's earlier
+        # "Baseline (1/num_players) = 0.500" -- a bare (?<== ) grep grabs the baseline first.
         r=$($E --model "$M1_DIR/snap$snap" --opponent heuristic:h8 --num-players $n \
-              --games $G 2>&1 | grep -oP '(?<== )[\d.]+' | head -1)
+              --games $G 2>&1 | grep -oP '\d+/\d+ = \K[\d.]+' | head -1)
         printf "%dp=%s  " "$n" "$r" | tee -a $OUT
     done
     echo | tee -a $OUT
