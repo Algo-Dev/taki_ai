@@ -14,6 +14,123 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-17 — M1: mixed-count training matches the best sequential curriculum FROM SCRATCH, and in 100k trials not 300k. The sequential curriculum is fragile; keeping every count in the gradient is not
+
+Branch `nplayers-onehot`. Context lives on branch `2p-selfplay` (the P1/P2 entries, not yet
+merged here): training one net to play 2, 3 and 4 seats. P1/P2 established that (a) the
+champion's edge is a **four-seat** phenomenon — R6 vs the frozen heuristic `h8` scores 0.413 /
+0.342 / 0.297 at 2 / 3 / 4 seats (parity 0.500 / 0.333 / 0.250), i.e. it *loses* at two seats;
+(b) a **sequential** curriculum `C = R6 -> 2p -> 3p` is the best all-round net on record at
+**0.553 / 0.382 / 0.311**, reached in 300k trials spent 100k-per-count in sequence; and (c)
+forgetting scales with count distance — Arm A (`P1 -> 4p`) destroyed the two-seat skill
+(0.583 -> 0.422). P2 named two open items this entry closes: **mixed-count training** (the only
+design that keeps every count in the gradient), which needed **an explicit count feature** in
+the observation, and **does `C -> 4p` keep the two-seat skill?**
+
+### Setup — the observation change the count feature required, and why single-count runs were untouched
+
+The observation grew **147 -> 150**: a one-hot of the seat count (2 / 3 / 4-or-more, saturating)
+appended at the tail. Appended, so `obs[:147]` is bit-identical to the old contract (21,107
+observations checked across 2/3/4 seats), which is what lets `eval.py` play a 147-float
+champion on the leading floats it was trained on — R6 vs `h8` reproduces its published **0.297**
+to the digit under the 150-float build, so cross-contract comparison is exact, not approximate.
+
+**The one-hot is INERT in a single-count run** — the input never varies, and a constant input
+folds into the next layer's bias — so it earns its keep only when the count varies between
+trials. `--num-players 2,3,4` samples a count uniformly per trial (one reused `Game`, reseated
+via `reset(agents=...)`; a fresh Game per trial would restart the deck RNG and deal identical
+cards every trial). Verified the feature did not perturb the lineage: 40 seeded trials at
+`--num-players 4` give **bit-identical** weights across the commit that added mixed counts.
+
+### M1 — 300k trials, mixed 2/3/4, FROM SCRATCH (no R6 inheritance, no curriculum)
+
+The sampler dealt 100,249 / 99,994 / 99,757 (33.4 / 33.3 / 33.3%), so M1's budget is
+double-matched to C: same 300k total, and ~100k per count — exactly C's per-count spend. The
+only difference is **interleaved vs sequential**, which isolates whether the forgetting P2 saw
+is a consequence of *sequencing* rather than of the counts.
+
+| net | budget | 2 seats (0.500) | 3 seats (0.333) | 4 seats (0.250) |
+|---|---|---|---|---|
+| R6 (champion) | 100k @4 | 0.413 | 0.342 | 0.297 |
+| C (best sequential) | 300k staged | **0.553** | **0.382** | **0.311** |
+| **M1 (interleaved, scratch)** | 300k mixed | **0.570** | 0.372 | 0.290 |
+
+**M1 ties C at every seat count** (per-cell vs-`h8`: +1.3 / -0.8 / -1.8 SE — none significant;
+`eval.py`'s common random numbers make these conservative). Direct head-to-head, M1 vs C
+1-vs-N over 3000 common decks:
+
+| seats | M1 team win rate (parity 1/N) | read |
+|---|---|---|
+| 2 | 0.511 (0.500) | +1.2 SE — tie, M1 a hair ahead |
+| 3 | 0.314 (0.333) | **-2.2 SE — C edges it** |
+| 4 | 0.244 (0.250) | -0.8 SE — tie |
+
+So the honest reading is a **tie with a faint trade**: M1 is marginally stronger at two seats,
+C marginally stronger at three (the one cell that clears 2 SE) and four. Neither is a promotion
+over the other. **What matters is how M1 got there:** C needed a hand-designed three-stage
+curriculum that inherited R6's 100k; M1 matched it **from random init, in one run, with no
+curriculum to design and no champion to start from.** And it holds **0.570 at two seats** — the
+exact skill Arm A's sequential `-> 4p` stage destroyed (0.583 -> 0.422). Nothing is forgotten
+when nothing leaves the gradient.
+
+**M1 reaches full performance by 100k, not 300k** (progression vs `h8`):
+
+| snapshot | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| 100,000 | 0.570 | 0.381 | **0.306** |
+| 200,000 | 0.554 | 0.371 | 0.294 |
+| 300,000 | 0.570 | 0.372 | 0.290 |
+
+It is **flat from 100k on** — mixed training buys C's whole 300k-staged result in a third of the
+trials. The one wrinkle is the four-seat column: it *peaks at 100k* (0.306) and drifts down to
+0.290 by 300k. The hardest count is the one uniform sampling slightly under-serves late in
+training; a non-uniform schedule weighting four seats is the obvious lever, untested.
+
+### C -> 4p — the sequential curriculum is FRAGILE. P2's open item, answered: no
+
+Does `2p -> 3p -> 4p` keep the two-seat skill through its final stage? **No.** `C -> 4p` (100k @4
+on top of C, 400k total) vs `h8`:
+
+| net | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| C | 0.553 | 0.382 | 0.311 |
+| **C -> 4p** | **0.428** | 0.346 | 0.304 |
+
+The final four-seat stage **destroys the two-seat skill** (0.553 -> 0.428, ~10 SE — back below
+where P1 started), **erodes three seats** (0.382 -> 0.346, ~3 SE), and **buys nothing at four**
+(0.311 -> 0.304, flat). This is Arm A's result again from the other end: four-seat training
+specialises *away* from the smaller counts. **A sequential curriculum cannot hold all three
+counts — each stage overwrites the last. Mixed training is the only design that keeps them,
+because it never takes a count out of the gradient.** That is the entry's central result.
+
+### Blocking is still dissociated from strength (delta(k) probe on M1)
+
+M1's weapon-timing sweep: `delta(k=1) = -0.36`, **does not block**, spread 2.04. It joins R6
+(-0.87, fail) and C (-3.65, fail) as strong nets that do not block, against P1 (+2.24, pass) which
+does. So blocking is **not** what mixed-count training bought, exactly as P2 found: the skill is
+doubly dissociated from win rate. (M1's `delta(k=1)` is the least-negative of the non-blockers,
+and its spread matches R6's, but it still fails the sign test.) R17's premise remains unsettled
+here — mixed training produced the strongest all-round net without blocking.
+
+### Caveats
+
+- **Mode A, not a paired promotion test.** `eval_headtohead.py` is four-seat-only, so the M1-vs-C
+  head-to-heads above use `eval.py --opponent <ckpt>` (1-vs-N, seeded-shuffled seating), the only
+  model-vs-model path at 2/3 seats. A 1v1/1v2 seat-swap path is still the missing harness piece.
+- **The four-seat cell is M1's weakest**, and the one place C leans ahead (3-seat head-to-head
+  -2.2 SE, 4-seat vs-`h8` -1.8 SE). Uniform sampling may under-serve the hardest count; a weighted
+  schedule is untested.
+- **`h8` is four-seat-tuned.** Competent at two seats (0.963 vs random, beats its own greedy
+  control), so not a strawman, but a per-count-tuned yardstick would be a sterner test — and is now
+  possible against these per-count champions.
+- **A process note, not a result:** the eval chain was launched behind a `while tmux has-session`
+  guard that watched a training session which outlived its script (a lingering pane), and wedged
+  for 18h producing nothing. The nets were fine; the wait was watching a zombie. Fixed to key off
+  the completion signal. Waits must watch the real work signal (a growing log / advancing counter),
+  never a proxy that can outlive it.
+
+---
+
 ## 2026-07-14 (last) — H8 + B5: the tuner went above the old cap and came back empty. And the champion's headline was inflated ~8 points by the crippled yardstick
 
 ### H8 — coordinate descent, and a clean winner's-curse lesson
