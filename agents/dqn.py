@@ -34,10 +34,17 @@ class AIAgent:
 
     def __init__(self, gamma=0.99, epsilon=1.0, epsilon_min=0.1, batch_size=64,
                  epsilon_decay=0.995, learning_rate=0.001, load_model=None,
-                 color_sym=False, rank_sym=False, allow_obs_truncation=False):
+                 color_sym=False, rank_sym=False, allow_obs_truncation=False, wide=False):
         super(AIAgent, self).__init__()
         self.gamma = gamma
         self.epsilon = epsilon
+        # Network width. Default (narrow) is the historical lineage's 124->64 trunk that every
+        # published champion trained on; wide is the 256->128->64 capacity-test arch (2.72x
+        # params, A10's widening). Kept a flag rather than a hard default so the narrow lineage
+        # stays reproducible from master -- M2 (RESEARCH_LOG 2026-07-18) showed wide buys ~no win
+        # rate, so it is not a promotion, only an option. Loading is arch-agnostic either way:
+        # a checkpoint whose width differs from this flag falls back to its own saved model.
+        self.wide = wide
         # Replay-time symmetry augmentation: each sampled transition is trained under a
         # random relabeling of the four colors (color_sym, 24 perms) and/or of the nine
         # number ranks (rank_sym, 9! perms). Both are exact symmetries of TAKI's dynamics
@@ -117,8 +124,20 @@ class AIAgent:
 
     def create_model(self):
         model = keras.Sequential()
-        model.add(layers.Dense(124, input_dim=OBSERVATION_SIZE, activation="relu"))
-        model.add(layers.Dense(64, activation="relu"))
+        if self.wide:
+            # Capacity-test arch (the MIXED-COUNT question, M2): the net must represent three
+            # different games (2/3/4 seats), not one, and M1 sat ~1 SE below the per-count best
+            # at every count -- the signature of multi-task interference. This is A10's exact
+            # widening (124->64 -> 256->128->64, +one layer, 2.72x params) so the result is
+            # comparable; A10 found it inert at four seats SINGLE-COUNT, but that says nothing
+            # about the multi-task union. Input/output sizes are unchanged, so a checkpoint of
+            # either width still plays via the cross-architecture eval fallback.
+            model.add(layers.Dense(256, input_dim=OBSERVATION_SIZE, activation="relu"))
+            model.add(layers.Dense(128, activation="relu"))
+            model.add(layers.Dense(64, activation="relu"))
+        else:
+            model.add(layers.Dense(124, input_dim=OBSERVATION_SIZE, activation="relu"))
+            model.add(layers.Dense(64, activation="relu"))
         model.add(layers.Dense(ACTION_SIZE))
         model.compile(loss="mean_squared_error",
                       optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate))

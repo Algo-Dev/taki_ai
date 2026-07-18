@@ -157,6 +157,12 @@ if __name__ == '__main__':
                              'free, so there is no reason to leave the net a rank-labelling bias '
                              'the rules do not contain. Do not read the default as a win.')
     parser.set_defaults(rank_sym=True)
+    parser.add_argument('--wide', action='store_true',
+                        help='use the wide 256->128->64 network (2.72x params, A10/M2) instead of '
+                             'the historical narrow 124->64. Default narrow: every published '
+                             'champion is narrow, and M2 (RESEARCH_LOG 2026-07-18) found wide buys '
+                             '~no win rate, so this is an option, not a promotion. Learner and '
+                             'opponents share the width (self-play syncs weights between them).')
     parser.add_argument('--trial-len', type=int, default=300,
                         help='max learner steps per episode before the trial is cut off (default 300)')
     parser.add_argument('--target-sync-every', type=int, default=100,
@@ -205,7 +211,7 @@ if __name__ == '__main__':
     # no longer goes first 100% of the time. The opponents play mostly-greedily on their own nets.
     # The symmetry augmentations only affect replay(), which only the learner runs.
     dqn_agent = AIAgent(epsilon=args.epsilon_start, load_model=args.model,
-                        color_sym=args.color_sym, rank_sym=args.rank_sym)
+                        color_sym=args.color_sym, rank_sym=args.rank_sym, wide=args.wide)
     if not dqn_agent.epsilon_min <= args.epsilon_start <= 1.0:
         parser.error(f'--epsilon-start must be in [{dqn_agent.epsilon_min}, 1.0]')
     # Per-episode decay sized to the run: epsilon falls from epsilon_start to epsilon_min over
@@ -218,7 +224,7 @@ if __name__ == '__main__':
     # self-play exists to keep the moving opponents exploring, and has no purpose here.
     opp_epsilon = 0.0 if args.freeze_opponents else 0.1
     opponents = [AIAgent(epsilon=opp_epsilon, epsilon_min=opp_epsilon,
-                         load_model=opponent_model)
+                         load_model=opponent_model, wide=args.wide)
                  for _ in range(max_players - 1)]
     # ONE Game instance for the whole run, reseated per trial under mixed counts. The deck RNG
     # lives on the instance, so building a fresh Game per trial would restart its stream and
