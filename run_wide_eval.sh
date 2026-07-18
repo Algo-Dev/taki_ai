@@ -11,11 +11,13 @@ source ~/miniconda3/etc/profile.d/conda.sh 2>/dev/null || source /opt/conda/etc/
 conda activate tensorflow_env
 source ./snapshots.env    # M2_DIR, M2, M2_CKPT
 
-TWOP=/home/orih/taki-ai-2p
-M1=/home/orih/taki-ai-nplayers/models/checkpoint_M1_mixed_snap300000
-P1=$TWOP/models/run1784210486.600344/snap100000     # 2-seat specialist, 0.583
-C=$TWOP/models/run1784225951.30801/snap100000       # best all-round (2p->3p): 0.553/0.382/0.311
-R6=/home/orih/taki-ai/models/checkpoint_r6L60_snap100000
+# Champions live in the canonical store now (the 2p-selfplay / nplayers-onehot worktrees were
+# removed after M1/M2 finished; their cited checkpoints were preserved here under stable names).
+CKPT=/home/orih/taki-ai/models
+M1=$CKPT/checkpoint_M1_mixed_snap300000              # narrow mixed, the width control
+P1=$CKPT/checkpoint_P1_2p_snap100000                # 2-seat specialist, 0.583
+C=$CKPT/checkpoint_C_2p3p_snap100000                # best all-round (2p->3p): 0.553/0.382/0.311
+R6=$CKPT/checkpoint_r6L60_snap100000
 E="nice -n 19 ionice -c2 -n7 python eval.py"
 G=3000
 
