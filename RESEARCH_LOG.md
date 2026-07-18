@@ -14,6 +14,94 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-18 — M2: 2.72x width buys ~no win rate at 300k, but it EXTENDS the training horizon and BUYS THE BLOCKING BEHAVIOUR M1 never learned. Capacity is not inert in the mixed setting the way A10 found it at four seats
+
+Branch `mixed-wider`. The hypothesis: M1 (narrow mixed-count net) sits ~1 SE below the
+per-count best at every count — the signature of multi-task interference, a net splitting
+capacity across three games. So widen and see. **M2 is identical to M1 in every way except the
+network: `124->64` -> `256->128->64` (A10's exact widening, 30.5k -> 84k params, 2.72x), mixed
+2/3/4, 300k, seed 1, from scratch.** Because only the hidden layers change, M1 still plays here
+via the cross-architecture eval fallback, so the direct M2-vs-M1 head-to-head is available.
+Pre-registered: if capacity is binding, M2 closes the gaps and reaches the per-count ceilings
+together; if the mixed setting is information-bound like A10 found four-seat *single*-count to
+be, M2 ties M1.
+
+### The naive read at 300k: width bought nothing (vs `h8`, 3000 games/cell)
+
+| net | 2 seats (0.500) | 3 seats (0.333) | 4 seats (0.250) |
+|---|---|---|---|
+| M1 (narrow, 300k) | 0.570 | 0.372 | 0.290 |
+| **M2 (wide, 300k)** | 0.569 | 0.375 | 0.295 |
+| ceilings (P1 / C / C) | 0.583 | 0.382 | 0.311 |
+
+Cell-for-cell M2 ≈ M1 (deltas 0.001 / 0.003 / 0.005, all << SE 0.012), and both still sit ~1 SE
+under the per-count ceilings. Head-to-head, M2 vs M1 1-vs-N reads 0.510 / 0.345 / 0.263 (parity
+0.500 / 0.333 / 0.250) — a faint lean to M2, nothing past 2 SE. Taken alone, this is the
+**information-bound** outcome, consistent with A10 (which found this same 2.72x width inert at
+four seats). **But taking the 300k snapshot alone is a mistake here:**
+
+### The progression tells a different story: width DELAYS and RAISES the peak (vs `h8`)
+
+| snapshot | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| M1 snap100000 (its peak) | 0.570 | 0.381 | 0.306 |
+| M2 snap100000 | 0.577 | 0.370 | 0.306 |
+| **M2 snap200000 (its peak)** | **0.587** | **0.383** | **0.307** |
+| M2 snap300000 | 0.569 | 0.375 | 0.295 |
+
+M1 plateaus by 100k and then only drifts down. **M2 keeps improving to a peak at 200k — and at
+that peak it reaches the per-count ceilings simultaneously** (0.587 / 0.383 / 0.307 vs P1 0.583,
+C 0.382, C 0.311): the "one net = three specialists" outcome the capacity hypothesis predicted.
+Then it degrades by 300k. So width did buy headroom — it extends the useful training horizon and
+lifts the ceiling the net can touch — but the net now needs **early stopping**, and reading the
+final snapshot hides the gain. *Caveat, stated up front: snap200000 as "the best" is a max over
+9 cells (3 snaps x 3 counts) and so is selection-inflated; what makes it more than a lucky cell
+is that the rise-to-200k-then-fall pattern is consistent across all three counts.* M2 vs the
+2-seat specialist P1 head-to-head is 0.503 (dead even); vs C it is 0.314 at three seats (-2.2 SE,
+C still edges it — the one gap width did not close) and 0.254 at four (tie).
+
+### The clean result: capacity BOUGHT BLOCKING. Same recipe, only width differs
+
+The `r6_accept` weapon-timing sweep — the project's pre-registered blocking test, deterministic
+given the net:
+
+| net | delta(k=1) | shape | verdict |
+|---|---|---|---|
+| R6 | -0.87 | wrong | FAIL |
+| M1 (narrow mixed) | -0.36 | flat-ish | FAIL |
+| C | -3.65 | wrong | FAIL |
+| P1 | +2.24 | rises as k falls | PASS |
+| **M2 (wide mixed)** | **+2.54** | **rises as k falls, zero-cross between k=3 and k=4** | **PASS** |
+
+**M2 blocks a near-winner; M1 — the same training, the same seed, the same data, narrower by
+2.72x — does not.** This is the defect R6 never fixed (the whole motivation for R17,
+potential-based shaping), and here it fell out of **capacity alone** — no curriculum, no reward
+change, no shaping. It is a clean single-lever result against M1, and it strengthens P2's point
+that blocking is a *behaviour dissociated from win rate*: M2 gained the behaviour while its win
+rate barely moved.
+
+**This bears directly on R17's premise, and cuts the same way P2 did: do not spend a run on
+potential-based shaping assuming it is the only route to blocking.** Two routes are now known to
+produce it without shaping — two-seat training (P1) and capacity (M2).
+
+### Caveats
+
+- **n=1 per architecture.** M1 and M2 are single runs. The delta(k) probe's run-to-run variance
+  has never been calibrated (P2's standing caveat), so "capacity *causes* blocking" is *suggested*
+  by a clean single-lever contrast, not *proven* — this particular wide run may have found blocking
+  where this particular narrow run did not. Multiple seeds would settle it and are the obvious
+  follow-up.
+- **The win-rate gain needs early stopping and is ~1 SE even at the peak.** M2 is not a promotion
+  over M1 on strength; the honest strength verdict is a tie with a delayed, slightly higher peak.
+- **Four seats is still the weakest count** and the one place C keeps a small edge (3-seat
+  head-to-head -2.2 SE). Width did not fix it. Non-uniform sampling weighting the harder counts is
+  still untested.
+- **Blocking-helps-win-rate remains unproven.** M2 blocks and is a hair better at four seats
+  head-to-head (0.263), but nothing clears 2 SE, so whether the blocking it learned actually pays
+  is still open — exactly the question P2 left.
+
+---
+
 ## 2026-07-17 — M1: mixed-count training matches the best sequential curriculum FROM SCRATCH, and in 100k trials not 300k. The sequential curriculum is fragile; keeping every count in the gradient is not
 
 Branch `nplayers-onehot`. Context lives on branch `2p-selfplay` (the P1/P2 entries, not yet
