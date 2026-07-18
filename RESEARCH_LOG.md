@@ -14,7 +14,75 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-18 (later) — M2 seeds 2,3: the BLOCKING result does NOT replicate — it was a lucky snapshot. Width buys neither a robust win-rate gain nor blocking
+
+Two more wide-mixed seeds (2, 3), else identical to M2 (`--wide --num-players 2,3,4 --trials
+300000 --reward shaped --loss-penalty 60`), run to firm up M2's two n=1 findings. They resolve
+both, and the headline one negatively.
+
+### Blocking: REFUTED. The delta(k) sign is snapshot/seed noise, not an architecture property
+
+I probed `delta(k=1)` at both the 200k and 300k snapshot of all three wide seeds (deterministic
+given the net):
+
+| net | snap200000 | snap300000 |
+|---|---|---|
+| M2 seed 1 | **-1.69** (no) | **+2.54** (BLOCKS) |
+| seed 2 | **+1.02** (BLOCKS) | -1.64 (no) |
+| seed 3 | -1.62 (no) | -2.18 (no) |
+
+**Only 2 of 6 wide snapshots block, in a different snapshot for each seed, with the sign
+swinging over a ~4-point range within a single run.** M2 seed 1 — the run the original entry
+called a blocker — does **not** block at its own 200k snapshot (-1.69); it blocked only at 300k.
+So "capacity buys blocking" was a lucky draw of one snapshot of one seed. **The blocking headline
+of the M2 entry below is withdrawn** (that entry now carries a correction; its measurements
+stand). This is exactly P2's uncalibrated-`delta(k)`-variance caveat, now quantified: `delta(k=1)`
+wanders across roughly [-2.5, +2.5] over training with no stable relationship to width. The
+`r6_accept` sweep reads a *transient*, not a learned skill, and a single-snapshot blocking claim
+from any run should be treated as noise until replicated across seeds and snapshots.
+
+### Win rate: a rock-stable NULL at 300k, and a small, real, sub-promotion peak at 200k
+
+vs `h8`, 3000 games/cell:
+
+| net | 2 seats @300k | 3 seats @300k | 4 seats @300k | 2-seat peak (@200k) |
+|---|---|---|---|---|
+| M1 (narrow) | 0.570 | 0.372 | 0.290 | 0.570 (@100k) |
+| M2 seed 1 | 0.569 | 0.375 | 0.295 | 0.587 |
+| seed 2 | 0.567 | 0.374 | 0.296 | 0.597 |
+| seed 3 | 0.568 | 0.373 | 0.289 | 0.586 |
+
+**At 300k the wide net is identical to the narrow one, to three seeds** (0.567-0.569 / 0.373-0.375
+/ 0.289-0.296) — a very tight null. The one thing that *does* replicate is the **200k peak**: all
+three wide seeds peak around 200k with the 300k snapshot lower, and the 2-seat peak (~0.587-0.597)
+sits ~1.5 SE above narrow M1's best (0.570), at/above the P1 specialist ceiling (0.583). So width
+buys a **small (~1-2 SE), real, but sub-promotion** win-rate gain that requires early stopping and
+shows up only at two seats; it peaks *later* than narrow M1 (200k vs 100k), which is the "extends
+the horizon" effect, on n=1 narrow so still tentative.
+
+### Verdict on the capacity hypothesis
+
+**Largely refuted on replication.** 2.72x width buys no robust win rate (identical to narrow at
+300k across three seeds) and no blocking (noise). The one surviving effect is a delayed, slightly
+higher 2-seat peak worth ~1-2 SE. This *extends* A10's four-seat single-count null (capacity inert)
+into the mixed setting, rather than overturning it as the M2 entry tentatively suggested. Net: the
+mixed net's ~1-SE-below-ceiling shortfall is not a capacity wall the wide net removes — consistent
+with the per-count *information* ceiling. Checkpoints preserved as `checkpoint_M2seed{2,3}_widemixed_snap{200000,300000}`.
+
+*Process caveat carried forward: n=1 narrow. To make "width vs narrow" fully symmetric one would
+run narrow seeds 2,3 too — but since width's win-rate is a tight null and its blocking is noise,
+the narrow side is no longer the interesting question.*
+
+---
+
 ## 2026-07-18 — M2: 2.72x width buys ~no win rate at 300k, but it EXTENDS the training horizon and BUYS THE BLOCKING BEHAVIOUR M1 never learned. Capacity is not inert in the mixed setting the way A10 found it at four seats
+
+> **CORRECTION (M2 seeds, 2026-07-18 later): the BLOCKING claim in this entry is WITHDRAWN — it
+> did not replicate.** delta(k=1) = +2.54 was one snapshot (seed 1, 300k) of a quantity that swings
+> across ~[-2.5, +2.5] over training with no stable tie to width: seed 1 does not block at its own
+> 200k (-1.69), seed 2 blocks only at 200k, seed 3 never. See the entry above. The win-rate
+> measurements here stand (and the 300k null replicated tightly across three seeds); the "capacity
+> bought blocking" mechanism does not.
 
 Branch `mixed-wider`. The hypothesis: M1 (narrow mixed-count net) sits ~1 SE below the
 per-count best at every count — the signature of multi-task interference, a net splitting
