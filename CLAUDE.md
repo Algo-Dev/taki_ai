@@ -35,11 +35,32 @@ information a human actually has** — and then to *interrogate the resulting po
 
 DQN agent learning to play Taki (an UNO-like card game) via self-play, using Keras/TensorFlow.
 
-Current best model: **`models/checkpoint_r6L60_snap100000`** (R6 — shaped reward **plus a terminal
+Current best model: **`models/checkpoint_M1s3_mixed_snap300000`** — the first **all-seat** champion
+(MIXED-count self-play: `train.py --num-players 2,3,4 --trials 300000 --seed 3 --reward shaped
+--loss-penalty 60`, narrow 124->64 net, color-sym + rank-sym, from scratch). **One model that plays
+2, 3 and 4 seats**, promoted 2026-07-19.
+
+| vs `h8` (6000 games/cell, 2 deck blocks) | 2 seats (parity 0.500) | 3 seats (0.333) | 4 seats (0.250) |
+|---|---|---|---|
+| R6 (previous champion, 4-seat only) | 0.417 — **it LOSES** | 0.340 | 0.283 |
+| **M1s3 (current)** | **0.579** | **0.376** | **0.303** |
+
+It beats R6 at **every** seat count — including four seats, R6's own specialty: **+0.0417 ± 0.0112
+per-seat (3.7 SE)** on the seat-swapped 2v2 promotion standard, with the 1v3 secondary agreeing
+(+0.0500 ± 0.0098). So this is not a "generalist that trades 4-seat strength for coverage" — it is
+better everywhere.
+
+> **Seed variance is real; this is the best of THREE narrow mixed seeds.** The first mixed net (M1,
+> seed 1) was the *worst* of the three — 0.571 / 0.377 / 0.282, i.e. ~2 points behind at four seats.
+> Do not promote a mixed net off a single seed, and do not assume a run's final snapshot is its best
+> without a dense snapshot sweep (M1's better early snapshots were lost to a worktree cleanup).
+> Runner-up kept as `checkpoint_M1s2_mixed_snap300000` (statistically tied: paired swap -0.018 ± 0.011).
+
+Previous champion: **`models/checkpoint_r6L60_snap100000`** (R6 — shaped reward **plus a terminal
 loss penalty**: `train.py --trials 100000 --seed 1 --reward shaped --loss-penalty 60`, color-sym +
-rank-sym). Beats the previous champion by **+0.085 ± 0.011 per-seat** on the seat-swapped 2v2
-promotion standard, replicated on three disjoint deck blocks (~8 SE). It reached that in **100k
-trials, not 500k**. Chance baseline 0.25.
+rank-sym). Beat *its* predecessor by **+0.085 ± 0.011 per-seat** on the seat-swapped 2v2 promotion
+standard, replicated on three disjoint deck blocks (~8 SE), in **100k trials, not 500k**. Kept as the
+4-seat reference. Chance baseline 0.25.
 
 > **Its "0.378 vs 3 heuristic opponents" is a RETIRED number — it was measured against `r3`, the
 > yardstick with a 13-point bug in it.** Against the current reference (`h8`) R6 scores **0.297**
@@ -47,7 +68,9 @@ trials, not 500k**. Chance baseline 0.25.
 > Still genuinely ahead, but less than half the claimed margin. See B5 below and RESEARCH_LOG
 > 2026-07-14. Anything you compare against must be measured against the SAME version.
 
-> **AND IT IS A FOUR-SEAT NUMBER. Every "beats the heuristic" claim in this project is.** The
+> **AND IT IS A FOUR-SEAT NUMBER. Every "beats the heuristic" claim in this project was, up to the
+> 2026-07-19 promotion** (the current champion is reported per-count above; everything older is
+> four-seat unless it says otherwise). The
 > engine and the observation support 2..10 seats (`OPP_HAND_SLOTS` zero-pads, so the 147-float
 > contract holds at every count and checkpoints load), and `eval.py --num-players N` has always
 > run. Measured there (P1, RESEARCH_LOG 2026-07-17), R6 vs `h8` is **0.413 at two seats (parity

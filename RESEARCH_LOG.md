@@ -14,6 +14,80 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-19 — PROMOTION: an all-seat mixed champion. It beats R6 at EVERY seat count, four seats included. And M1 — the net we were about to promote — was the worst of three seeds
+
+Narrow mixed seeds 2 and 3 (`--num-players 2,3,4 --trials 300000 --reward shaped --loss-penalty 60`,
+no `--wide`), run for two reasons: the capacity comparison had used 3 wide seeds against 1 narrow,
+and — the real motive — we intended to promote a single all-seat model and M1 was **n=1**, with only
+its `snap300000` surviving a worktree cleanup. Snapshot grid densified to every 50k, because M1's
+best cells had been at 100k and assuming the last snapshot is the best would leave points on the
+table.
+
+### The finding that justified the run: M1 was the WORST of the three seeds
+
+Final snapshots only (no selection — final-to-final), vs `h8`:
+
+| narrow seed | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| seed 1 (M1) | 0.570 | 0.372 | 0.290 |
+| seed 2 | 0.580 | **0.379** | 0.302 |
+| seed 3 | **0.582** | 0.373 | **0.307** |
+
+**Promoting M1 would have locked in the weakest of three seeds**, giving up ~1.7 points at four
+seats. I had argued M1 was "almost certainly representative" by inferring narrow's seed variance
+from the wide seeds' very tight 300k cluster (range 0.002). **That inference was wrong** — narrow's
+spread at four seats is 0.017 (~2 SE). *Lesson: seed variance measured on one architecture does not
+transfer to another; a promotion needs its own replication.*
+
+### Deck-block heterogeneity, again
+
+Everything above is eval seed 0. Re-measured on a fresh block (seed 777777), the ordering held but
+absolute values moved by up to 1.7 points — and **R6's four-seat number fell from 0.297 to 0.268**.
+All promotion numbers below are therefore averaged over both blocks (6000 games/cell).
+
+### The promotion
+
+**`checkpoint_M1s3_mixed_snap300000`** (narrow mixed, seed 3, 300k, from scratch):
+
+| vs `h8` (2 blocks) | 2 seats (0.500) | 3 seats (0.333) | 4 seats (0.250) |
+|---|---|---|---|
+| R6 (previous champion) | 0.417 — **LOSES** | 0.340 | 0.283 |
+| **M1s3** | **0.579** | **0.376** | **0.303** |
+
+**Promotion standard (alternating 2v2, seat-swapped, paired, 4 seats): +0.0417 +/- 0.0112 per-seat
+(3.7 SE)**; 1v3 secondary agrees at +0.0500 +/- 0.0098 (5.1 SE). The two field compositions
+concurring is the clean case.
+
+> **This is not a generalist trading peak strength for coverage — it is better everywhere.** It beats
+> the outgoing champion on R6's own turf (four seats) *and* turns a model that **loses to a
+> hand-written heuristic at two seats** into one that beats it by 8 points there.
+
+### Choosing between seeds 2 and 3
+
+Statistically indistinguishable, and the metrics disagreed — vs-`h8` aggregate favoured seed 2
+(over-parity sum 0.183 vs 0.175, driven by three seats), while direct play favoured seed 3 (Mode A
+head-to-head better at 3p and 4p; paired 2v2 swap -0.018 +/- 0.011 against seed 2). Seed 3 was taken
+on the strength of the best-controlled test (the paired swap) plus its edge at the hardest count.
+Runner-up preserved as `checkpoint_M1s2_mixed_snap300000`; the choice between them is a coin flip and
+should not be cited as a real difference.
+
+### Blocking, completing the record
+
+Narrow seeds never block: `delta(k=1)` = -1.10 / -2.84 (seed 2, 200k/300k), -0.00 / -2.35 (seed 3),
+-0.36 (M1). Across all eleven probed snapshots, **2 block — both wide, in different snapshots per
+seed.** 2/6 wide vs 0/5 narrow is not significant, so this adds no architecture signal; it further
+confirms `delta(k)` is a noisy, mostly-negative transient. The champion does **not** block.
+
+### What did NOT replicate, and a correction to yesterday's entry
+
+Narrow seed 2's curve rises to ~150k and then **plateaus with ~1 SE wobble** (2p 0.577-0.580 across
+150k-300k), rather than peaking. The "wide peaks at 200k while narrow peaks at 100k, so width
+extends the horizon" reading is therefore **withdrawn**: peak *location* varies by seed within an
+architecture, so it was seed noise. Combined with the refuted blocking and the tight 300k null,
+**width buys nothing at all** — the clean verdict.
+
+---
+
 ## 2026-07-18 (later) — M2 seeds 2,3: the BLOCKING result does NOT replicate — it was a lucky snapshot. Width buys neither a robust win-rate gain nor blocking
 
 Two more wide-mixed seeds (2, 3), else identical to M2 (`--wide --num-players 2,3,4 --trials
