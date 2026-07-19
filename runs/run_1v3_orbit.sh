@@ -15,13 +15,13 @@ M=/home/orih/taki-ai/models
 CHAMP=$M/checkpoint_M1s3_mixed_snap300000
 R6=$M/checkpoint_r6L60_snap100000
 G=3000
-OUT=orbit_1v3_results.txt; : > $OUT
+mkdir -p results
+OUT=results/orbit_1v3_results.txt; : > $OUT
 say() { echo "$@" | tee -a $OUT; }
 
 say "######## (a) SE estimator diagnostic (3 seats, vs h8, block 0) ########"
-nice -n 19 ionice -c2 -n7 python \
-  /tmp/claude-1000/-home-orih-taki-ai/dc86c0d9-d66a-41e5-a740-b45a7a0063a3/scratchpad/se_check.py \
-  2>&1 | grep -vE "^  game |^--- " | tee -a $OUT
+nice -n 19 ionice -c2 -n7 python runs/se_check.py 2>&1 \
+  | grep -vE "^  game |^--- " | tee -a $OUT
 
 say ""
 say "######## (b) 4-seat 1v3 orbit: solo seat rotating (4 pairs = 8 runs) ########"
