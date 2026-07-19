@@ -10,22 +10,22 @@ __pycache__/
 /models/*
 !/models/.gitkeep
 
-# Run logs dropped at the repo root (train/eval stdout). Regenerable and huge — a 500k-trial
-# training log is ~10 MB of "Trial n/N". Root-level only: probes/*.log are deliberate artefacts
-# of a probe write-up and stay tracked.
-/*.log
+# Run logs (train/eval/probe stdout). Regenerable and huge — a 500k-trial training log is
+# ~10 MB of "Trial n/N".
+*.log
 
-# RUN RESULTS ARE NEVER COMMITTED. Harness stdout belongs in /results/ (untracked); the numbers
-# that matter get transcribed into RESEARCH_LOG.md, which is the record. Before 2026-07-19 three
-# *_results.txt files were tracked at the repo root — not by decision, but because /*.log above
-# ignores root logs while nothing ignored root .txt, so `git add` swept them in. They were
-# uncited by any doc and have been removed. The scripts that produce them live in /runs/ and
-# ARE tracked (small, and they document how a number was obtained).
+# RUN RESULTS ARE NEVER COMMITTED — no exceptions, including probe logs. Harness stdout is
+# not repo content; the numbers that matter get transcribed into RESEARCH_LOG.md, which IS the
+# record. What stays tracked is the *code that produces* a result (/runs/, probe.py, r6_accept.py)
+# and the *write-up that interprets* it (probes/*.md, RESEARCH_LOG.md) — never the stdout itself.
+#
+# History, so the drift is not repeated: three *_results.txt sat tracked at the repo root, not
+# by decision but because the old rule ignored only ROOT-level *.log while nothing ignored root
+# *.txt, so `git add` swept them in. probes/*.log were tracked by an explicit older decision
+# ("deliberate artefacts of a probe write-up"); that decision is REVERSED as of 2026-07-19.
+#
+# NOTE: RESEARCH_LOG.md and probes/*.md cite some probe logs by filename. Those files remain on
+# disk locally but are no longer in the repo, so a fresh clone will not have them — the citation
+# names the run that produced a number, it is not a promise the file is in the tree.
 /results/
 *_results.txt
-
-# Training progress logs: one line per trial (100k+ lines), regenerable, and train.py
-# already tees a copy into models/run<ts>/train.log (gitignored). Never commit these.
-probes/**/r6_*_full.log
-probes/**/r6_L*.log
-probes/**/tune.log
