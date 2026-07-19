@@ -14,6 +14,84 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit). The promotion survives it; the 3-seat number was ~1 point optimistic
+
+**Setup.** `eval_headtohead.py` was hardcoded to four seats, so every 2- and 3-seat claim this
+project has ever made rests on `eval.py` Mode A: 1-vs-N, seeded seat *shuffle*, and the mirrored
+field composition (`ref, new, new`) **never run**. That is a weaker grade of evidence than the
+4-seat paired swap, and the promotion quoted both side by side. Generalized the harness and
+re-measured the champion at all three counts, two deck blocks (seeds 0 / 777777), 3000 games/run.
+
+### The design: four seats was never a special case
+
+The rule is a **rotation orbit** (`orbit_pairs()`): rotate the base seat-set around the table, pair
+each rotation with its complement, dedup unordered pairs.
+
+| count | base | orbit | runs |
+|---|---|---|---|
+| 2 | `0` | `{0}\|{1}` | 2 |
+| 3 | `0` | `{0}\|{1,2}`, `{1}\|{0,2}`, `{2}\|{0,1}` | 6 |
+| 4 | `0,2` | `{0,2}\|{1,3}` | 2 |
+
+Two and four seats collapse to one pair *for the same reason* — an alternating base is rotationally
+symmetric with period 2, so the orbit shrinks from *n* to 2 and the complement family folds into it.
+Odd counts admit no alternating base, so nothing collapses: the full 2*n* runs. Seat balance and
+team-size balance are properties of the construction at every count; at odd *n* the complement
+family is what restores parity, which is what makes a lopsided 1-vs-2 a valid *paired* comparison
+(the two parities sum to 1, so `won_1 + won_2 - 1` has parity 0). Pinned in `h2htest.py` (9 tests),
+**including that the 4-seat orbit is bit-identical to the old two-run swap.**
+
+Two statistical details that matter at odd counts: the 3 pairs share decks, so the margin is
+averaged **within a game** (one observation per deck) rather than pooled — pooling would have
+understated the SE by ~sqrt(3). And the variance reduction is real: the 3-seat cells come in at
+SE 0.0066-0.0070 against 0.011-0.012 for the 2- and 4-seat cells on the same 3000 decks.
+
+### Results (paired orbit margin, parity 0.0; seat-balanced per-seat rates)
+
+| vs **R6** | blk 0 | blk 777777 | mean | M1s3 rate | R6 rate |
+|---|---|---|---|---|---|
+| 2 seats | +0.3173 ± 0.0111 | +0.2960 ± 0.0118 | **+0.307** | 0.659 / 0.648 | 0.341 / 0.352 |
+| 3 seats | +0.0852 ± 0.0066 | +0.0742 ± 0.0068 | **+0.080** | 0.362 / 0.358 | 0.305 / 0.309 |
+| 4 seats | +0.0417 ± 0.0112 | +0.0533 ± 0.0113 | **+0.048** | 0.260 / 0.263 | 0.240 / 0.237 |
+
+| vs **`h8`** | blk 0 | blk 777777 | mean | M1s3 rate | `h8` rate |
+|---|---|---|---|---|---|
+| 2 seats | +0.1500 ± 0.0118 | +0.1560 ± 0.0119 | **+0.153** | 0.575 / 0.578 | 0.425 / 0.422 |
+| 3 seats | +0.1034 ± 0.0070 | +0.1048 ± 0.0070 | **+0.104** | 0.368 / 0.368 | 0.299 / 0.298 |
+| 4 seats | +0.1023 ± 0.0115 | +0.1103 ± 0.0117 | **+0.106** | 0.276 / 0.278 | 0.224 / 0.222 |
+
+**The promotion holds.** Every cell is positive by many SE on both blocks, so *"M1s3 beats R6 at
+every seat count"* now stands on the rigorous paired standard at **all three** counts, not just at
+four. The 2-seat margin (+0.307) is enormous, as expected from R6 losing to a hand-written heuristic
+there.
+
+### Two corrections to the promotion entry above
+
+1. **The published `+0.0417 ± 0.0112` was deck block 0 ALONE, not "averaged over both blocks."**
+   The orbit reproduced it to the digit — which is the regression gate passing, and also proves its
+   provenance, since ±0.0112 is a single-3000-deck SE. The genuine two-block mean is **+0.048**. The
+   two-block averaging in that entry applied to the vs-`h8` table, not to the promotion standard.
+2. **The 3-seat vs-`h8` figure of 0.376 was ~1 point optimistic: the composition-balanced value is
+   0.368.** Mode A only ever ran `new, ref, ref` — M1s3 solo against two heuristics. Running the
+   mirror too pulls it down, and in the direction you'd predict: being the lone strong player among
+   weak ones is easier per-seat than being one of two strong players splitting the wins. Both blocks
+   give 0.368 exactly, so this is a real bias in the old measurement, not noise.
+
+At two seats the two harnesses agree essentially exactly (orbit margin +0.153 → rate 0.577 vs Mode
+A's 0.579), which is the cross-check that the older 2-seat numbers were sound — there the orbit
+margin reduces to `2 x rate - 1`, so the quantities are identical. **Do not attempt that mapping at
+four seats:** the orbit is a 2v2 (0.276) while the table's 0.303 is 1-vs-3, and M1s3's two seats
+split wins with each other. Different quantities, as the eval-discipline section already warns.
+
+### The caveat that no design removes
+
+At odd counts there is no equal partition and no alternating pattern, so the larger team's seats are
+necessarily **adjacent** — STOP/+2/CHDIR land on a teammate. Friendly fire is structural at three
+seats. The 3-seat numbers above are a real comparison but not a clean one, and should be quoted that
+way.
+
+---
+
 ## 2026-07-19 — PROMOTION: an all-seat mixed champion. It beats R6 at EVERY seat count, four seats included. And M1 — the net we were about to promote — was the worst of three seeds
 
 Narrow mixed seeds 2 and 3 (`--num-players 2,3,4 --trials 300000 --reward shaped --loss-penalty 60`,
@@ -57,6 +135,12 @@ All promotion numbers below are therefore averaged over both blocks (6000 games/
 **Promotion standard (alternating 2v2, seat-swapped, paired, 4 seats): +0.0417 +/- 0.0112 per-seat
 (3.7 SE)**; 1v3 secondary agrees at +0.0500 +/- 0.0098 (5.1 SE). The two field compositions
 concurring is the clean case.
+
+> **CORRECTED 2026-07-19 (later).** That +0.0417 is deck block 0 **alone** — despite the sentence
+> above about averaging over both blocks, which applies only to the vs-`h8` table. The two-block
+> mean is **+0.048**. Also, the 3-seat vs-`h8` value of **0.376 is ~1 point optimistic**: it is a
+> Mode A number, and Mode A only ever runs the `new, ref, ref` composition. Balanced over both
+> compositions it is **0.368**. Neither correction changes the promotion. See the entry above.
 
 > **This is not a generalist trading peak strength for coverage — it is better everywhere.** It beats
 > the outgoing champion on R6's own turf (four seats) *and* turns a model that **loses to a
