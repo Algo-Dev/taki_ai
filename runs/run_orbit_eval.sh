@@ -10,7 +10,7 @@
 # If it does not, the generalization changed the 4-seat design and every published margin is
 # invalidated -- stop and investigate rather than adopting the new number.
 set -u
-cd /home/orih/taki-ai-h2h-nseats
+cd /home/orih/taki-ai
 source ~/miniconda3/etc/profile.d/conda.sh 2>/dev/null || source /opt/conda/etc/profile.d/conda.sh 2>/dev/null
 conda activate tensorflow_env
 
@@ -18,7 +18,8 @@ M=/home/orih/taki-ai/models
 CHAMP=$M/checkpoint_M1s3_mixed_snap300000
 R6=$M/checkpoint_r6L60_snap100000
 G=3000
-OUT=orbit_results.txt; : > $OUT
+mkdir -p results
+OUT=results/orbit_results.txt; : > $OUT
 say() { echo "$@" | tee -a $OUT; }
 
 # Two deck blocks, as the promotion used -- absolute values move up to 1.7 pts between blocks.
