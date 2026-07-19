@@ -173,6 +173,7 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
     # the pairs share decks, so they are correlated, and one observation per deck is what makes
     # the SE honest.
     per_game = []
+    per_pair = [[] for _ in results]   # d_k(g), kept per pair for the per-pair breakdown
     for g in range(games):
         ds = []
         for b, c, _, _, win_b, _, _, win_c in results:
@@ -183,10 +184,16 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
             ds.append((1.0 if w1 in b else 0.0) + (1.0 if w2 in c else 0.0) - 1.0)
         if ds:
             per_game.append(sum(ds) / len(ds))
+            for k, d in enumerate(ds):
+                per_pair[k].append(d)
+
+    def mean_se(xs):
+        m = sum(xs) / len(xs) if xs else 0.0
+        v = sum((x - m) ** 2 for x in xs) / (len(xs) - 1) if len(xs) > 1 else 0.0
+        return m, math.sqrt(v / len(xs)) if xs else 0.0
+
     n = len(per_game)
-    mean_d = sum(per_game) / n if n else 0.0
-    var = sum((d - mean_d) ** 2 for d in per_game) / (n - 1) if n > 1 else 0.0
-    se = math.sqrt(var / n) if n else 0.0
+    mean_d, se = mean_se(per_game)
 
     # Seat-balanced rate: average the per-seat win rate over every (run, seat) a model sat in.
     # The orbit covers seats evenly, so this is unbiased at parity 1/num_players.
@@ -208,6 +215,21 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
         r_c = [w / total_c for w in wins_c] if total_c else [0.0] * num_players
         print(f'  pair {k + 1} ({b}|{c}) per-seat rates: '
               f'run1 {[f"{r:.3f}" for r in r_b]}  run2 {[f"{r:.3f}" for r in r_c]}')
+
+    # Per-pair margins. Each is a complete, self-contained paired comparison at one position of
+    # the base -- so a SPREAD across pairs means the edge is seat-dependent, which the pooled
+    # margin averages away. This is not a curiosity: the old hardcoded 1v3 could only ever run
+    # pair 1, and doing so overstated the champion's margin (+0.0500 vs +0.0333 rotating).
+    if len(results) > 1:
+        print(f'\n  Per-pair margins (each is the full paired comparison at one base position):')
+        pms = []
+        for k, (b, c, *_) in enumerate(results):
+            m_k, se_k = mean_se(per_pair[k])
+            pms.append(m_k)
+            print(f'    pair {k + 1} ({b}|{c}): {m_k:+.4f} +/- {se_k:.4f}')
+        print(f'    spread (max - min): {max(pms) - min(pms):+.4f}'
+              f'   <- large spread => the edge depends on WHERE, not just on skill')
+
     print(f'\n  Seat-balanced per-seat rate (parity {1 / num_players:.3f}):')
     print(f'    {name1}: {bal1:.3f}')
     print(f'    {name2}: {bal2:.3f}')

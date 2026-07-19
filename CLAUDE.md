@@ -244,7 +244,11 @@ python holdback.py heuristic:h1 --games 200                  # refusal/hold-back
 python tune_heuristic.py --games 3000 --passes 2             # H8 coordinate descent vs the champion (base h1b2)
 
 python eval_headtohead.py <cand> <champ> \
-    --team1-seats 0,2 --seat-swap --games 3000               # standard promotion test, 4 seats (see below)
+    --team1-seats 0,2 --seat-swap --games 3000               # promotion, BALANCED arm (4 seats, 2 runs)
+python eval_headtohead.py <cand> <champ> \
+    --team1-seats 0 --seat-swap --games 3000                 # promotion, SOLO arm (4 seats, 8 runs: 1v3/3v1
+                                                             # with the solo seat rotating). BOTH arms required
+                                                             # since 2026-07-19 — see below
 python eval_headtohead.py <cand> <champ> --num-players 3 \
     --team1-seats 0 --seat-swap --games 3000                 # same standard at 2 or 3 seats: the rotation orbit
                                                              # (6 runs at 3 seats, 2 at 2). Base 0 at odd counts,
@@ -284,10 +288,20 @@ Three layers with a strict encoding contract between them:
 - Ranking near-equal snapshots requires **≥3000 games** (SE ≈ ±0.008); 1200 games is too noisy for the typical 2–3 pt gaps.
 - **Mode B and `eval_headtohead.py` measure different quantities — don't compare their numbers directly.** Mode B `--baseline` is a **1-vs-N** win rate (one test model against N−1 copies of the baseline; parity `1/N`). `eval_headtohead.py` reports a **per-seat** rate for an arbitrary team split (e.g. 2v2). A modest edge does not map between them one-for-one; a gap between the two is expected, not evidence of a bug or a confound.
 - **Head-to-head evals need seat-swap controls** — this applies to `eval_headtohead.py`, which takes **explicit fixed seats**, and *not* to `eval.py`'s shuffled Mode A/B (see the bullet above). `Game.reset()` defaults `start_seat=0`, and seat 0 (the first to act) wins measurably more regardless of which model occupies it — confirmed across 14 seat configurations (every seat-position, every 2v2 partition) comparing `checkpoint_a4a7_snap550000` vs an A8-trained checkpoint: seat 0 was the top-scoring seat in nearly every run *independent of occupant*. A raw "model A at seat 0 vs model B at seats 1-3" result is therefore confounded and not a valid skill comparison.
-- **The standard head-to-head is the alternating 2v2 seat swap: `--team1-seats 0,2 --seat-swap`.** `--seat-swap` runs *both* occupancies of the partition (model1 at `0,2`, then model2 at `0,2`) over the **same decks** and reports the seat-balanced, paired comparison — so it is a promotion decision in one command. Two reasons this is the default rather than the old 1v3 (`--team1-seats 0`):
+- **THE PROMOTION STANDARD IS BOTH ORBITS, AND BOTH MUST PASS (changed 2026-07-19).** It is no longer "the 2v2 swap, with 1v3 as a secondary check" — the solo orbit is part of the standard, because it demonstrably *moves the number*: rotating the solo seat through all four positions took the champion's 1v3 margin from the published **+0.0500 ± 0.0098 to +0.0333 ± 0.0049**, i.e. fixing the solo seat at 0 overstated the edge by ~1.7 points. Run both, report both, and require both:
+
+  | count | balanced orbit | solo orbit | total runs |
+  |---|---|---|---|
+  | 2 | `--team1-seats 0` | *the same set* | 2 |
+  | 3 | none exists | `--team1-seats 0` (3 pairs) | 6 |
+  | 4 | `--team1-seats 0,2` (1 pair) | `--team1-seats 0` (4 pairs) | 10 |
+
+  At 2 and 3 seats the two coincide — at 2 the 1v1 *is* the alternating partition, and at 3 no balanced partition exists — so this adds a genuinely new requirement only at four seats and above. One rule, no per-count exception. **Changing this standard silently redefines what "promotable" means, so it is a deliberate act** (as with `REFERENCE`): if you change it, re-run the incumbent against the new definition and record both numbers. M1s3 was re-checked against it on adoption and passes (2v2 +0.048 two-block, 1v3 rotating +0.0333, both many SE positive).
+  - **Why the solo orbit is not redundant with the 2v2.** They are different *field compositions*, not different sample sizes. The seat-0 first-mover edge already cancels in either one (both models occupy every seat equally often), so the +0.050 → +0.033 shift is **not** a seat artifact — it says the champion's edge is seat-*dependent*, concentrated where it opens. Only rotating the solo position exposes that; the old fixed-seat-0 1v3 sampled the champion's best case.
+- **The balanced head-to-head is the alternating 2v2 seat swap: `--team1-seats 0,2 --seat-swap`.** `--seat-swap` runs *both* occupancies of the partition (model1 at `0,2`, then model2 at `0,2`) over the **same decks** and reports the seat-balanced, paired comparison. Two reasons this is preferred over the 1v3 (`--team1-seats 0`) *as the balanced arm*:
   - **Alternating seats (`A,B,A,B`) are the only 2v2 layout with no friendly fire.** STOP/+2/CHDIR hit your *neighbour*; in a contiguous 2v2 (`A,A,B,B`) half of each team's aggression lands on its own teammate, and CHDIR makes that asymmetry direction-dependent. Interleaved, every neighbour of an A is a B and vice versa.
   - **Seat balance is exact, and every seat is informative.** Across the two runs each model occupies each seat exactly once, so the seat-0 edge cancels by construction (not by averaging); and all four seats contribute to the team indicator (parity 0.5) instead of one Bernoulli per game (parity 0.25). Report the **paired same-seat margin** (parity 0.0, with a paired SE over common decks) — that is the headline number.
-  - Keep a **1v3 run (`--team1-seats 0 --seat-swap`) as a secondary check**, because 1v3 is the same shape as Mode B (one model in a homogeneous field) and is what the champion's headline number means. If the two disagree, that is real information — it says the candidate's edge depends on field composition — not a bug.
+  - The **1v3 run (`--team1-seats 0 --seat-swap`) is the solo arm of the standard above, no longer optional**, because 1v3 is the same shape as Mode B (one model in a homogeneous field) and is what the champion's headline number means. If the two arms disagree, that is real information — it says the candidate's edge depends on field composition — not a bug; but a disagreement in *sign* now blocks a promotion rather than being a footnote.
 - **`--seat-swap` is a ROTATION ORBIT, and that one rule covers every seat count — four seats is not a special case.** `orbit_pairs()` rotates `--team1-seats` around the table and pairs each rotation with its complement, deduping unordered pairs. What comes out:
 
   | count | base | orbit | runs |

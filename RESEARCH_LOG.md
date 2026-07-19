@@ -14,7 +14,7 @@ Definitions used throughout:
 
 ---
 
-## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit). The promotion survives it; the 3-seat number was ~1 point optimistic
+## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit), and the 1v3 arm joins the promotion standard. The promotion survives both; the 3-seat number was ~1 pt optimistic and the old 1v3 was measured at the champion's best seat
 
 **Setup.** `eval_headtohead.py` was hardcoded to four seats, so every 2- and 3-seat claim this
 project has ever made rests on `eval.py` Mode A: 1-vs-N, seeded seat *shuffle*, and the mirrored
@@ -42,9 +42,22 @@ family is what restores parity, which is what makes a lopsided 1-vs-2 a valid *p
 **including that the 4-seat orbit is bit-identical to the old two-run swap.**
 
 Two statistical details that matter at odd counts: the 3 pairs share decks, so the margin is
-averaged **within a game** (one observation per deck) rather than pooled — pooling would have
-understated the SE by ~sqrt(3). And the variance reduction is real: the 3-seat cells come in at
-SE 0.0066-0.0070 against 0.011-0.012 for the 2- and 4-seat cells on the same 3000 decks.
+averaged **within a game** (one observation per deck) rather than pooled as 9000 flat values. And
+the variance reduction is real: the 3-seat cells come in at SE 0.0066-0.0070 against 0.011-0.012
+for the 2- and 4-seat cells on the same 3000 decks.
+
+> **Measured, because I first asserted this wrongly.** Pooling understates the SE by
+> `sqrt(1 + 2*rho)` where rho is the mean correlation between pairs sharing a deck. I claimed
+> "~sqrt(3)" — that is only the rho=1 worst case. Measured on the 3-seat vs-`h8` block-0 cell:
+> **rho = +0.097**, so the understatement is **1.093, i.e. 9%, not 73%** (SE 0.0070 averaged vs
+> 0.0064 pooled; identical means, and the observed ratio matches `sqrt(1+2*rho)` to three
+> decimals). That changes no verdict here (12.9 SE becomes 14.1 SE). **Per-deck averaging is still
+> the right default — not because the correction is large, but because it is correct for any rho,
+> whereas pooling assumes independence the harness does not control.** Second wrong guess worth
+> recording: I predicted rho would be *negative*, reasoning that a deck favouring seat 0 helps the
+> champion in pair 1 but helps the opponent in pairs 2-3. It is mildly positive, so whole-deck
+> properties (how many +2s circulate, how fast the deal resolves) move all pairs together and
+> outweigh that seat-specific effect.
 
 ### Results (paired orbit margin, parity 0.0; seat-balanced per-seat rates)
 
@@ -82,6 +95,43 @@ A's 0.579), which is the cross-check that the older 2-seat numbers were sound �
 margin reduces to `2 x rate - 1`, so the quantities are identical. **Do not attempt that mapping at
 four seats:** the orbit is a 2v2 (0.276) while the table's 0.303 is 1-vs-3, and M1s3's two seats
 split wins with each other. Different quantities, as the eval-discipline section already warns.
+
+### The solo orbit joins the promotion standard — and finds the old 1v3 was measured at the champion's best seat
+
+At the user's direction the **1v3 orbit is now part of the promotion standard, not a secondary
+check** (`--team1-seats 0 --seat-swap`, which at four seats is 4 pairs = 8 runs: `A,B,B,B` and
+`B,A,A,A` with the solo seat rotating through all four positions). It earned that on evidence: it
+*moves the number*.
+
+| 4 seats, two-block mean | balanced 2v2 (`0,2`) | solo 1v3 rotating (`0`) |
+|---|---|---|
+| vs R6 | +0.048 (per-seat 0.2615) | **+0.034** (0.2585) |
+| vs `h8` | +0.106 (0.277) | **+0.087** (0.272) |
+
+Both arms pass against both opponents on both blocks, so **the promotion holds under the stricter
+standard**. Useful identity when comparing arms: the paired margin is exactly `n * (seat-balanced
+rate) - 1`, so a margin gap must be divided by *n* to read as skill. The composition effect is
+**0.3-0.5 points of per-seat rate**, not the 1.4-1.9 points the raw margins suggest.
+
+**The published 1v3 secondary `+0.0500 +/- 0.0098` reproduces EXACTLY as pair 1** — a second
+regression gate, confirming the old measurement is a strict *subset* of the new one rather than
+irreproducible. But the per-pair breakdown shows why the subset was misleading:
+
+| solo position | margin vs R6 (block 0) | champion's rate in that seat | R6's rate in that seat |
+|---|---|---|---|
+| **seat 0** | **+0.0500 ± 0.0098** | 0.287 | 0.237 |
+| seat 1 | +0.0247 ± 0.0096 | 0.271 | 0.246 |
+| seat 2 | +0.0297 ± 0.0096 | 0.263 | 0.233 |
+| seat 3 | +0.0290 ± 0.0093 | 0.248 | 0.219 |
+
+Seats 1-3 cluster at ~+0.028; **seat 0 is nearly double and ~2 SE above them.** So the old
+fixed-seat-0 1v3 sampled the champion's *best* position. **This is not the seat-0 first-mover edge
+leaking in** — that cancels in either design, since both models occupy seat 0 exactly once in the
+2-run version. It is a behavioural fact about M1s3: *it converts the opening seat into wins about
+twice as effectively as R6 does* (5-point gap at seat 0 vs 2.5-3 points elsewhere). Plausibly a
+mixed-count effect — the opener matters most at two seats, where M1s3 trained and R6 never did —
+but that is a hypothesis, not a measurement. `--seat-swap` now prints per-pair margins and their
+spread so this is visible by default.
 
 ### The caveat that no design removes
 
