@@ -45,10 +45,25 @@ Current best model: **`models/checkpoint_M1s3_mixed_snap300000`** — the first 
 | R6 (previous champion, 4-seat only) | 0.417 — **it LOSES** | 0.340 | 0.283 |
 | **M1s3 (current)** | **0.579** | **0.376** | **0.303** |
 
-It beats R6 at **every** seat count — including four seats, R6's own specialty: **+0.0417 ± 0.0112
-per-seat (3.7 SE)** on the seat-swapped 2v2 promotion standard, with the 1v3 secondary agreeing
-(+0.0500 ± 0.0098). So this is not a "generalist that trades 4-seat strength for coverage" — it is
-better everywhere.
+It beats R6 at **every** seat count — including four seats, R6's own specialty. Confirmed
+**2026-07-19 (later)** under the paired rotation-orbit head-to-head *at all three counts*, two deck
+blocks, rather than only at four:
+
+| paired orbit margin vs R6 (parity 0.0) | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| mean of 2 deck blocks | **+0.307** | **+0.080** | **+0.048** |
+
+So this is not a "generalist that trades 4-seat strength for coverage" — it is better everywhere,
+and now on the same grade of evidence everywhere. (The older headline, +0.0417 ± 0.0112 on the
+4-seat swap with a 1v3 secondary of +0.0500 ± 0.0098, was deck block 0 alone; the two-block mean is
++0.048.)
+
+> **The Mode A row above is not composition-balanced, and at 3 seats it is ~1 point optimistic.**
+> `eval.py` Mode A only ever runs `new, ref, ref` — the champion solo against a homogeneous field.
+> Balanced over both compositions the 3-seat vs-`h8` value is **0.368**, not 0.376 (both deck blocks
+> agree exactly). The 2-seat value is sound (orbit gives 0.577 vs the 0.579 above; there the two
+> quantities are identical). The 4-seat 0.303 is 1-vs-3 and does **not** correspond to the orbit's
+> 2v2 value of 0.277 — different quantities, see the eval-discipline section.
 
 > **Seed variance is real; this is the best of THREE narrow mixed seeds.** The first mixed net (M1,
 > seed 1) was the *worst* of the three — 0.571 / 0.377 / 0.282, i.e. ~2 points behind at four seats.
@@ -223,13 +238,17 @@ python eval.py --model <ckpt> --opponent heuristic:h1b2 \
     --games 3000                                             # vs a specific frozen version (r3/b2/h1/h1b2/greedy)
 python eval.py --model heuristic --games 3000                # the heuristic itself, vs random
 python eval.py --model <ckpt> --opponent <ckpt2> \
-    --num-players 2 --games 3000                             # 1-vs-N against a MODEL (the only way at 2/3 seats;
-                                                             # eval_headtohead.py is 4-seat-only)
+    --num-players 2 --games 3000                             # 1-vs-N against a MODEL (shuffled seating, one
+                                                             # composition only — prefer the paired orbit below)
 python holdback.py heuristic:h1 --games 200                  # refusal/hold-back census (draw refusals must be 0 under H1)
 python tune_heuristic.py --games 3000 --passes 2             # H8 coordinate descent vs the champion (base h1b2)
 
 python eval_headtohead.py <cand> <champ> \
-    --team1-seats 0,2 --seat-swap --games 3000               # standard promotion test (see below)
+    --team1-seats 0,2 --seat-swap --games 3000               # standard promotion test, 4 seats (see below)
+python eval_headtohead.py <cand> <champ> --num-players 3 \
+    --team1-seats 0 --seat-swap --games 3000                 # same standard at 2 or 3 seats: the rotation orbit
+                                                             # (6 runs at 3 seats, 2 at 2). Base 0 at odd counts,
+                                                             # alternating (0,2) at 4
 
 python main.py --model <ckpt>                                # seeded demo game (greedy)
 
@@ -269,6 +288,18 @@ Three layers with a strict encoding contract between them:
   - **Alternating seats (`A,B,A,B`) are the only 2v2 layout with no friendly fire.** STOP/+2/CHDIR hit your *neighbour*; in a contiguous 2v2 (`A,A,B,B`) half of each team's aggression lands on its own teammate, and CHDIR makes that asymmetry direction-dependent. Interleaved, every neighbour of an A is a B and vice versa.
   - **Seat balance is exact, and every seat is informative.** Across the two runs each model occupies each seat exactly once, so the seat-0 edge cancels by construction (not by averaging); and all four seats contribute to the team indicator (parity 0.5) instead of one Bernoulli per game (parity 0.25). Report the **paired same-seat margin** (parity 0.0, with a paired SE over common decks) — that is the headline number.
   - Keep a **1v3 run (`--team1-seats 0 --seat-swap`) as a secondary check**, because 1v3 is the same shape as Mode B (one model in a homogeneous field) and is what the champion's headline number means. If the two disagree, that is real information — it says the candidate's edge depends on field composition — not a bug.
+- **`--seat-swap` is a ROTATION ORBIT, and that one rule covers every seat count — four seats is not a special case.** `orbit_pairs()` rotates `--team1-seats` around the table and pairs each rotation with its complement, deduping unordered pairs. What comes out:
+
+  | count | base | orbit | runs |
+  |---|---|---|---|
+  | 2 | `0` | `{0}\|{1}` | 2 |
+  | 3 | `0` | `{0}\|{1,2}`, `{1}\|{0,2}`, `{2}\|{0,1}` | 6 |
+  | 4 | `0,2` | `{0,2}\|{1,3}` | 2 |
+
+  Two and four seats collapse to a single pair *for the same reason*: an alternating base is rotationally symmetric with period 2, so its orbit shrinks from *n* to 2 and the complement family folds into it. Odd counts have no alternating base, so nothing collapses and the orbit is the full 2*n* runs. Seat balance and team-size balance are properties of the construction at every count — at odd *n* the complement family is exactly what restores parity (a model is solo in half the runs, in the majority in the other half), which is what makes the lopsided 1-vs-2 a valid *paired* comparison. `h2htest.py` pins all of this, **including that the 4-seat orbit is bit-identical to the pre-generalization two-run swap** — every published 4-seat margin was measured with exactly those two runs, so if that test fails the numbers no longer describe the tree.
+  - **At odd counts friendly fire is structural and no seating design removes it.** With *n* odd there is no equal partition and no alternating pattern, so the larger team's seats are necessarily adjacent. A 3-seat comparison is a real comparison, but not a clean one — say so when quoting it.
+  - **Only the *shape* of `--team1-seats` matters under `--seat-swap`, not its position** — rotating the base regenerates the same orbit (pinned). Use the alternating base at even counts; at odd counts `0` is forced up to rotation.
+  - Before 2026-07-19 `eval_headtohead.py` was **hardcoded to 4 seats**, so every 2- and 3-seat claim in this project's history rests on `eval.py` Mode A (1-vs-N, seeded seat *shuffle*, mirrored composition never run) — fair in expectation, but seat effects averaged rather than cancelled, no per-deck pairing, and only ever `new, ref, ref`. Numbers measured that way are a **weaker grade of evidence** than a paired orbit margin; don't quote them side by side without saying which is which.
   - Pairing requires that both runs see the same decks, which is why `play_match` reseeds the deck RNG to `seed + g` before **every** game (as `eval.py` does). Without that, mid-game reshuffles make game *g*'s deal depend on how earlier games played out, and the two swap runs silently diverge. Preserve this.
 
 ## Conventions & gotchas
