@@ -216,19 +216,24 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
         print(f'  pair {k + 1} ({b}|{c}) per-seat rates: '
               f'run1 {[f"{r:.3f}" for r in r_b]}  run2 {[f"{r:.3f}" for r in r_c]}')
 
-    # Per-pair margins. Each is a complete, self-contained paired comparison at one position of
-    # the base -- so a SPREAD across pairs means the edge is seat-dependent, which the pooled
-    # margin averages away. This is not a curiosity: the old hardcoded 1v3 could only ever run
-    # pair 1, and doing so overstated the champion's margin (+0.0500 vs +0.0333 rotating).
+    # Per-pair margins. Each is a complete paired comparison at one position of the base, on 1/k
+    # of the decks' information. Printed because the solo orbit is part of the promotion standard
+    # and the old hardcoded 1v3 could only ever run pair 1 (+0.0500 vs +0.0333 rotating).
+    #
+    # READ THE SPREAD AS NOISE, NOT AS POSITIONAL SKILL. A "the champion exploits seat 0" reading
+    # of one block did not survive the second: seat 0 went from the highest pair (+0.0500, ~2 SE
+    # above the rest) to the LOWEST (+0.0267), and the spread halved. The pooled margin is the
+    # stable quantity. Only believe a per-pair pattern that replicates across deck blocks.
     if len(results) > 1:
-        print(f'\n  Per-pair margins (each is the full paired comparison at one base position):')
+        print(f'\n  Per-pair margins (each is one base position, on 1/{len(results)} of the '
+              f'information -- expect ~{math.sqrt(len(results)):.1f}x the pooled SE):')
         pms = []
         for k, (b, c, *_) in enumerate(results):
             m_k, se_k = mean_se(per_pair[k])
             pms.append(m_k)
             print(f'    pair {k + 1} ({b}|{c}): {m_k:+.4f} +/- {se_k:.4f}')
         print(f'    spread (max - min): {max(pms) - min(pms):+.4f}'
-              f'   <- large spread => the edge depends on WHERE, not just on skill')
+              f'   <- a NOISE diagnostic; positional skill requires replication across blocks')
 
     print(f'\n  Seat-balanced per-seat rate (parity {1 / num_players:.3f}):')
     print(f'    {name1}: {bal1:.3f}')

@@ -14,7 +14,7 @@ Definitions used throughout:
 
 ---
 
-## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit), and the 1v3 arm joins the promotion standard. The promotion survives both; the 3-seat number was ~1 pt optimistic and the old 1v3 was measured at the champion's best seat
+## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit), and the 1v3 arm joins the promotion standard. The promotion survives both; the 3-seat number was ~1 pt optimistic and a seat-dependence reading of the old 1v3 was refuted on replication
 
 **Setup.** `eval_headtohead.py` was hardcoded to four seats, so every 2- and 3-seat claim this
 project has ever made rests on `eval.py` Mode A: 1-vs-N, seeded seat *shuffle*, and the mirrored
@@ -115,23 +115,22 @@ rate) - 1`, so a margin gap must be divided by *n* to read as skill. The composi
 
 **The published 1v3 secondary `+0.0500 +/- 0.0098` reproduces EXACTLY as pair 1** — a second
 regression gate, confirming the old measurement is a strict *subset* of the new one rather than
-irreproducible. But the per-pair breakdown shows why the subset was misleading:
+irreproducible. The subset is misleading simply because it is **one position out of four, on a
+quarter of the data, and it fluctuated high**.
 
-| solo position | margin vs R6 (block 0) | champion's rate in that seat | R6's rate in that seat |
-|---|---|---|---|
-| **seat 0** | **+0.0500 ± 0.0098** | 0.287 | 0.237 |
-| seat 1 | +0.0247 ± 0.0096 | 0.271 | 0.246 |
-| seat 2 | +0.0297 ± 0.0096 | 0.263 | 0.233 |
-| seat 3 | +0.0290 ± 0.0093 | 0.248 | 0.219 |
+> **A "seat-dependence" reading of this was proposed and then REFUTED — recorded because the
+> refutation is the useful part.** On block 0 the per-pair margins are seat0 **+0.0500** vs
+> +0.0247 / +0.0297 / +0.0290 — seat 0 nearly double, ~2 SE above the rest — which looked like
+> M1s3 converting the opening seat about twice as effectively as R6. Replicated on block 777777 it
+> **inverts**: seat0 **+0.0267** is now the *lowest*, against +0.0360 / +0.0383 / +0.0360. Seat 0
+> minus the mean of the others is +0.0222 on one block and -0.0101 on the other, and the spread
+> collapses from 0.0253 to 0.0117. **There is no seat effect; the old +0.0500 was noise in a
+> quarter-sized sample.** This is the `delta(k)` lesson again: *never call a per-pair pattern from
+> one deck block — the pooled margin is the stable quantity* (+0.0333 / +0.0343 across the two
+> blocks, while its components swing by 2 SE).
 
-Seats 1-3 cluster at ~+0.028; **seat 0 is nearly double and ~2 SE above them.** So the old
-fixed-seat-0 1v3 sampled the champion's *best* position. **This is not the seat-0 first-mover edge
-leaking in** — that cancels in either design, since both models occupy seat 0 exactly once in the
-2-run version. It is a behavioural fact about M1s3: *it converts the opening seat into wins about
-twice as effectively as R6 does* (5-point gap at seat 0 vs 2.5-3 points elsewhere). Plausibly a
-mixed-count effect — the opener matters most at two seats, where M1s3 trained and R6 never did —
-but that is a hypothesis, not a measurement. `--seat-swap` now prints per-pair margins and their
-spread so this is visible by default.
+`--seat-swap` prints per-pair margins and their spread so this is inspectable — but read the spread
+as a **noise diagnostic**, not as evidence of positional skill, unless it replicates across blocks.
 
 ### The caveat that no design removes
 
