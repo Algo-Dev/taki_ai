@@ -33,7 +33,8 @@ R6=/home/orih/taki-ai/models/checkpoint_r6L60_snap100000
 E="nice -n 19 ionice -c2 -n7 python eval.py"
 G=3000    # SE ~ +/-0.008; ~15-30s per cell, so there is no reason to skimp
 
-OUT=eval_results.txt
+mkdir -p results
+OUT=results/eval_results.txt
 : > $OUT
 say() { echo "$@" | tee -a $OUT; }
 

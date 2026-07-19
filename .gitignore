@@ -15,6 +15,15 @@ __pycache__/
 # of a probe write-up and stay tracked.
 /*.log
 
+# RUN RESULTS ARE NEVER COMMITTED. Harness stdout belongs in /results/ (untracked); the numbers
+# that matter get transcribed into RESEARCH_LOG.md, which is the record. Before 2026-07-19 three
+# *_results.txt files were tracked at the repo root — not by decision, but because /*.log above
+# ignores root logs while nothing ignored root .txt, so `git add` swept them in. They were
+# uncited by any doc and have been removed. The scripts that produce them live in /runs/ and
+# ARE tracked (small, and they document how a number was obtained).
+/results/
+*_results.txt
+
 # Training progress logs: one line per trial (100k+ lines), regenerable, and train.py
 # already tees a copy into models/run<ts>/train.log (gitignored). Never commit these.
 probes/**/r6_*_full.log

@@ -21,7 +21,8 @@ R6=$CKPT/checkpoint_r6L60_snap100000
 E="nice -n 19 ionice -c2 -n7 python eval.py"
 G=3000
 
-OUT=eval_results.txt; : > $OUT
+mkdir -p results
+OUT=results/eval_results.txt; : > $OUT
 say() { echo "$@" | tee -a $OUT; }
 score() { $E --model "$1" --opponent "$2" --num-players "$3" --games $G 2>&1 \
             | grep -oP '\d+/\d+ = \K[\d.]+' | head -1; }

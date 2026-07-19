@@ -13,7 +13,8 @@ conda activate tensorflow_env
 CKPT=/home/orih/taki-ai/models
 E="nice -n 19 ionice -c2 -n7 python eval.py"
 G=3000
-OUT=m2_seeds_results.txt; : > $OUT
+mkdir -p results
+OUT=results/m2_seeds_results.txt; : > $OUT
 say() { echo "$@" | tee -a $OUT; }
 score() { $E --model "$1" --opponent "$2" --num-players "$3" --games $G 2>&1 \
             | grep -oP '\d+/\d+ = \K[\d.]+' | head -1; }
