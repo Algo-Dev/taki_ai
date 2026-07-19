@@ -1,0 +1,93 @@
+######## (a) SE estimator diagnostic (3 seats, vs h8, block 0) ########
+2026-07-19 16:06:22.243744: I tensorflow/compiler/jit/xla_cpu_device.cc:41] Not creating XLA devices, tf_xla_enable_xla_devices not set
+2026-07-19 16:06:22.243914: I tensorflow/core/platform/cpu_feature_guard.cc:142] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  SSE4.1 SSE4.2 AVX AVX2 AVX512F FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+
+
+
+
+
+
+
+================ SE ESTIMATOR COMPARISON (3 seats, vs h8, block 0) ================
+  decks used: 3000   pairs: 3
+  per-deck averaged : mean +0.1034  SE 0.0070   (n=3000)
+  pooled flat       : mean +0.1034  SE 0.0064   (n=9000)
+  ratio SE_avg / SE_pooled = 1.093
+
+  pairwise correlations between pairs on a shared deck: ['+0.094', '+0.109', '+0.089']
+  mean rho = +0.0974
+  predicted understatement sqrt(1 + 2*rho) = 1.093
+  worst case (rho=1) would be sqrt(3) = 1.732
+
+######## (b) 4-seat 1v3 orbit: solo seat rotating (4 pairs = 8 runs) ########
+
+=== M1s3 vs checkpoint_r6L60_snap100000 | 4 seats | 1v3 rotating | deck block 0 ===
+=== Rotation orbit of [0] at 4 seats: 4 complementary pair(s) = 8 runs ===
+    checkpoint_M1s3_mixed_snap300000 @ [0] vs checkpoint_r6L60_snap100000 @ [1, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [1] vs checkpoint_r6L60_snap100000 @ [0, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [2] vs checkpoint_r6L60_snap100000 @ [0, 1, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [3] vs checkpoint_r6L60_snap100000 @ [0, 1, 2]   +   the complement
+  pair 1 ([0]|[1, 2, 3]) per-seat rates: run1 ['0.287', '0.254', '0.241', '0.218']  run2 ['0.237', '0.266', '0.260', '0.237']
+  pair 2 ([1]|[0, 2, 3]) per-seat rates: run1 ['0.265', '0.271', '0.243', '0.222']  run2 ['0.256', '0.246', '0.255', '0.244']
+  pair 3 ([2]|[0, 1, 3]) per-seat rates: run1 ['0.266', '0.243', '0.263', '0.227']  run2 ['0.257', '0.274', '0.233', '0.235']
+  pair 4 ([3]|[0, 1, 2]) per-seat rates: run1 ['0.258', '0.256', '0.238', '0.248']  run2 ['0.265', '0.256', '0.260', '0.219']
+  Seat-balanced per-seat rate (parity 0.250):
+    checkpoint_M1s3_mixed_snap300000: 0.258
+    checkpoint_r6L60_snap100000: 0.242
+  Paired margin (checkpoint_M1s3_mixed_snap300000 minus checkpoint_r6L60_snap100000, same seats & same decks; parity 0.0):
+    +0.0333 +/- 0.0049  (paired SE over 3000 common decks)
+Verdict: checkpoint_M1s3_mixed_snap300000 stronger (margin > 2 paired SE)
+
+=== M1s3 vs checkpoint_r6L60_snap100000 | 4 seats | 1v3 rotating | deck block 777777 ===
+=== Rotation orbit of [0] at 4 seats: 4 complementary pair(s) = 8 runs ===
+    checkpoint_M1s3_mixed_snap300000 @ [0] vs checkpoint_r6L60_snap100000 @ [1, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [1] vs checkpoint_r6L60_snap100000 @ [0, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [2] vs checkpoint_r6L60_snap100000 @ [0, 1, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [3] vs checkpoint_r6L60_snap100000 @ [0, 1, 2]   +   the complement
+  pair 1 ([0]|[1, 2, 3]) per-seat rates: run1 ['0.299', '0.246', '0.229', '0.226']  run2 ['0.272', '0.256', '0.230', '0.242']
+  pair 2 ([1]|[0, 2, 3]) per-seat rates: run1 ['0.277', '0.268', '0.226', '0.229']  run2 ['0.294', '0.232', '0.232', '0.242']
+  pair 3 ([2]|[0, 1, 3]) per-seat rates: run1 ['0.289', '0.227', '0.252', '0.231']  run2 ['0.290', '0.260', '0.214', '0.236']
+  pair 4 ([3]|[0, 1, 2]) per-seat rates: run1 ['0.281', '0.243', '0.226', '0.250']  run2 ['0.292', '0.254', '0.240', '0.214']
+  Seat-balanced per-seat rate (parity 0.250):
+    checkpoint_M1s3_mixed_snap300000: 0.259
+    checkpoint_r6L60_snap100000: 0.241
+  Paired margin (checkpoint_M1s3_mixed_snap300000 minus checkpoint_r6L60_snap100000, same seats & same decks; parity 0.0):
+    +0.0343 +/- 0.0049  (paired SE over 3000 common decks)
+Verdict: checkpoint_M1s3_mixed_snap300000 stronger (margin > 2 paired SE)
+
+=== M1s3 vs heuristic:h8 | 4 seats | 1v3 rotating | deck block 0 ===
+=== Rotation orbit of [0] at 4 seats: 4 complementary pair(s) = 8 runs ===
+    checkpoint_M1s3_mixed_snap300000 @ [0] vs heuristic:h8 @ [1, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [1] vs heuristic:h8 @ [0, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [2] vs heuristic:h8 @ [0, 1, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [3] vs heuristic:h8 @ [0, 1, 2]   +   the complement
+  pair 1 ([0]|[1, 2, 3]) per-seat rates: run1 ['0.307', '0.236', '0.234', '0.222']  run2 ['0.215', '0.274', '0.256', '0.255']
+  pair 2 ([1]|[0, 2, 3]) per-seat rates: run1 ['0.256', '0.302', '0.220', '0.222']  run2 ['0.272', '0.214', '0.271', '0.243']
+  pair 3 ([2]|[0, 1, 3]) per-seat rates: run1 ['0.246', '0.248', '0.278', '0.228']  run2 ['0.277', '0.267', '0.208', '0.248']
+  pair 4 ([3]|[0, 1, 2]) per-seat rates: run1 ['0.251', '0.238', '0.232', '0.278']  run2 ['0.271', '0.279', '0.261', '0.189']
+  Seat-balanced per-seat rate (parity 0.250):
+    checkpoint_M1s3_mixed_snap300000: 0.271
+    heuristic:h8: 0.229
+  Paired margin (checkpoint_M1s3_mixed_snap300000 minus heuristic:h8, same seats & same decks; parity 0.0):
+    +0.0847 +/- 0.0053  (paired SE over 3000 common decks)
+Verdict: checkpoint_M1s3_mixed_snap300000 stronger (margin > 2 paired SE)
+
+=== M1s3 vs heuristic:h8 | 4 seats | 1v3 rotating | deck block 777777 ===
+=== Rotation orbit of [0] at 4 seats: 4 complementary pair(s) = 8 runs ===
+    checkpoint_M1s3_mixed_snap300000 @ [0] vs heuristic:h8 @ [1, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [1] vs heuristic:h8 @ [0, 2, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [2] vs heuristic:h8 @ [0, 1, 3]   +   the complement
+    checkpoint_M1s3_mixed_snap300000 @ [3] vs heuristic:h8 @ [0, 1, 2]   +   the complement
+  pair 1 ([0]|[1, 2, 3]) per-seat rates: run1 ['0.328', '0.232', '0.220', '0.221']  run2 ['0.236', '0.267', '0.250', '0.246']
+  pair 2 ([1]|[0, 2, 3]) per-seat rates: run1 ['0.267', '0.290', '0.226', '0.216']  run2 ['0.299', '0.196', '0.258', '0.247']
+  pair 3 ([2]|[0, 1, 3]) per-seat rates: run1 ['0.263', '0.238', '0.278', '0.221']  run2 ['0.294', '0.260', '0.200', '0.246']
+  pair 4 ([3]|[0, 1, 2]) per-seat rates: run1 ['0.262', '0.230', '0.226', '0.282']  run2 ['0.293', '0.262', '0.261', '0.185']
+  Seat-balanced per-seat rate (parity 0.250):
+    checkpoint_M1s3_mixed_snap300000: 0.273
+    heuristic:h8: 0.228
+  Paired margin (checkpoint_M1s3_mixed_snap300000 minus heuristic:h8, same seats & same decks; parity 0.0):
+    +0.0900 +/- 0.0053  (paired SE over 3000 common decks)
+Verdict: checkpoint_M1s3_mixed_snap300000 stronger (margin > 2 paired SE)
+
+1v3 ORBIT COMPLETE 16:23
