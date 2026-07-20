@@ -433,17 +433,18 @@ class FrozenVersionTest(unittest.TestCase):
                 g.next_turn()
         return voluntary
 
-    def test_the_reference_is_h8_promoted_from_r3_by_b5(self):
-        """B5 (2026-07-14): the yardstick was PROMOTED r3 -> h8, deliberately, with both
-        numbers re-run and recorded (R6: 0.378 vs r3 -> 0.297 vs h8; A9: 0.348 -> 0.271).
+    def test_the_reference_is_h9_promoted_from_h8_on_2026_07_21(self):
+        """PROMOTED h8 -> h9 on 2026-07-21 (RESEARCH_LOG 2026-07-20), deliberately. h9 is a
+        strict improvement: identical to h8 above two seats, +0.026 better at two. Two-seat
+        champion numbers re-run and recorded (M1s3 0.577 -> 0.567; R6 0.417 -> 0.402).
 
-        Changing REFERENCE is never a side effect — it silently redefines every "vs
-        heuristic" number the project reports. This test exists so that a future edit that
-        moves it has to say so out loud."""
-        from agents.heuristic import REFERENCE, resolve_weights, H8
-        self.assertEqual(REFERENCE, 'h8')
-        self.assertEqual(resolve_weights(), H8)
-        self.assertEqual(resolve_weights(''), H8)
+        The earlier promotion was r3 -> h8 (B5, 2026-07-14). Changing REFERENCE is never a
+        side effect — it silently redefines every "vs heuristic" number the project reports.
+        This test exists so that a future edit that moves it has to say so out loud."""
+        from agents.heuristic import REFERENCE, resolve_weights, H9
+        self.assertEqual(REFERENCE, 'h9')
+        self.assertEqual(resolve_weights(), H9)
+        self.assertEqual(resolve_weights(''), H9)
 
     #: Move-sequence fingerprints: the sha256 of every (seat, action, card) each version
     #: chooses across 60 seeded 4-player games — thousands of decisions, hashed.

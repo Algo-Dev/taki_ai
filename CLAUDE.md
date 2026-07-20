@@ -45,6 +45,11 @@ Current best model: **`models/checkpoint_M1s3_mixed_snap300000`** — the first 
 | R6 (previous champion, 4-seat only) | 0.417 — **it LOSES** | 0.340 | 0.283 |
 | **M1s3 (current)** | **0.579** | **0.376** | **0.303** |
 
+> This table is **vs `h8`**, the reference *until 2026-07-21*. The reference is now `h9` (see the
+> H-series table below); at 3 and 4 seats h9 IS h8, so those columns are unchanged, but the 2-seat
+> column vs the current reference is **M1s3 0.567, R6 0.402** (orbit). `h8` numbers are kept here
+> because they are what the rest of the pre-2026-07-21 log compares to.
+
 It beats R6 at **every** seat count — including four seats, R6's own specialty. Confirmed
 **2026-07-19 (later)** under the paired rotation-orbit head-to-head *at all three counts*, two deck
 blocks, rather than only at four:
@@ -163,8 +168,8 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 | `b2` | B2's retuned weights (legacy structure) | -0.065 | 0.899 |
 | `h1` | **R3's exact weights** + H1's structure (the +0.183 result) | -0.079 | 0.896 |
 | `h1b2` | B2's weights + H1's structure | -0.065 | 0.897 |
-| **`h8`** | **the REFERENCE** — H8's tuned point on H1's structure | **-0.073** | **0.906** |
-| `h9` | `h8` + the H9 tempo structure. **IDENTICAL to `h8` at 3 and 4 seats** (exactly 0.0000 margin, pinned) — the change is gated to two seats by the rules | +0.026 vs `h8` **@2 seats only** | 0.966 @2 |
+| `h8` | the **previous** REFERENCE (h8 -> h9 on 2026-07-21). H8's tuned point on H1's structure. Still frozen; cite pre-2026-07-21 two-seat numbers as `heuristic:h8` | **-0.073** | **0.906** |
+| **`h9`** | **the REFERENCE** — `h8` + the H9 tempo structure. **IDENTICAL to `h8` at 3 and 4 seats** (exactly 0.0000 margin, pinned) — the change is gated to two seats by the rules, +0.026 there | +0.026 vs `h8` **@2 seats only** | 0.966 @2 |
 | `h10` | `h9` retuned AT TWO SEATS vs the M1s3 champion. **A 2-seat yardstick only** | +0.0385 vs `h8` **@2**; -0.0015 @4 (nothing) | 0.964 @2 |
 | `h11` | `h8` + STOP tempo at EVERY count (`w_plus_tempo/(n-1)`) — **refuted, off**. IS `h9` at 2 seats | +0.0048 @3 (1.2 SE), -0.0026 @4 | — |
 | `h7` | `h1b2` + the RACE behaviour — **refuted, off** (racing loses monotonically) | — | — |
@@ -174,6 +179,13 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 > `checkpoint_M1s3_mixed_snap300000` on 2026-07-19 and those numbers were never re-run against it.
 > The `h9`/`h10` rows quote a different quantity (vs `h8`, at two seats) and say so inline. Do not
 > read down the column as if it were one measurement.
+
+> **REFERENCE was promoted `h8` -> `h9` on 2026-07-21** (RESEARCH_LOG 2026-07-20). Because h9 is
+> bit-identical to h8 above two seats, the promotion changes ONLY the two-seat meaning of a bare
+> `heuristic` spec; every 3- and 4-seat vs-`h8` number in this repo still describes the reference
+> verbatim. Two-seat champion numbers re-run and recorded: **M1s3 0.577 -> 0.567, R6 0.417 -> 0.402**
+> (orbit per-seat rate). Pre-2026-07-21 two-seat "vs heuristic" numbers refer to `h8`; cite them as
+> `heuristic:h8`.
 
 > **The 2-seat STOP defect does NOT generalize — `h11` tested that and was refuted.** A STOP skips
 > one of the `n-1` opponents ahead of you, so it looks like it should be worth `1/(n-1)` of a free
@@ -195,11 +207,12 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 > above two seats, so only the 2-seat column would need re-running) but was deliberately NOT
 > promoted; that stays a separate, announced decision.
 
-**`REFERENCE = 'h8'` — promoted from `r3` on 2026-07-14 (B5).** Changing it silently redefines every
-"vs heuristic" number the project reports, so it is a deliberate act that requires re-running the
-champions against the new reference and recording *both* numbers. Do not change it as a side effect.
-`heuristic:r3` still runs, and still means exactly what it always meant — cite the old numbers by
-that name.
+**`REFERENCE = 'h9'` — promoted from `h8` on 2026-07-21 (h8 was promoted from `r3` on 2026-07-14,
+B5).** Changing it silently redefines every "vs heuristic" number the project reports, so it is a
+deliberate act that requires re-running the champions against the new reference and recording *both*
+numbers. Do not change it as a side effect. `heuristic:h8` and `heuristic:r3` both still run and mean
+exactly what they always meant — cite the old numbers by name (the h8->h9 change only affects two
+seats; at 3 and 4 seats h9 IS h8).
 
 **The freeze is enforced by TWO guards, and you need both** (`agenttest.FrozenVersionTest`). The
 **weight pin** asserts each version's `Weights` values; the **move-sequence fingerprint** hashes every

@@ -14,6 +14,35 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-21 — PROMOTION: REFERENCE h8 -> h9. A strict improvement, so only the two-seat column moves
+
+At the user's direction, the reference yardstick (`REFERENCE` in `agents/heuristic.py`, what a bare
+`heuristic` spec resolves to) is promoted from `h8` to `h9`. Unlike the r3->h8 promotion (B5), this
+one is a **strict improvement with a bounded blast radius**: h9 is bit-identical to h8 at three and
+four seats (the STOP-tempo fix is gated to n=2 by the rules, pinned by fingerprint equality) and
++0.026 better at two, where h8 priced a free extra turn at zero. So the promotion redefines the
+meaning of `heuristic` **only at two seats**; every 3- and 4-seat number ever measured against h8
+still describes the reference verbatim.
+
+**Champions re-run against the new reference (the discipline for a REFERENCE change), orbit per-seat
+rate at two seats, two deck blocks:**
+
+| @2 seats | vs h8 (old ref) | vs h9 (new ref) |
+|---|---|---|
+| M1s3 champion | 0.577 | **0.567** (0.562 / 0.571) |
+| R6 | 0.417 | **0.402** (0.401 / 0.402) |
+
+The champion drops ~1 point against the sharper yardstick, as +0.026/2 per seat predicts. **No
+ranking changes** — the champion still beats the reference comfortably at two seats, R6 still loses.
+
+**What this does and does not touch.** `heuristic:h8` still runs and still means exactly what it did;
+pre-2026-07-21 two-seat "vs heuristic" numbers refer to it and should be cited as `heuristic:h8`. At
+3 and 4 seats there is nothing to restate. `h10` was **not** promoted (2-seat-tuned, worth ~0 at four
+seats, and its edge over h9 is 1.4 SE); it remains an explicitly-cited 2-seat opponent. The freeze
+guard `agenttest.FrozenVersionTest.test_the_reference_is_h9_...` now pins `REFERENCE == 'h9'`.
+
+---
+
 ## 2026-07-20 — H9/H10: the yardstick was four-seat-tuned, and at two seats it priced a free extra turn at ZERO. The structural line is worth +0.026; 96 tuned candidates on top add +0.010 at 1.4 SE
 
 **The premise, which only became measurable last night.** Every frozen heuristic version was
