@@ -477,6 +477,10 @@ class FrozenVersionTest(unittest.TestCase):
         # identically to h8. That equality is asserted outright below — if this line ever
         # has to differ from h8's, the structure leaked past n=2 and H9 is not what it says.
         'h9':     'f0bad5eb23c388d0ee41fabe209ece7f',
+        # h10 DOES differ from h8 at four seats — it changes weights, not just structure.
+        # Recorded so the 2-seat yardstick cannot drift; NOT an endorsement of it at n=4,
+        # where it measures -0.0015 +/- 0.0046 against h8 (i.e. nothing).
+        'h10':    '93f35c7e08db4885940e353317385166',
         'greedy': 'fbe35ae20ec60454be487304467eb5a1',
     }
 
@@ -498,6 +502,7 @@ class FrozenVersionTest(unittest.TestCase):
         'h8':     '61a458889cb917cf1bdc818a3d8c6fea',
         # The one entry that differs from h8 — that difference IS H9.
         'h9':     'b7d79754c0359c999cc6199306fb2072',
+        'h10':    '2b4b03421edbffab687c70f5747f10ad',
         'greedy': '6ac8a81247de982c82721d979f431f50',
     }
 

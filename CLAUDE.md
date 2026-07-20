@@ -164,8 +164,25 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 | `h1` | **R3's exact weights** + H1's structure (the +0.183 result) | -0.079 | 0.896 |
 | `h1b2` | B2's weights + H1's structure | -0.065 | 0.897 |
 | **`h8`** | **the REFERENCE** — H8's tuned point on H1's structure | **-0.073** | **0.906** |
+| `h9` | `h8` + the H9 tempo structure. **IDENTICAL to `h8` at 3 and 4 seats** (exactly 0.0000 margin, pinned) — the change is gated to two seats by the rules | +0.026 vs `h8` **@2 seats only** | 0.966 @2 |
+| `h10` | `h9` retuned AT TWO SEATS vs the M1s3 champion. **A 2-seat yardstick only** | +0.0385 vs `h8` **@2**; -0.0015 @4 (nothing) | 0.964 @2 |
 | `h7` | `h1b2` + the RACE behaviour — **refuted, off** (racing loses monotonically) | — | — |
 | `greedy` | every hold-back off (the B2 control) | — | — |
+
+> **The `vs R6 champion` column is STALE for the first five rows** — R6 was replaced by
+> `checkpoint_M1s3_mixed_snap300000` on 2026-07-19 and those numbers were never re-run against it.
+> The `h9`/`h10` rows quote a different quantity (vs `h8`, at two seats) and say so inline. Do not
+> read down the column as if it were one measurement.
+
+> **`h9`/`h10` (2026-07-20) exist because `h8` was four-seat-tuned and it cost real points at two
+> seats.** At two seats a STOP hands the turn straight back (it skips the only other player), i.e.
+> it is a free extra turn exactly like PLUS — and `h8` scored a threat-free 2-seat STOP at
+> **exactly 0.0**, below a plain number card. `h9` fixes that structurally; `h10` retunes on top and
+> buys **+0.0097 more at 1.4 SE, i.e. nothing established**. The structure is the whole result. See
+> RESEARCH_LOG 2026-07-20. **`h10` must never become `REFERENCE`** — it is worth nothing at four
+> seats, where the published numbers live. `h9` *is* a cheap promotion candidate (identical to `h8`
+> above two seats, so only the 2-seat column would need re-running) but was deliberately NOT
+> promoted; that stays a separate, announced decision.
 
 **`REFERENCE = 'h8'` — promoted from `r3` on 2026-07-14 (B5).** Changing it silently redefines every
 "vs heuristic" number the project reports, so it is a deliberate act that requires re-running the
@@ -242,6 +259,11 @@ python eval.py --model <ckpt> --opponent <ckpt2> \
                                                              # composition only — prefer the paired orbit below)
 python holdback.py heuristic:h1 --games 200                  # refusal/hold-back census (draw refusals must be 0 under H1)
 python tune_heuristic.py --games 3000 --passes 2             # H8 coordinate descent vs the champion (base h1b2)
+python tune_heuristic.py --num-players 2 --base h9 \
+    --model <ckpt> --seeds 0,777777                          # tune AT a seat count (H9/H10). Built on
+                                                             # eval_headtohead's orbit_pairs, so one rule
+                                                             # covers every count; the n=3 orbit is 3 pairs,
+                                                             # i.e. ~3x the cost per candidate
 
 python eval_headtohead.py <cand> <champ> \
     --team1-seats 0,2 --seat-swap --games 3000               # promotion, BALANCED arm (4 seats, 2 runs)
