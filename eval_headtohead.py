@@ -241,7 +241,15 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
     print(f'\n  Paired margin ({name1} minus {name2}, same seats & same decks; parity 0.0):')
     print(f'    {mean_d:+.4f} +/- {se:.4f}  (paired SE over {n} common decks)')
 
-    if abs(mean_d) < 2 * se:
+    if mean_d == 0.0 and se == 0.0:
+        # Not a tie within noise — there is NO noise. Every paired difference was exactly 0,
+        # so the two agents made the same moves on every deck. Worth naming, because the test
+        # below cannot see it (`0 < 2*0` is false, so it fell through and reported model2 as
+        # stronger) and because it is the EXPECTED result whenever one version's change is
+        # gated to a seat count this run is not at — h9 vs h8 above two seats, for instance.
+        verdict = ('IDENTICAL (every paired difference was exactly 0 '
+                   '— same moves on the same decks)')
+    elif abs(mean_d) < 2 * se:
         verdict = f'Tie (margin within 2 paired SE)'
     elif mean_d > 0:
         verdict = f'{name1} stronger (margin > 2 paired SE)'
