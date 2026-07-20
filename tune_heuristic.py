@@ -24,29 +24,54 @@ import itertools
 import time
 
 from agents.heuristic import Weights, HeuristicAgent, resolve_weights
-from eval_headtohead import play_match, load_greedy_agent
-
-SEATS1 = [0, 2]          # alternating 2v2: STOP/+2/CHDIR never hit a teammate
+from eval_headtohead import play_match, load_greedy_agent, orbit_pairs
 
 
-def margin(weights, dqn, games, seeds):
-    """Mean paired margin (heuristic - DQN) over both occupancies, averaged over seeds."""
+def base_seats(num_players):
+    """The seat-set to rotate. Alternating at even counts so STOP/+2/CHDIR never hit a
+    teammate; at odd counts no alternating partition exists, so `[0]` is forced (and the
+    orbit's complement family is what restores parity). Matches eval_headtohead's own
+    convention -- the tuner must optimise the SAME quantity the promotion standard reports."""
+    return [0, 2] if num_players == 4 else [0]
+
+
+def margin(weights, dqn, games, seeds, num_players=4):
+    """Mean paired margin (heuristic - DQN) over the rotation orbit, averaged over seeds.
+
+    Built on `orbit_pairs` rather than a hardcoded 2v2 so one rule covers every seat count
+    -- the same generalization eval_headtohead got on 2026-07-19. At 4 seats this is
+    bit-identical to the old alternating swap (the orbit collapses to that one pair).
+
+    Pairs SHARE decks, so the per-pair margins are averaged WITHIN a deck before being
+    averaged across decks, never pooled as one flat list: pooling assumes an independence
+    the harness does not control (measured rho = +0.097 at 3 seats)."""
+    n = num_players
+    pairs = orbit_pairs(base_seats(n), n)
     total = 0.0
     for seed in seeds:
-        h = HeuristicAgent(weights=weights)
-        seats_a = [dqn] * 4
-        for i in SEATS1:
-            seats_a[i] = h
-        _, _, win_a = play_match(seats_a, games, seed)
+        per_game = None
+        for seats1, seats2 in pairs:
+            h = HeuristicAgent(weights=weights)
+            seats_a = [dqn] * n
+            for i in seats1:
+                seats_a[i] = h
+            _, _, win_a = play_match(seats_a, games, seed)
 
-        seats_b = [h] * 4
-        for i in SEATS1:
-            seats_b[i] = dqn
-        _, _, win_b = play_match(seats_b, games, seed)
+            seats_b = [h] * n
+            for i in seats1:
+                seats_b[i] = dqn
+            _, _, win_b = play_match(seats_b, games, seed)
 
-        paired = [(1.0 if a in SEATS1 else 0.0) - (1.0 if b in SEATS1 else 0.0)
-                  for a, b in zip(win_a, win_b) if a is not None and b is not None]
-        total += sum(paired) / len(paired) if paired else 0.0
+            paired = [((1.0 if a in seats1 else 0.0) - (1.0 if b in seats1 else 0.0))
+                      if a is not None and b is not None else None
+                      for a, b in zip(win_a, win_b)]
+            if per_game is None:
+                per_game = [[] for _ in paired]
+            for slot, p in zip(per_game, paired):
+                if p is not None:
+                    slot.append(p)
+        decided = [sum(s) / len(s) for s in per_game if s]
+        total += sum(decided) / len(decided) if decided else 0.0
     return total / len(seeds)
 
 
@@ -76,6 +101,41 @@ GRID = {
     'block_hand_threshold': [1, 2, 3],
 }
 
+#: Grid adjustments that are specific to TWO seats, because the game is different there.
+#: Each is a claim about the rules, not a hope:
+#:   w_chdir_block  DROPPED. At n=2 the `behind` seat IS the threat seat, so the guard
+#:                  `len(hands[behind]) > len(hands[threat])` compares a value to itself
+#:                  and the branch can never fire. Searching it would burn candidates
+#:                  measuring pure noise.
+#:   w_block        WIDENED UP. H8 priced blocking where it delays 1 of 3 threats; at two
+#:                  seats it delays THE threat. Searched down as well as up, because H9
+#:                  now also pays STOP a tempo credit and the two could double-count.
+#:   w_plus_tempo   WIDENED UP. Under H9 this knob prices two behaviours (PLUS, and the
+#:                  2-seat STOP), and a free turn is worth more in a duel.
+#:   block_hand_threshold  EXTENDED. `_threat_seat` only ever looks at the next seat; at
+#:                  n=2 that is the only opponent, so a looser threshold cannot waste a
+#:                  blocker on the wrong player the way it can at four.
+GRID_2P_OVERRIDES = {
+    'w_chdir_block':        None,          # None = drop the knob entirely
+    'w_block':              [2.0, 4.0, 6.0, 8.0, 10.0, 13.0],
+    'w_plus_tempo':         [0.0, 1.0, 2.0, 3.0, 5.0],
+    'block_hand_threshold': [1, 2, 3, 4],
+}
+
+
+def grid_for(num_players):
+    """The search grid at `num_players` seats."""
+    if num_players != 2:
+        return dict(GRID)
+    out = {}
+    for name, values in GRID.items():
+        if name in GRID_2P_OVERRIDES:
+            values = GRID_2P_OVERRIDES[name]
+            if values is None:
+                continue
+        out[name] = values
+    return out
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -83,12 +143,18 @@ def main():
                    help='the DQN to beat. Default: the R6 champion (NOT A9-rules — B2 tuned '
                         'against A9-rules, and R6 beats it by +8.5, so that target is stale).')
     p.add_argument('--games', type=int, default=3000)
-    p.add_argument('--seeds', default='0,500000')
+    p.add_argument('--seeds', default='0,777777')
     p.add_argument('--passes', type=int, default=2)
     p.add_argument('--base', default='h1b2',
                    help='the frozen version to start from (agents.heuristic.VERSIONS)')
+    p.add_argument('--num-players', type=int, default=4,
+                   help='seat count to tune AT. The counts are different games (STOP is a '
+                        'free extra turn at 2, CHDIR a no-op), so a point tuned at one is '
+                        'not a point tuned at another. Note the 3-seat orbit is 3 pairs, '
+                        'i.e. ~3x the cost per candidate.')
     args = p.parse_args()
     seeds = [int(s) for s in args.seeds.split(',')]
+    n = args.num_players
 
     dqn = load_greedy_agent(args.model)
 
@@ -100,19 +166,20 @@ def main():
     if best.refusal_mode != 'structural':
         raise SystemExit(f'--base {args.base!r} is not structural; the grid below goes far '
                          f'above |score_draw| and would buy refusals. Use h1b2 (or h1).')
+    grid = grid_for(n)
     t0 = time.time()
-    best_m = margin(best, dqn, args.games, seeds)
-    print(f'start ({args.base}): {best_m:+.4f}   [{time.time()-t0:.0f}s]', flush=True)
+    best_m = margin(best, dqn, args.games, seeds, n)
+    print(f'start ({args.base} @ {n} seats): {best_m:+.4f}   [{time.time()-t0:.0f}s]', flush=True)
 
     for it in range(args.passes):
         print(f'\n--- pass {it + 1} ---', flush=True)
-        for name, values in GRID.items():
+        for name, values in grid.items():
             cur = getattr(best, name)
             for v in values:
                 if v == cur:
                     continue
                 cand = dataclasses.replace(best, **{name: v})
-                m = margin(cand, dqn, args.games, seeds)
+                m = margin(cand, dqn, args.games, seeds, n)
                 flag = ''
                 if m > best_m + 1e-9:
                     best, best_m, flag = cand, m, '  <- keep'
