@@ -362,7 +362,10 @@ class FrozenVersionTest(unittest.TestCase):
                  # H7 added these; R3 predates the behaviour, so it must stay OFF here.
                  # (This assertion failing on a new field is the freeze working: any field
                  # added to Weights has to be consciously defaulted for the yardstick.)
-                 race=False, race_hand_threshold=2, race_hold_scale=0.0))
+                 race=False, race_hand_threshold=2, race_hold_scale=0.0,
+                 # H9 added this. R3 predates the 2-seat STOP-tempo structure, so it stays
+                 # on the original 'h1' tempo structure — as do b2/h1/h1b2/h7/h8/greedy.
+                 structure='h1'))
 
     def test_b2_retuned_is_pinned(self):
         """The single definition of "retuned" — b2_block_price.py and tune_heuristic.py
@@ -470,17 +473,44 @@ class FrozenVersionTest(unittest.TestCase):
         'h1b2':   '1e69928cb5851479969e99eda1773e14',
         'h7':     '6e8b0616229f20d10dcb7e1d8dc21f90',
         'h8':     'f0bad5eb23c388d0ee41fabe209ece7f',
+        # H9 is H8 plus a rule that can only fire at two seats, so at four it MUST hash
+        # identically to h8. That equality is asserted outright below — if this line ever
+        # has to differ from h8's, the structure leaked past n=2 and H9 is not what it says.
+        'h9':     'f0bad5eb23c388d0ee41fabe209ece7f',
         'greedy': 'fbe35ae20ec60454be487304467eb5a1',
+    }
+
+    #: The same instrument at TWO seats. It exists because the 4-seat pins above are
+    #: structurally blind to H9: its whole content is a branch that cannot fire at n=4, so
+    #: every hash above stays green no matter what H9 does at two seats. A yardstick now
+    #: quoted at 2, 3 and 4 seats needs its 2-seat behaviour frozen too.
+    #:
+    #: These hashes were written fresh, which is normally forbidden — legitimate here
+    #: because the HARNESS is new, not the agent (see FINGERPRINTS above). The versions
+    #: other than h9 are unchanged code; their 2-seat behaviour is simply being recorded
+    #: for the first time. From here they are frozen on the same terms as the 4-seat ones.
+    FINGERPRINTS_2P = {
+        'r3':     'cbb5e7185635f22ef58d07e21db04bac',
+        'b2':     '08baebf4ee2ff06a31034fb99e272d0c',
+        'h1':     '367eb91b82210d84e8674a466dba9c18',
+        'h1b2':   '730b7ffd6da4bcc6ebe88e8d62a65c00',
+        'h7':     '127b1b5863aa5e038e5970fc17746279',
+        'h8':     '61a458889cb917cf1bdc818a3d8c6fea',
+        # The one entry that differs from h8 — that difference IS H9.
+        'h9':     'b7d79754c0359c999cc6199306fb2072',
+        'greedy': '6ac8a81247de982c82721d979f431f50',
     }
 
     def test_every_registered_version_is_fingerprinted(self):
         """A new version must not be able to join VERSIONS without getting pinned — that is
-        how a yardstick quietly stops being frozen."""
+        how a yardstick quietly stops being frozen. Both seat counts, since a version can
+        now differ from another at one count and not the other."""
         from agents.heuristic import VERSIONS
         self.assertEqual(set(self.FINGERPRINTS), set(VERSIONS))
+        self.assertEqual(set(self.FINGERPRINTS_2P), set(VERSIONS))
 
-    def _fingerprint(self, version):
-        """Hash the full move sequence `version` plays across 60 seeded 4-player games."""
+    def _fingerprint(self, version, players=4):
+        """Hash the full move sequence `version` plays across 60 seeded games."""
         import hashlib
         from agents.heuristic import make_heuristic
         h = hashlib.sha256()
@@ -496,7 +526,8 @@ class FrozenVersionTest(unittest.TestCase):
                 return move
 
         for seed in range(60):
-            game = Game([Tap(make_heuristic(version), i) for i in range(4)], seed=seed)
+            game = Game([Tap(make_heuristic(version), i) for i in range(players)],
+                        seed=seed)
             turns = 0
             while not game.done() and turns < 600:
                 game.next_turn()
@@ -515,6 +546,61 @@ class FrozenVersionTest(unittest.TestCase):
                 f'It no longer plays the game it played when its numbers were published,\n'
                 f'so every result measured against it is now describing a different agent.\n'
                 f'Do NOT just paste in the new hash — see FINGERPRINTS in agenttest.py.\n')
+
+    def test_versions_are_behaviourally_frozen_at_two_seats(self):
+        """The 4-seat pins cannot see a 2-seat change; this is the other half."""
+        for version, expected in self.FINGERPRINTS_2P.items():
+            self.assertEqual(
+                self._fingerprint(version, players=2), expected,
+                f'\n\n*** FROZEN VERSION {version!r} HAS DRIFTED AT TWO SEATS ***\n'
+                f'Do NOT just paste in the new hash — see FINGERPRINTS in agenttest.py.\n')
+
+    def test_h9_is_h8_at_three_and_four_seats_and_differs_at_two(self):
+        """H9's central claim, as a test.
+
+        H9 adds tempo credit for a card that returns the turn to us. STOP does that only
+        when skipping the next player wraps back around to us — `(me + 2d) % n == me`,
+        true iff n == 2. So H9 must be H8 move-for-move at every count above two, and must
+        NOT be H8 at two. Both halves matter: without the first, H9 silently redefines the
+        yardstick at the counts where h8's numbers were published; without the second, H9
+        does nothing at all and the structural claim is empty."""
+        for players in (3, 4):
+            self.assertEqual(
+                self._fingerprint('h9', players), self._fingerprint('h8', players),
+                f'h9 diverges from h8 at {players} seats — the 2-seat structure leaked, '
+                f'so every published {players}-seat number vs h8 is no longer comparable')
+        self.assertNotEqual(
+            self._fingerprint('h9', 2), self._fingerprint('h8', 2),
+            'h9 plays two seats identically to h8 — the STOP-tempo rule never fires')
+
+    def test_only_two_seats_returns_the_turn_on_a_STOP(self):
+        """The arithmetic H9 rests on, isolated from the agent: a STOP skips one seat, so
+        it lands back on the player who played it exactly when the table has two seats."""
+        for n in range(2, 7):
+            for d in (1, -1):
+                returns_to_us = (0 + 2 * d) % n == 0
+                self.assertEqual(returns_to_us, n == 2,
+                                 f'STOP self-return at n={n}, dir={d}')
+
+    def test_h9_prices_a_two_seat_STOP_exactly_one_tempo_above_h8(self):
+        """The behavioural content, priced. Same game, same card, same everything except
+        the structure flag: H9 must score a 2-seat STOP higher than H8 by exactly
+        `w_plus_tempo` — the same credit PLUS already earned — and must score it
+        identically at four seats."""
+        from agents.heuristic import H8, H9, HeuristicAgent
+        from game import Card, Color, Type
+
+        stop = Card(Type.STOP, Color.RED)
+        for players, expected_gap in ((2, H9.w_plus_tempo), (4, 0.0)):
+            game = Game([HeuristicAgent(weights=H8) for _ in range(players)], seed=7)
+            hand = [stop, Card(Type.FIVE, Color.RED), Card(Type.THREE, Color.BLUE)]
+            scores = {}
+            for name, weights in (('h8', H8), ('h9', H9)):
+                agent = HeuristicAgent(weights=weights)
+                agent._sync_model(game)
+                scores[name] = agent._score_play(game, hand, stop, set(), None, False)
+            self.assertAlmostEqual(scores['h9'] - scores['h8'], expected_gap, places=9,
+                                   msg=f'STOP mispriced at {players} seats')
 
     def test_the_fingerprint_actually_detects_a_behaviour_change(self):
         """The guard on the guard. A fingerprint that cannot fail is decoration: a harness

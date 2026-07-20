@@ -150,14 +150,40 @@ class Weights:
     # after the default flips.
     refusal_mode: str = 'legacy'
 
+    # --- Behaviour version (NOT a weight) -------------------------------------
+    # Which TEMPO structure the agent uses, i.e. which cards are recognised as giving
+    # us another turn:
+    #   'h1' — only PLUS earns `w_plus_tempo`. What every version up to H8 shipped.
+    #   'h9' — a card that returns the turn to US earns `w_plus_tempo` as well. The
+    #          predicate is `_seat_after_playing(card) is our own seat`, which is derived
+    #          from the RULES, not from a weight, and STOP satisfies it only at TWO seats:
+    #          it skips the next player, and with n=2 the next player is the only other
+    #          seat, so the turn comes straight back. Formally `(me + 2d) % n == me` iff
+    #          `n | 2d`, i.e. iff n == 2. So H9 IS H8, move for move, at 3 and 4 seats
+    #          (pinned: the 3- and 4-seat fingerprints are equal).
+    #
+    # Why this is a structure and not a weight: at two seats STOP is a free extra turn,
+    # exactly like PLUS, and the heuristic priced it only as a *blocker*. With H8's
+    # `w_save_blocker=0.0` a threat-free 2-seat STOP scored exactly 0.0 — ranked BELOW a
+    # plain number card of a color we hold. No assignment of the existing weights can fix
+    # that, because none of them can see that the turn came back. Same shape as H1's
+    # refusal bug: a structure-level defect that looks like a tuning problem.
+    structure: str = 'h1'
+
     def __post_init__(self):
         if self.refusal_mode not in REFUSAL_MODES:
             raise ValueError(f'unknown refusal_mode {self.refusal_mode!r}; '
                              f'choose from {sorted(REFUSAL_MODES)}')
+        if self.structure not in STRUCTURES:
+            raise ValueError(f'unknown structure {self.structure!r}; '
+                             f'choose from {sorted(STRUCTURES)}')
 
 
 #: Decision structures the scoring code implements.
 REFUSAL_MODES = ('legacy', 'structural')
+
+#: Tempo structures the scoring code implements. See `Weights.structure`.
+STRUCTURES = ('h1', 'h9')
 
 
 #: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
@@ -267,6 +293,20 @@ H8 = dataclasses.replace(
     p_super_taki=4.0,       # was 4.5 — noise-level
 )
 
+#: H9 (2026-07-19): H8's weights UNCHANGED — a STRUCTURE change only, in the H1 mould.
+#: At two seats a STOP returns the turn to us, exactly as PLUS does, and the scoring code
+#: gave it nothing: it landed in the blocker branch, and with H8's `w_save_blocker=0.0` a
+#: threat-free 2-seat STOP scored exactly 0.0, ranked below a plain number card. See
+#: `Weights.structure` for why no weight assignment could fix that.
+#:
+#: The fix is derived from the rules (`_seat_after_playing(STOP) is our seat`, true iff
+#: n == 2), so **H9 is H8 move for move at three and four seats** — pinned in agenttest by
+#: equality of their 3- and 4-seat fingerprints, and inequality of their 2-seat ones.
+#: Motivation: measured on the rotation-orbit standard, `h8` trails the M1s3 champion by
+#: 0.0765 per seat at two seats against 0.0265 at four (RESEARCH_LOG 2026-07-19 later) —
+#: the signature of a yardstick tuned at one seat count and quoted at three.
+H9 = dataclasses.replace(H8, structure='h9')
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
@@ -274,6 +314,7 @@ VERSIONS = {
     'h1b2': H1_B2,
     'h7': H7,
     'h8': H8,
+    'h9': H9,
     'greedy': GREEDY,
 }
 
@@ -591,6 +632,12 @@ class HeuristicAgent:
         threat = self._threat_seat(game)
         if card.type in _BLOCKER_TYPES:
             score += w.w_block if threat is not None else -w.w_save_blocker * hold
+            # H9: at two seats a STOP hands the turn straight back to us — the same free
+            # extra turn PLUS buys, and previously worth nothing here. `next_seat` is
+            # already the rules-derived answer, so this fires only where it is true (n=2)
+            # and is silent at every other count.
+            if w.structure == 'h9' and next_seat == game.curr:
+                score += w.w_plus_tempo
         elif card.type is Type.CHDIR and threat is not None:
             behind = (game.curr - game.dir) % len(game.agents)
             if len(game.hands[behind]) > len(game.hands[threat]):
