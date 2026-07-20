@@ -154,6 +154,10 @@ class Weights:
     # Which TEMPO structure the agent uses, i.e. which cards are recognised as giving
     # us another turn:
     #   'h1' — only PLUS earns `w_plus_tempo`. What every version up to H8 shipped.
+    #   'h11' — H9 generalized: a STOP earns `w_plus_tempo / (n - 1)` at EVERY count,
+    #           which is the fraction of a full extra turn it actually buys (it skips one
+    #           of the `n - 1` opponents who would otherwise act before us). At n=2 that
+    #           fraction is 1.0, so H11 IS H9 at two seats, move for move.
     #   'h9' — a card that returns the turn to US earns `w_plus_tempo` as well. The
     #          predicate is `_seat_after_playing(card) is our own seat`, which is derived
     #          from the RULES, not from a weight, and STOP satisfies it only at TWO seats:
@@ -183,7 +187,7 @@ class Weights:
 REFUSAL_MODES = ('legacy', 'structural')
 
 #: Tempo structures the scoring code implements. See `Weights.structure`.
-STRUCTURES = ('h1', 'h9')
+STRUCTURES = ('h1', 'h9', 'h11')
 
 
 #: Every hold-back term off. Same agent, no patience: it plays the highest-scoring card
@@ -342,6 +346,29 @@ H10 = dataclasses.replace(
     block_hand_threshold=3,
 )
 
+#: H11 (2026-07-20): H9 generalized to every seat count, weights UNCHANGED from H8.
+#:
+#: H9 asked "does this card hand the turn straight back to me?" — true only at two seats.
+#: H11 asks the quantitative version: a STOP skips one of the `n - 1` opponents who would
+#: otherwise act before our next turn, so it buys `1 / (n - 1)` of what a PLUS buys, and
+#: earns that fraction of `w_plus_tempo`. No free parameter; the fraction is the rules.
+#:
+#:     n=2  1/1  -> H11 IS H9 at two seats, move for move (pinned)
+#:     n=3  1/2
+#:     n=4  1/3
+#:
+#: WHY THIS EXISTS, and a CORRECTION. It was planned as "at three seats STOP and CHDIR are
+#: the same move, but are scored by different terms". **That premise is false**, and the
+#: engine says so — traced at n=3, seat 0 acting:
+#:     STOP   0, 2, 0, 1, 2, ...   we act again after ONE opponent
+#:     CHDIR  0, 2, 1, 0, 2, ...   both opponents act first
+#: They agree only on who faces the table NEXT (which is all `_seat_after_playing` claims,
+#: and it is right about it). CHDIR never buys tempo at any count — reversing a cycle still
+#: leaves `n - 1` opponents ahead of us — so the CHDIR half of the plan was dropped and the
+#: STOP half generalized instead. CLAUDE.md asserted the same wrong equivalence twice,
+#: sourced to RULES.md, which never says it; both are corrected.
+H11 = dataclasses.replace(H8, structure='h11')
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
@@ -351,6 +378,7 @@ VERSIONS = {
     'h8': H8,
     'h9': H9,
     'h10': H10,
+    'h11': H11,
     'greedy': GREEDY,
 }
 
@@ -668,12 +696,25 @@ class HeuristicAgent:
         threat = self._threat_seat(game)
         if card.type in _BLOCKER_TYPES:
             score += w.w_block if threat is not None else -w.w_save_blocker * hold
-            # H9: at two seats a STOP hands the turn straight back to us — the same free
-            # extra turn PLUS buys, and previously worth nothing here. `next_seat` is
-            # already the rules-derived answer, so this fires only where it is true (n=2)
-            # and is silent at every other count.
+            # H9/H11: a STOP buys TEMPO, which this branch never priced — it only ever
+            # asked whether the card blocks someone.
+            #
+            # How much tempo: normally `n - 1` opponents act before our next turn. A STOP
+            # skips one of them, so `n - 2` do. PLUS is the same quantity taken to the
+            # limit — it saves all `n - 1`. So a STOP is worth `1 / (n - 1)` of what a PLUS
+            # is worth, in the same units, with no free parameter to pick.
+            #
+            #   n=2  1/1 = 1.0  the turn comes straight back: a WHOLE free turn (this is
+            #                   exactly H9, which is why H11 IS H9 at two seats)
+            #   n=3  1/2        we act again after one opponent instead of two
+            #   n=4  1/3
+            #
+            # H9 credits only the n=2 case (via `next_seat == game.curr`, which for a
+            # blocker can only be true for a STOP at two seats). H11 credits every count.
             if w.structure == 'h9' and next_seat == game.curr:
                 score += w.w_plus_tempo
+            elif w.structure == 'h11' and card.type is Type.STOP:
+                score += w.w_plus_tempo / (len(game.agents) - 1)
         elif card.type is Type.CHDIR and threat is not None:
             behind = (game.curr - game.dir) % len(game.agents)
             if len(game.hands[behind]) > len(game.hands[threat]):

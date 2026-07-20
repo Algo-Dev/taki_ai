@@ -481,6 +481,9 @@ class FrozenVersionTest(unittest.TestCase):
         # Recorded so the 2-seat yardstick cannot drift; NOT an endorsement of it at n=4,
         # where it measures -0.0015 +/- 0.0046 against h8 (i.e. nothing).
         'h10':    '93f35c7e08db4885940e353317385166',
+        # h11: REFUTED (see RESEARCH_LOG 2026-07-20). Pinned, not endorsed — same status
+        # as h7. Its 4-seat behaviour differs from h8 and measures -0.0026 +/- 0.0028.
+        'h11':    'dbadb2ef3af70d4dcbf469663f8ac09c',
         'greedy': 'fbe35ae20ec60454be487304467eb5a1',
     }
 
@@ -503,6 +506,8 @@ class FrozenVersionTest(unittest.TestCase):
         # The one entry that differs from h8 — that difference IS H9.
         'h9':     'b7d79754c0359c999cc6199306fb2072',
         'h10':    '2b4b03421edbffab687c70f5747f10ad',
+        # Identical to h9's by construction (1/(n-1) == 1 at n=2) — asserted below too.
+        'h11':    'b7d79754c0359c999cc6199306fb2072',
         'greedy': '6ac8a81247de982c82721d979f431f50',
     }
 
@@ -577,6 +582,16 @@ class FrozenVersionTest(unittest.TestCase):
         self.assertNotEqual(
             self._fingerprint('h9', 2), self._fingerprint('h8', 2),
             'h9 plays two seats identically to h8 — the STOP-tempo rule never fires')
+
+    def test_h11_is_h9_at_two_seats(self):
+        """H11 prices a STOP at `1/(n-1)` of a full extra turn. At two seats that fraction
+        is exactly 1, so H11 must BE H9 there — the generalization has to contain the
+        special case, or the +0.026 H9 measured would not carry over."""
+        self.assertEqual(self._fingerprint('h11', 2), self._fingerprint('h9', 2))
+        for players in (3, 4):
+            self.assertNotEqual(self._fingerprint('h11', players),
+                                self._fingerprint('h9', players),
+                                f'h11 adds nothing at {players} seats')
 
     def test_only_two_seats_returns_the_turn_on_a_STOP(self):
         """The arithmetic H9 rests on, isolated from the agent: a STOP skips one seat, so
