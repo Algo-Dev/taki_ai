@@ -385,26 +385,33 @@ VERSIONS = {
 #: The reference opponent: what a bare `heuristic` spec means, and therefore what
 #: `eval.py --opponent heuristic` measures.
 #:
-#: PROMOTED r3 -> h8 on 2026-07-14 (PLAN.md B5), the last act of the H-series and a
-#: deliberate one. Both numbers were re-run and recorded (RESEARCH_LOG 2026-07-14, B5):
+#: PROMOTED h8 -> h9 on 2026-07-21 (RESEARCH_LOG 2026-07-20), deliberately. h9 is a STRICT
+#: improvement on h8: bit-identical at three and four seats (the STOP-tempo fix cannot fire
+#: above n=2), and +0.026 better at two, where h8 priced a free extra turn at zero. So the
+#: promotion changes ONLY the two-seat meaning of `heuristic`; every 3- and 4-seat number
+#: ever measured against h8 still describes the reference verbatim. The two-seat numbers
+#: were re-run and recorded (orbit per-seat rate, 2 blocks):
 #:
-#:                      vs r3 (old)   vs h8 (new)   parity
-#:     R6 champion         0.378         0.297       0.250
-#:     A9-rules            0.348         0.271       0.250
+#:                      vs h8 (old)   vs h9 (new)   parity
+#:     M1s3 champion       0.577         0.567        0.500
+#:     R6                  0.417         0.402        0.500
 #:
-#: **Every "vs heuristic" number published before this date refers to `r3`** and is NOT
-#: comparable to one measured after it. The champion's headline was inflated by ~8 points
-#: by the crippled yardstick: R6 beats a COMPETENT heuristic by +4.7 points over chance,
-#: not +12.8. Cite the old numbers as `heuristic:r3`, which still runs and still means
-#: exactly what it always meant.
-REFERENCE = 'h8'
+#: **Every two-seat "vs heuristic" number published before 2026-07-21 refers to `h8`.** At
+#: three and four seats there is nothing to restate — h9 IS h8 there. Cite the old two-seat
+#: numbers as `heuristic:h8`, which still runs and still means what it always did.
+#:
+#: EARLIER PROMOTION, for the record: r3 -> h8 on 2026-07-14 (B5). R6 vs r3 0.378 -> vs h8
+#: 0.297 (four seats); the crippled r3 yardstick had inflated the headline by ~8 points.
+#:
+#: h10 must NEVER be REFERENCE (2-seat-tuned, worth ~0 at four seats). h11 is refuted.
+REFERENCE = 'h9'
 
 
 def resolve_weights(spec=''):
     """Resolve a heuristic weight spec. The one grammar, shared by every entry point.
 
-      ''  / 'reference'   -> the current reference version (REFERENCE)
-      '<version>'         -> a named version: r3, b2, h1, h1b2, greedy
+      ''  / 'reference'   -> the current reference version (REFERENCE, now h9)
+      '<version>'         -> a named version: r3, b2, h1, h1b2, h7, h8, h9, h10, h11, greedy
       '-<name>'           -> the base with ONE hold-back behaviour ablated
       'k=v,k=v'           -> the base with individual weights overridden, which is how a
                              weight gets SWEPT rather than merely switched off
@@ -412,9 +419,11 @@ def resolve_weights(spec=''):
                              reference: 'h1b2,block_hand_threshold=1', 'h1,-hoard'
 
     The leading-version form is not sugar. Without it every override is implicitly based on
-    the REFERENCE — which is `r3`, i.e. the LEGACY structure — so an H-series ablation
-    like `block_hand_threshold=1` would have been measured on top of the very refusal
-    cliff H1 exists to remove, and its price would have been the cliff's, not its own.
+    the REFERENCE, and the reference has moved over time (r3 -> h8 -> h9). An override with
+    no leading version is therefore measured against whatever the current reference is — so
+    to reproduce an older sweep, name the base version it was actually run on (e.g. the
+    H-series used `h1b2` explicitly, precisely so its ablations were not priced against r3's
+    refusal cliff).
     """
     spec = (spec or '').strip()
     if spec in ('', 'reference'):
