@@ -95,7 +95,7 @@ standard, replicated on three disjoint deck blocks (~8 SE), in **100k trials, no
 > Do not restate a champion's win rate without saying how many seats it means.
 >
 > **The counts are different games, not different sizes.** STOP is a free extra turn at two
-> seats; CHDIR is a no-op at two and *identical to STOP* at three (RULES.md). Training at four
+> seats; CHDIR is a no-op at two and reverses the cycle at three or more (RULES.md). Training at four
 > seats measurably degrades two-seat play (Arm B: 0.413 -> 0.365, 3.8 SE). Warm-starting R6 at
 > two seats gains **+0.170 (13.4 SE)** in 100k trials — so the A10/A11/A12 "ceiling" is
 > **per-count**, not global: four seats is plateaued (another 100k buys 0.4 SE), two seats had 17
@@ -166,6 +166,7 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 | **`h8`** | **the REFERENCE** — H8's tuned point on H1's structure | **-0.073** | **0.906** |
 | `h9` | `h8` + the H9 tempo structure. **IDENTICAL to `h8` at 3 and 4 seats** (exactly 0.0000 margin, pinned) — the change is gated to two seats by the rules | +0.026 vs `h8` **@2 seats only** | 0.966 @2 |
 | `h10` | `h9` retuned AT TWO SEATS vs the M1s3 champion. **A 2-seat yardstick only** | +0.0385 vs `h8` **@2**; -0.0015 @4 (nothing) | 0.964 @2 |
+| `h11` | `h8` + STOP tempo at EVERY count (`w_plus_tempo/(n-1)`) — **refuted, off**. IS `h9` at 2 seats | +0.0048 @3 (1.2 SE), -0.0026 @4 | — |
 | `h7` | `h1b2` + the RACE behaviour — **refuted, off** (racing loses monotonically) | — | — |
 | `greedy` | every hold-back off (the B2 control) | — | — |
 
@@ -173,6 +174,16 @@ override is based on `REFERENCE`, i.e. the *legacy* structure).
 > `checkpoint_M1s3_mixed_snap300000` on 2026-07-19 and those numbers were never re-run against it.
 > The `h9`/`h10` rows quote a different quantity (vs `h8`, at two seats) and say so inline. Do not
 > read down the column as if it were one measurement.
+
+> **The 2-seat STOP defect does NOT generalize — `h11` tested that and was refuted.** A STOP skips
+> one of the `n-1` opponents ahead of you, so it looks like it should be worth `1/(n-1)` of a free
+> turn at every count. Measured: **+0.0048 at three seats (1.2 SE, fails its pre-registered +0.010
+> bar) and -0.0026 at four.** The n=2 case is *categorical*, not the top of a smooth curve — there a
+> STOP is a whole extra turn with the opponent's hand unchanged in between; elsewhere it just moves
+> you one place up the queue, and `w_block` already pays for that same skip. **Do not "extend h9 to
+> more seats"; it was tried.** Note also that this proposal's original premise — that STOP and CHDIR
+> are the same move at three seats — is **false**, and CLAUDE.md asserted it twice sourced to
+> RULES.md, which never said it. Both sites are now corrected. See RESEARCH_LOG 2026-07-20.
 
 > **`h9`/`h10` (2026-07-20) exist because `h8` was four-seat-tuned and it cost real points at two
 > seats.** At two seats a STOP hands the turn straight back (it skips the only other player), i.e.
@@ -293,7 +304,7 @@ Three layers with a strict encoding contract between them:
   - card vector (63 slots: 60 colored, Change Color, Super TAKI, King), action scalars (65: 0–59 colored plays, 60 CHCOL, 61 Super TAKI, 62 King, 63 DRAW, 64 CLOSE_TAKI), and the 150-float observation (`OBSERVATION_SIZE`), all defined here and imported by `agents/dqn.py`. The colored-block stride is `TYPES_PER_COLOR` (15), deliberately decoupled from `len(Type)` because the King is a colorless wild (never in the colored block).
   - `valid_moves()` is the legality source of truth; agents only ever choose among legal moves.
   - Changing `OBSERVATION_SIZE`/`ACTION_SIZE` or the network shape **invalidates every saved checkpoint** — loads fail hard by design (no silent cold-start). **The King card (this branch) did exactly that:** every pre-King checkpoint (incl. `checkpoint_colorsym_snap180000`) is unloadable here. The last commit on `master` with the old 62/64/201 contract that still loads those models is **`344535a`** — check it out to use the pre-King models. **The A7 observation-reshape (this branch) did it again:** the observation went 205→147 — added the 3 opponent hand sizes in turn order, deck size, and unseen +2/King/CHCOL counts, and **removed the full discard-pile histogram** (only the shown top card remains, so the net has a coarse card-count sense, not a full memory of what's been played). That invalidates every pre-A7 checkpoint too, so this branch trains from scratch. Also on this branch (A4): training randomizes the opener per trial (the learner stays list index 0 but no longer opens 100% of games), matching eval's shuffled seating.
-  - **The seat-count one-hot (this branch, `nplayers-onehot`) did it a THIRD time: 147→150.** The tail now carries a one-hot of the number of seats (2 / 3 / 4-or-more, saturating), so a policy can condition on a count that changes the *game* and not just the table size — STOP is a free extra turn at 2 seats, CHDIR is a no-op at 2 and identical to STOP at 3. Every net on this branch is trained from scratch: **you cannot warm-start from `checkpoint_r6L60_snap100000` or `checkpoint_a9rules_snap500000`**, and `train.py` refuses rather than trying. The last commit with the 147-float contract is **`43ef04d`**.
+  - **The seat-count one-hot (this branch, `nplayers-onehot`) did it a THIRD time: 147→150.** The tail now carries a one-hot of the number of seats (2 / 3 / 4-or-more, saturating), so a policy can condition on a count that changes the *game* and not just the table size — STOP is a free extra turn at 2 seats; CHDIR is a no-op at 2. Every net on this branch is trained from scratch: **you cannot warm-start from `checkpoint_r6L60_snap100000` or `checkpoint_a9rules_snap500000`**, and `train.py` refuses rather than trying. The last commit with the 147-float contract is **`43ef04d`**.
   - **The one-hot is INERT in a single-count run — do not "re-run the lineage with it" and expect anything.** Within a run at one count the feature never varies, and a constant input folds into the next layer's bias, so such a run is equivalent to one without the feature (verified: 40 seeded trials at `--num-players 4` give **bit-identical** weights across the commit that added mixed counts). It buys information only when the count *varies between trials* — i.e. under `--num-players 2,3,4`. The one-hot is the **prerequisite** for mixed-count training, not a change to single-count training.
   - **But an obs change does NOT make old champions unmeasurable — do not assume it does.** Every change so far APPENDED features, so today's vector is a strict superset and `obs[:147]` is bit-identical to the old contract (pinned by `gametest`, `dqntest`). `eval.py` / `eval_headtohead.py` pass `allow_obs_truncation=True`, which plays an older net on exactly the leading floats it was trained on — **faithful, not approximate**. R6 vs `heuristic:h8` reproduces its published **0.297** to the digit under the 150-float build, and R6 can sit at the same table as a one-hot net in a head-to-head. What R6 cannot see is the seat count: free at 4 seats (the one-hot is constant there), and the thing under test at 2 and 3. The adapter is **eval-only and opt-in** — `replay()` raises on a truncated net, so it can never quietly fit an old-contract net while the appended features go nowhere.
   - **Correction to "loads fail hard by design" above: a mismatched load does not fail at construction.** `AIAgent.__init__` catches the `set_weights` `ValueError` and adopts the checkpoint's own saved architecture. Without `allow_obs_truncation` that now raises a `RuntimeError` naming the contract gap; the deliberate eval path is the truncation above.

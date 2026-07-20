@@ -125,6 +125,55 @@ for both h8 and h9 — pre-existing CLOSE_TAKI declines (H4), not voluntary draw
 
 Both are single coordinate-descent steps of ~1-1.5 SE. Do not cite them as established.
 
+### H11: the same idea at three and four seats — REFUTED, and its stated premise was false
+
+Planned as "at three seats STOP and CHDIR are the same move, yet are scored by different
+terms". **That premise is wrong**, and checking it against the engine before building on it is
+the only reason this entry is not also wrong. Traced at n=3, seat 0 acting:
+
+    STOP    0, 2, 0, 1, 2, ...    we act again after ONE opponent
+    CHDIR   0, 2, 1, 0, 2, ...    both opponents act before us
+
+They agree on who faces the table **next** and on nothing else. That is all
+`_seat_after_playing` ever claimed, and it is right about it. CHDIR buys no tempo at any
+count — reversing a cycle still leaves `n - 1` opponents ahead of us — so there is no CHDIR
+defect to fix.
+
+> **CLAUDE.md asserted the false equivalence twice ("CHDIR is a no-op at two and *identical to
+> STOP* at three"), both times sourced to RULES.md — which never says it.** RULES.md documents
+> only the 2-player no-op. Both CLAUDE.md sites are corrected. The claim had been sitting in the
+> file since the seat-count one-hot work and may have informed how that feature was reasoned
+> about.
+
+What *is* true is the STOP half, quantitatively: a STOP skips one of the `n - 1` opponents who
+would otherwise act before our next turn, so it buys `1 / (n - 1)` of what a PLUS buys. No free
+parameter — the fraction is the rules. At n=2 the fraction is 1.0, so **H11 is H9 at two seats,
+move for move** (pinned by fingerprint equality). H11 is H8's weights plus that rule at every
+count.
+
+**Pre-registered before measuring:** win at >= +0.010 pooled at three seats, same sign and >= 2 SE
+in each block; no regression past -2 SE at four.
+
+| h11 - h8 | blk 0 | blk 777777 | mean | |
+|---|---|---|---|---|
+| 3 seats | +0.0026 +/- 0.0054 | +0.0069 +/- 0.0055 | **+0.0048** | 1.2 SE — **fails the bar** |
+| 4 seats | -0.0036 +/- 0.0038 | -0.0016 +/- 0.0040 | **-0.0026** | 0.9 SE — no regression, but negative |
+
+**Refuted.** Kept registered and pinned but not endorsed, the same status as `h7`.
+
+**Why the linear model was wrong, most likely.** The n=2 case is not "the largest value of a
+smooth quantity" — it is *categorical*. At two seats a STOP gives a complete extra turn: we act
+twice in a row, and the opponent's hand does not shrink in between. At n>=3 it only moves us one
+place up the queue, and the skipped opponent still holds every card they held. Whatever that is
+worth is plausibly already priced by `w_block`, which pays for exactly the same skip — so the
+faintly negative 4-seat point estimate may be double-counting rather than noise. *Statement about
+Taki: STOP is not "a bit of a free turn" that gets better as the table shrinks; at two seats it is
+a different card.*
+
+This is the fifth H-series prediction to be refuted (H2, H5, H6, H7, H11) against two that paid
+(H1, H9) — and both that paid were structural fixes to something priced at zero, not extensions
+of a working term.
+
 ### Caveats
 
 - **`h10` must never become `REFERENCE`.** Its weights were selected at n=2 and measure
