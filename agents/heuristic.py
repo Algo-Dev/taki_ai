@@ -307,6 +307,41 @@ H8 = dataclasses.replace(
 #: the signature of a yardstick tuned at one seat count and quoted at three.
 H9 = dataclasses.replace(H8, structure='h9')
 
+#: H10 (2026-07-19): coordinate descent from H9 at TWO seats against the M1s3 champion,
+#: 2 passes, 96 candidates, 3000 decks x 2 blocks per candidate.
+#:
+#: A TWO-SEAT YARDSTICK ONLY. It must never become REFERENCE: these weights were selected
+#: at n=2 and measure ~0 at four seats (-0.0015 +/- 0.0046 vs h8) — they buy nothing where
+#: h8's numbers were published. Cite it explicitly as `heuristic:h10` in 2-seat tables.
+#:
+#: On fresh disjoint decks (the tuning used blocks 0/777777; these are 1500000/2500000):
+#:     h10 - h8  @2 seats   +0.0370, +0.0400   -> +0.0385 (5.3 SE)
+#:     h10 - h9  @2 seats   +0.0133, +0.0060   -> +0.0097 (1.4 SE, NOT established)
+#: **So the tuning is not what did it.** H9's one structural line is worth +0.026 of the
+#: +0.0385; everything 96 candidates found on top is within noise of zero. This is the H8
+#: result a second time (RESEARCH_LOG 2026-07-14: "the tuner went above the old cap and
+#: came back empty"), and the third time in this project that a STRUCTURAL fix paid where
+#: weight search did not. Kept anyway: the point estimate is positive against three
+#: independent nets, and it is the honest 2-seat yardstick even if its margin over h9 is
+#: not individually significant.
+#:
+#: Two knobs are of behavioural interest, both 2-seat-specific and both still uncertain:
+#:   w_deny 1.5 -> 0.0        denying your ONLY opponent a color makes them draw, and a
+#:                            drawn card is a card you then have to out-race; at four seats
+#:                            the denial lands on someone else's problem.
+#:   w_save_blocker 0.0 -> 2.0  H8 says spend the blocker; at two seats, hold it. Note this
+#:                            interacts with H9 — once STOP earns tempo it is attractive
+#:                            enough to need a counterweight against being dumped early.
+H10 = dataclasses.replace(
+    H9,
+    w_deny=0.0,
+    w_plus_tempo=3.0,       # was 2.0 — above the old grid's ceiling, reachable only at 2p
+    w_save_blocker=2.0,     # was 0.0 — the sign of H8's advice REVERSES at two seats
+    w_reserve=16.0,         # saturating (H8's lesson); +0.0005 in search
+    p_king=2.0,             # saturating; +0.0015 in search
+    block_hand_threshold=3,
+)
+
 VERSIONS = {
     'r3': R3,
     'b2': B2_RETUNED,
@@ -315,6 +350,7 @@ VERSIONS = {
     'h7': H7,
     'h8': H8,
     'h9': H9,
+    'h10': H10,
     'greedy': GREEDY,
 }
 

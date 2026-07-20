@@ -14,6 +14,134 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-20 — H9/H10: the yardstick was four-seat-tuned, and at two seats it priced a free extra turn at ZERO. The structural line is worth +0.026; 96 tuned candidates on top add +0.010 at 1.4 SE
+
+**The premise, which only became measurable last night.** Every frozen heuristic version was
+tuned or hand-set at four seats, and `tune_heuristic.py` was hardwired there. With the rotation
+orbit (entry below) the cost is finally quantifiable. Using that entry's identity — paired margin
+`= n x (seat-balanced rate) - 1`, so `margin / n` is the per-seat edge over parity:
+
+| M1s3 champion vs `h8` | paired margin | `margin / n` |
+|---|---|---|
+| 2 seats | +0.153 | **+0.0765** |
+| 3 seats | +0.104 | +0.0347 |
+| 4 seats | +0.106 | +0.0265 |
+
+`h8` is ~3x further behind the champion at two seats than at four, in per-seat terms. That is the
+signature of a yardstick tuned at one count and quoted at three.
+
+### The defect: a two-seat STOP is a free extra turn, scored as zero
+
+`_seat_after_playing` returns `(me + 2d) % n` for STOP. That equals `me` iff `n | 2d`, i.e. **iff
+n == 2**: STOP skips the next player, and with two seats the next player is the only other seat, so
+the turn comes straight back. At two seats a STOP is a free extra turn — exactly what PLUS is.
+
+The scoring code never saw it. STOP landed in the `_BLOCKER_TYPES` branch, which pays `w_block`
+only against a threat, and with H8's `w_save_blocker = 0.0` a threat-free 2-seat STOP scored
+**exactly 0.0** — ranked *below a plain number card* of a color we hold (`w_rich` pays for those).
+Meanwhile the deny/richness guard `next_seat != game.curr` correctly suppressed those terms for a
+self-returning card, so the zero was not an accident of one term; it was the whole score.
+
+**No weight assignment can fix this**, because no weight can see that the turn came back. Same
+shape as H1's refusal bug: a structure-level defect that looks like a tuning problem.
+
+### H9: one line, derived from the rules, gated behind a version
+
+Inside the existing blocker branch: if `_seat_after_playing(card)` is our own seat, add
+`w_plus_tempo`. Rules-derived, so it fires only where it is true. Gated on a new `structure` field
+(`'h1'` = every prior version, `'h9'`) so `h8` itself is untouched and its published numbers keep
+describing the agent in the tree.
+
+**Measured, heuristic-vs-heuristic, rotation orbit, 3000 decks/block:**
+
+| h9 - h8 | blk 0 | blk 777777 | mean |
+|---|---|---|---|
+| 2 seats | +0.0317 +/- 0.0079 | +0.0207 +/- 0.0080 | **+0.026** |
+| 3 seats | +0.0000 +/- 0.0000 | — | **exactly 0** |
+| 4 seats | +0.0000 +/- 0.0000 | — | **exactly 0** |
+
+The zeros are not ties within noise — there is no noise. Every paired difference was exactly 0, on
+every deck: h9 and h8 are the same agent above two seats, as the construction requires. (This
+exposed a cosmetic harness bug: `abs(0) < 2*0` is false, so the verdict fell through and reported
+model2 as stronger. Now reported as IDENTICAL.)
+
+Controls: vs `greedy` h9 is +0.147 against h8's +0.125 (the hold-backs are intact, not eaten); vs
+random 0.966 against 0.963.
+
+> **It missed its own pre-registered bar, and the bar is not being moved.** +0.04 pooled was
+> registered before the run; the result is +0.026. Real, replicated, ~4.5 SE pooled — and below
+> the bar. It recovers ~17% of h8's 2-seat deficit from one line.
+
+### H10: the tuner ran, and the tuner is not what did it
+
+Coordinate descent from H9 at two seats vs the M1s3 champion, 2 passes, **96 candidates**, 6868s.
+Grid adapted at n=2: `w_chdir_block` dropped (at two seats `behind` IS `threat`, so its guard
+compares a value to itself and can never fire), `w_block` / `w_plus_tempo` /
+`block_hand_threshold` widened.
+
+    heuristic:h9,w_deny=0.0,w_plus_tempo=3.0,w_save_blocker=2.0,w_reserve=16.0,p_king=2.0,block_hand_threshold=3
+
+In-search: -0.1332 -> -0.1128. On **fresh disjoint decks** (tuning used 0/777777; these are
+1500000/2500000):
+
+| @2 seats | blk 1500000 | blk 2500000 | mean | SE |
+|---|---|---|---|---|
+| h10 - h8 | +0.0370 | +0.0400 | **+0.0385** | 5.3 SE |
+| **h10 - h9** | +0.0133 | +0.0060 | **+0.0097** | **1.4 SE — not established** |
+
+**So H9's one structural line is worth +0.026 of the +0.0385, and everything 96 tuned candidates
+found on top is within noise of zero.** That is the H8 result a second time ("the tuner went above
+the old cap and came back empty", 2026-07-14) and the third time in this project that a structural
+fix paid where weight search did not. The winner's curse was mild (in-search implied ~+0.045
+against a measured +0.0385), so this is not a case of the search being fooled — it simply found
+little to find.
+
+### The gain is not an artifact of tuning against one net
+
+Paired margin (heuristic - DQN) at two seats, fresh blocks, mean of two:
+
+| vs | `h8` | `h10` | gain |
+|---|---|---|---|
+| M1s3 (the tuning target) | -0.1588 | -0.1218 | +0.0370 |
+| M1s2 (promotion runner-up — *seed* overfit test) | -0.1577 | -0.1277 | +0.0300 |
+| P1 (2p-curriculum net — *recipe* overfit test) | -0.1381 | -0.0955 | +0.0426 |
+
+The gain appears against a different seed and a differently-trained net, including the largest
+gain against the one net that was never in the loop. Not a specialist. The primary metric
+(h10 - h8) is DQN-free anyway, and the tuner never optimised it.
+
+Controls: vs `greedy` +0.153 (h8 +0.125, h9 +0.147); vs random 0.964; refusal census 1, against 2
+for both h8 and h9 — pre-existing CLOSE_TAKI declines (H4), not voluntary draws.
+
+### Two behavioural findings, both 2-seat-specific, both worth a probe
+
+1. **`w_deny` 1.5 -> 0.0 — colour denial is worth nothing at two seats**, the single largest step
+   in the search (+0.009). Candidate mechanism: denying your *only* opponent a colour makes them
+   draw, and a drawn card is a card you then have to out-race; at four seats the same denial lands
+   on someone else's problem. Untested.
+2. **`w_save_blocker` 0.0 -> 2.0 — H8's advice REVERSES.** H8 says spend the blocker; at two seats,
+   hold it. Note the interaction with H9: once STOP earns tempo it becomes attractive enough to
+   need a counterweight against being dumped early. The two changes are not independent.
+
+Both are single coordinate-descent steps of ~1-1.5 SE. Do not cite them as established.
+
+### Caveats
+
+- **`h10` must never become `REFERENCE`.** Its weights were selected at n=2 and measure
+  **-0.0015 +/- 0.0046 vs h8 at four seats** — nothing, where h8's numbers were published. (At
+  three: +0.0120 +/- 0.0063, mildly positive, unexplained and not chased.) `REFERENCE` stays `h8`.
+- **`h9` is a candidate to replace `h8` as REFERENCE and was NOT promoted here.** It is unusually
+  cheap to promote — identical to h8 at 3 and 4 seats, so every published 3- and 4-seat number
+  would stay valid verbatim, and only the 2-seat column would need re-running. Deliberately left
+  as a separate decision, per the rule that changing REFERENCE is never a side effect.
+- The 2-seat orbit is a 1v1, so "friendly fire" and composition effects do not arise; but it is
+  also a single pair, so there is no cross-pair variance check the way there is at three seats.
+- `h9`'s STOP now earns `w_block` *and* `w_plus_tempo` when a threat is present, for what is
+  physically one effect (the opponent losing a turn IS us gaining one). Deliberate at the H9 stage
+  (structure only, no weights). H10's `w_save_blocker = 2.0` is plausibly the tuner paying for it.
+
+---
+
 ## 2026-07-19 (later) — The head-to-head standard generalizes to every seat count as ONE rule (a rotation orbit), and the 1v3 arm joins the promotion standard. The promotion survives both; the 3-seat number was ~1 pt optimistic and a seat-dependence reading of the old 1v3 was refuted on replication
 
 **Setup.** `eval_headtohead.py` was hardcoded to four seats, so every 2- and 3-seat claim this
