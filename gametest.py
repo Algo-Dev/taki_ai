@@ -351,19 +351,59 @@ class GameFlowTest(unittest.TestCase):
         self.assertEqual(obs[141], 0.0)
         self.assertEqual(obs[142], 0.0)
 
+    def test_color_void_features(self):
+        # R4/B8: the last VOID_FEATURES floats are per-opponent "lacks color c" beliefs, in the
+        # SAME dir-aware turn order as the opponent hand sizes, colors in value order RED..BLUE.
+        void_off = OBSERVATION_SIZE - VOID_FEATURES
+        g = self.make_game(players=4)
+        g.curr, g.dir = 0, 1
+        g.discard = [Card(Type.FIVE, Color.RED)]
+        g.state = State.NORMAL
+        g.history = []
+        # Seat 1 draws while RED is active -> it lacks RED. Belief = 1.0 decayed once (the drawn
+        # card itself), i.e. LACK_DECAY; other colors 0. Seat 1 is opponent slot 0 for seat 0.
+        g.process_action(Action.DRAW, None, 1)
+        obs = g.observation(agent=0)
+        slot0 = obs[void_off:void_off + NUM_PLAY_COLORS]        # seat 1 (RED,YEL,GRN,BLU)
+        self.assertAlmostEqual(slot0[0], LACK_DECAY)
+        self.assertEqual(list(slot0[1:]), [0.0, 0.0, 0.0])
+        # Untouched opponents (seats 2, 3) read all-zero.
+        self.assertEqual(list(obs[void_off + NUM_PLAY_COLORS:]), [0.0] * (2 * NUM_PLAY_COLORS))
+        # The belief is global per absolute seat: from seat 3 (dir +1) seat 1 is opp slot 1.
+        obs3 = g.observation(agent=3)
+        self.assertAlmostEqual(obs3[void_off + NUM_PLAY_COLORS], LACK_DECAY)
+        # Playing a genuinely-colored RED card clears seat 1's RED void (red 3 on the red 5
+        # top; a second card keeps the play from finishing the hand).
+        g.curr, g.state = 1, State.NORMAL
+        g.hands[1] = [Card(Type.THREE, Color.RED), Card(Type.FIVE, Color.BLUE)]
+        g.process_action(Action.PLAY_CARD, Card(Type.THREE, Color.RED), 1)
+        self.assertEqual(g.observation(agent=0)[void_off], 0.0)
+
+    def test_color_void_features_zero_padded_for_two_players(self):
+        # With fewer than OPP_HAND_SLOTS opponents, the absent slots are zero-padded (like the
+        # opponent hand-size slots), so the vector stays constant-length.
+        void_off = OBSERVATION_SIZE - VOID_FEATURES
+        g = self.make_game(players=2)
+        obs = g.observation()
+        self.assertEqual(list(obs[void_off + NUM_PLAY_COLORS:]), [0.0] * (2 * NUM_PLAY_COLORS))
+
     def test_player_count_one_hot(self):
-        # The tail one-hot names the seat count, which the zero-padded opponent slots above
-        # cannot do unambiguously (a real opponent down to 0 cards reads as absent too).
+        # The seat-count one-hot names the seat count, which the zero-padded opponent slots
+        # above cannot do unambiguously (a real opponent down to 0 cards reads as absent too).
+        # Since R4 it is NO LONGER the tail — the per-opponent color-void block (VOID_FEATURES)
+        # follows it — so index it absolutely, just before the void block.
+        one_hot = slice(OBSERVATION_SIZE - VOID_FEATURES - NUM_PLAYER_SLOTS,
+                        OBSERVATION_SIZE - VOID_FEATURES)
         for players, slot in ((2, 0), (3, 1), (4, 2)):
             g = self.make_game(players=players)
-            block = g.observation()[-NUM_PLAYER_SLOTS:]
+            block = g.observation()[one_hot]
             self.assertEqual(block.sum(), 1.0)
             self.assertEqual(block[slot], 1.0)
         # Above 4 seats the block saturates on its last slot, the same way the opponent hand
         # slots truncate: the observation cannot show a 5th seat either.
         g = self.make_game(players=5)
-        np.testing.assert_array_equal(g.observation()[-NUM_PLAYER_SLOTS:],
-                                      self.make_game(players=4).observation()[-NUM_PLAYER_SLOTS:])
+        np.testing.assert_array_equal(g.observation()[one_hot],
+                                      self.make_game(players=4).observation()[one_hot])
 
     def _take_turn(self, game, action, card):
         """Drive one full turn (action + advancement) the way next_turn would."""
@@ -391,6 +431,19 @@ class ColorSymmetryTest(unittest.TestCase):
         g2.discard = [Card(c.type, pc(c.color)) for c in g.discard]
         g2.deck = [Card(c.type, pc(c.color)) for c in g.deck]
         g2.taki_color = pc(g.taki_color)
+        # The public history's color fields must recolor too, or the color-void features
+        # (derived from it since R4) would not be equivariant. NONE (0) is fixed.
+        def pcv(cv):
+            return cv if cv == Color.NONE.value else pi[cv - 1]
+        def rec(e):
+            if e[0] == 'play':   # (play, seat, type, color, prev_state, active_color)
+                return (e[0], e[1], e[2], pcv(e[3]), e[4], pcv(e[5]))
+            if e[0] == 'draw':   # (draw, seat, n, prev_state, active_color)
+                return (e[0], e[1], e[2], e[3], pcv(e[4]))
+            if e[0] == 'close':  # (close, seat, top_type, top_color)
+                return (e[0], e[1], e[2], pcv(e[3]))
+            return e             # penalty_draw: no color
+        g2.history = [rec(e) for e in g.history]
         return g2
 
     def _assert_equivariant(self, g):
@@ -410,11 +463,28 @@ class ColorSymmetryTest(unittest.TestCase):
             self.assertEqual(sorted(ACT_PERMS[k]), list(range(ACTION_SIZE)))
             # Colorless actions (CHCOL/SuperTAKI/King/DRAW/CLOSE_TAKI) never move.
             self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63, 64])
-            # State one-hot, draw_num and the extra features never move.
-            # Layout: hand(63) -> state one-hot+draw_num at 63..71, then open-TAKI color(4)
-            # + shown card(63), then extra features at 139..146.
-            fixed = list(range(63, 72)) + list(range(139, 147))
+            # State one-hot, draw_num and the NON-void extra features never move under a color
+            # relabeling. Layout: hand(63) -> state one-hot+draw_num at 63..71, then open-TAKI
+            # color(4) + shown card(63), then extra features at 139.. — direction / opp hand
+            # sizes / deck / unseen counts / seat-count one-hot are color-invariant (139 up to
+            # the void block), while the per-opponent color-void block IS color-variant (it is
+            # permuted; see test_color_void_block_permutes_within_each_group).
+            fixed = list(range(63, 72)) + list(range(139, OBSERVATION_SIZE - VOID_FEATURES))
             self.assertEqual(list(OBS_PERMS[k][fixed]), fixed)
+
+    def test_color_void_block_permutes_within_each_group(self):
+        # The per-opponent color-void block is color-VARIANT: under a color relabeling each
+        # opponent's 4 beliefs permute exactly like the open-TAKI color one-hot (same color
+        # convention), so the net's "opponent lacks red" belief tracks the recolored cards.
+        void_off = OBSERVATION_SIZE - VOID_FEATURES
+        taki_off = CARD_VECTOR_SIZE + len(State) + 1        # open-TAKI color one-hot offset
+        for k in range(len(COLOR_PERMS)):
+            perm = OBS_PERMS[k]
+            taki_map = [perm[taki_off + c] - taki_off for c in range(NUM_PLAY_COLORS)]
+            for j in range(OPP_HAND_SLOTS):
+                base = void_off + j * NUM_PLAY_COLORS
+                group = [perm[base + c] - base for c in range(NUM_PLAY_COLORS)]
+                self.assertEqual(group, taki_map)
 
     def test_identity_perm_is_noop(self):
         # itertools.permutations is lexicographic, so index 0 is the identity.
@@ -513,12 +583,14 @@ class RankSymmetryTest(unittest.TestCase):
         obs_perms, act_perms = rank_perm_tables(rhos)
         # Slots that a RANK relabeling must never move: inside each colored block, TAKI (0)
         # and STOP/CHDIR/+2/+/CHCOL (10-14); the three colorless card slots (60/61/62); and
-        # every non-card feature (state one-hot, draw_num, open-TAKI color, extras).
+        # every non-card feature (state one-hot, draw_num, open-TAKI color, all extras — the
+        # per-opponent color-void block carries no rank, so it is rank-invariant too, hence
+        # the fixed range runs to the end of the observation).
         fixed_card = [c * TYPES_PER_COLOR + t
                       for c in range(NUM_PLAY_COLORS) for t in (0, 10, 11, 12, 13, 14)]
         fixed_card += [60, 61, 62]
         fixed_obs = sorted([off + s for off in (0, 76) for s in fixed_card]
-                           + list(range(63, 76)) + list(range(139, 147)))
+                           + list(range(63, 76)) + list(range(139, OBSERVATION_SIZE)))
         for k in range(len(rhos)):
             self.assertEqual(sorted(obs_perms[k]), list(range(OBSERVATION_SIZE)))
             self.assertEqual(sorted(act_perms[k]), list(range(ACTION_SIZE)))

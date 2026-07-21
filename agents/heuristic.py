@@ -35,13 +35,14 @@ Behaviours (numbering matches the R3 plan):
 import dataclasses
 
 from game import (Action, Card, Color, Type, State, FINISHING_TYPE_VALUES,
-                  NUMBER_TYPE_VALUES, action_to_scalar)
+                  NUMBER_TYPE_VALUES, action_to_scalar,
+                  _OpponentModel, LACK_DECAY, _INFORMATIVE_DRAW_STATES)
 
 # --- Opponent model (B8) ---------------------------------------------------
-# P(a random unseen card is a given color) = 28/120 in this deck (14 types x 2
-# copies per color, 120 cards total): each card an opponent draws keeps a
-# "lacks color c" belief alive with probability ~1 - 28/120.
-LACK_DECAY = 1.0 - 28.0 / 120.0
+# The "lacks color c" belief model (B8 color denial) now lives in game.py, shared with the DQN
+# observation (R4) so both agents see exactly the same belief. _OpponentModel, LACK_DECAY and
+# _INFORMATIVE_DRAW_STATES are re-exported here for backwards compatibility (agenttest imports
+# them from this module).
 
 # --- Thresholds -------------------------------------------------------------
 BLOCK_HAND_THRESHOLD = 2   # B7: next player with <= this many cards is a threat
@@ -67,7 +68,6 @@ SCORE_DRAW = -5.0   # B11: drawing loses to almost any play
 SCORE_DECLINE_KING = -2.0  # B2: declining the follow-up beats only bad plays
 SCORE_FORBIDDEN = -100.0   # B5 hard: emptying the hand on a non-finisher
 
-_INFORMATIVE_DRAW_STATES = (State.NORMAL.value, State.PLUS.value)
 _BLOCKER_TYPES = (Type.STOP, Type.PLUSTWO)
 _WILD_TYPES = (Type.CHCOL, Type.KING)  # colorless; Super TAKI is Card(TAKI, NONE)
 
@@ -472,50 +472,6 @@ def _coerce(ftype, val):
 def make_heuristic(spec=''):
     """A HeuristicAgent from a spec string (see resolve_weights)."""
     return HeuristicAgent(weights=resolve_weights(spec))
-
-
-class _OpponentModel:
-    """Per-seat 'lacks color' beliefs, built from the public event log (B8).
-
-    A draw while color c was active (and a play was freely refusable, i.e. not
-    under a pending +2) sets lacks[seat][c] = 1, then every card that seat
-    draws — including that one — decays all their beliefs by LACK_DECAY per
-    card. Playing a genuinely colored card (not a recolored wild) clears the
-    belief for that color. NB: DRAW is always legal in this engine even with
-    playable cards, so vs a random opponent this is weak evidence — the belief
-    is a scoring weight, not a certainty.
-    """
-
-    def __init__(self, num_players):
-        self.lacks = [{c.value: 0.0 for c in Color if c is not Color.NONE}
-                      for _ in range(num_players)]
-
-    def observe(self, event):
-        kind, seat = event[0], event[1]
-        if kind == 'draw':
-            _, _, n_drawn, prev_state, active_color = event
-            if prev_state in _INFORMATIVE_DRAW_STATES \
-                    and active_color != Color.NONE.value:
-                self.lacks[seat][active_color] = 1.0
-            self._decay(seat, n_drawn)
-        elif kind == 'penalty_draw':
-            self._decay(seat, event[2])
-        elif kind == 'play':
-            _, _, type_value, color_value, _, _ = event
-            # A colored card proves they held that color — unless the "color"
-            # was chosen (CHCOL) rather than held.
-            if color_value != Color.NONE.value and type_value != Type.CHCOL.value:
-                self.lacks[seat][color_value] = 0.0
-
-    def _decay(self, seat, n_drawn):
-        factor = LACK_DECAY ** n_drawn
-        for c in self.lacks[seat]:
-            self.lacks[seat][c] *= factor
-
-    def lacks_color(self, seat, color):
-        if color is Color.NONE:
-            return 0.0
-        return self.lacks[seat][color.value]
 
 
 class HeuristicAgent:
