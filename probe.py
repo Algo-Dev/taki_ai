@@ -316,12 +316,18 @@ class Scenario:
     expect_illegal: tuple = ()
     lines: dict = field(default_factory=dict)   # named forced prefixes, for the MC arm
     correct: str = ''
+    history: tuple = ()   # public events to seed (R4 void probe); make_position leaves it empty
 
     def build(self, agents, seed=0):
-        return make_position(
+        game = make_position(
             list(self.hand), self.top, agents=agents, opp_sizes=self.opp_sizes,
             discard_below=list(self.discard_below) or None, discard_size=self.discard_size,
             state=self.state, taki_color=self.taki_color, seed=seed)
+        if self.history:
+            # Seed the public log so observation() computes the intended color-void beliefs.
+            # Independent of the deck asserts above (history is public record, not card state).
+            game.history = list(self.history)
+        return game
 
 
 PLAY = Action.PLAY_CARD
@@ -416,7 +422,39 @@ def b1c(k):
     )
 
 
-SCENARIOS = {s.name: s for s in [B1A, B1A_MIN_A, B1A_MIN_B] + [b1c(k) for k in range(5)]}
+# --- R4/B8: does the policy USE the color-void feature? ---------------------------------------
+# One fixed position, three history variants that differ ONLY in which color the next player
+# (seat 1) has revealed a void in. The learner can leave seat 1 either BLUE or GREEN active by
+# playing blue-5 or green-5 on the red 5 (both legal by type; the two yellows are dead weight so
+# the choice is exactly blue-vs-green). Correct B8 play: hand them a color they LACK, so they must
+# draw. Read D = Q(play blue-5) - Q(play green-5): a void-using net raises D when seat 1 lacks
+# blue and lowers it when seat 1 lacks green. Because only `history` varies, deck/discard/hands are
+# byte-identical across variants, so D's SHIFT isolates the void feature. Built-in negative
+# control: a pre-R4 net (e.g. M1s3, 150 floats) cannot see the void block at all — its D is
+# identical across all three variants by construction.
+_VOID_TOP = c(Type.FIVE, R)
+_VOID_HAND = (c(Type.FIVE, B), c(Type.FIVE, G), c(Type.THREE, Y), c(Type.EIGHT, Y))
+
+
+def void_scn(tag, void_color):
+    hist = () if void_color is None else ((
+        'draw', 1, 1, State.NORMAL.value, void_color.value),)
+    who = 'no revealed void' if void_color is None else f'drew on {void_color.name.lower()}'
+    return Scenario(
+        name=f'void_{tag}',
+        desc=f'Denial choice on a red 5: leave BLUE or GREEN for seat 1, who has {who}.',
+        hand=_VOID_HAND, top=_VOID_TOP, opp_sizes=(4, 5, 5),
+        expect_legal=((PLAY, c(Type.FIVE, B)), (PLAY, c(Type.FIVE, G)), (Action.DRAW, None)),
+        expect_illegal=((PLAY, c(Type.THREE, Y)), (PLAY, c(Type.EIGHT, Y))),
+        history=hist,
+        correct='Leave seat 1 a color it lacks: prefer blue-5 iff it lacks blue, green-5 iff it '
+                'lacks green. Signal = D(void_blue) - D(void_green) > 0, where D = Q(blue5)-Q(green5).')
+
+
+_VOID_SCENS = [void_scn('blue', B), void_scn('none', None), void_scn('green', G)]
+
+SCENARIOS = {s.name: s for s in
+             [B1A, B1A_MIN_A, B1A_MIN_B] + [b1c(k) for k in range(5)] + _VOID_SCENS}
 
 
 # --------------------------------------------------------------------------------------------
