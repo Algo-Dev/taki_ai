@@ -10,7 +10,13 @@ import subprocess
 import sys
 import unittest
 
-from game import Game, MIN_PLAYERS, NUM_PLAYER_SLOTS, OBSERVATION_SIZE
+from game import (Game, MIN_PLAYERS, NUM_PLAYER_SLOTS, OBSERVATION_SIZE,
+                  VOID_FEATURES)
+
+# The seat-count one-hot is no longer the observation tail since R4 (the per-opponent
+# color-void block, VOID_FEATURES floats, follows it), so index it absolutely.
+_ONE_HOT = slice(OBSERVATION_SIZE - VOID_FEATURES - NUM_PLAYER_SLOTS,
+                 OBSERVATION_SIZE - VOID_FEATURES)
 from agents.random import RandomAgent
 
 
@@ -47,10 +53,10 @@ class ReseatTest(unittest.TestCase):
         g.reset(agents=pool[:2])
         self.assertEqual(len(g.agents), 2)
         self.assertEqual(len(g.hands), 2)      # dealt for the NEW count, not the old
-        self.assertEqual(g.observation()[-NUM_PLAYER_SLOTS:].tolist(), [1, 0, 0])
+        self.assertEqual(g.observation()[_ONE_HOT].tolist(), [1, 0, 0])
         g.reset(agents=pool[:3])
         self.assertEqual(len(g.hands), 3)
-        self.assertEqual(g.observation()[-NUM_PLAYER_SLOTS:].tolist(), [0, 1, 0])
+        self.assertEqual(g.observation()[_ONE_HOT].tolist(), [0, 1, 0])
 
     def test_reset_rejects_a_table_too_small_to_play(self):
         pool = [RandomAgent() for _ in range(4)]
@@ -122,7 +128,7 @@ class MixedSamplerTest(unittest.TestCase):
         for _ in range(60):
             n = rng.choice([2, 3, 4])
             g.reset(agents=pool[:n])
-            seen.add(tuple(g.observation()[-NUM_PLAYER_SLOTS:].tolist()))
+            seen.add(tuple(g.observation()[_ONE_HOT].tolist()))
         self.assertEqual(len(seen), 3, f'one-hot did not vary across counts: {seen}')
 
 

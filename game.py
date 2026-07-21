@@ -184,12 +184,23 @@ TOTAL_DECK_CARDS = 120
 TOTAL_PLUS_TWO = 8   # 4 colors x 2
 TOTAL_KING = 2
 TOTAL_CHCOL = 4
+# Per-opponent color-void beliefs (R4/B8): for each of the OPP_HAND_SLOTS opponents in turn
+# order, a "lacks color c" belief in [0, 1] for each of the NUM_PLAY_COLORS play colors,
+# inferred from the public history exactly as the heuristic's _OpponentModel does (a draw
+# while color c was active sets it; it decays as that seat draws; a genuinely-colored play of
+# c clears it). This closes a sub-human gap — a human at the table remembers "Dana hasn't
+# played green since she drew on green", but the pre-R4 net could not, because it needs
+# history. It does NOT widen the information set beyond human reach (see CLAUDE.md / PLAN R4).
+VOID_FEATURES = OPP_HAND_SLOTS * NUM_PLAY_COLORS
 # Extra scalar features appended to the observation (see Game.observation):
 #   turn direction(1) + opponent hand sizes in turn order(OPP_HAND_SLOTS) + deck size(1)
-#   + unseen +2 / King / Change-Color counts(3) + player-count one-hot(NUM_PLAYER_SLOTS) = 11.
-EXTRA_FEATURES = 1 + OPP_HAND_SLOTS + 1 + 3 + NUM_PLAYER_SLOTS
+#   + unseen +2 / King / Change-Color counts(3) + player-count one-hot(NUM_PLAYER_SLOTS)
+#   + per-opponent color-void beliefs(VOID_FEATURES) = 23. The void block is appended LAST so
+#   the leading floats stay a strict superset of the pre-R4 contract (old checkpoints still
+#   load and play on obs[:their_size] via allow_obs_truncation).
+EXTRA_FEATURES = 1 + OPP_HAND_SLOTS + 1 + 3 + NUM_PLAYER_SLOTS + VOID_FEATURES
 # observation() = hand(63) + state one-hot(len(State)) + draw_num(1)
-#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(11)
+#                 + open-TAKI-color one-hot(4) + shown_card(63) + extra features(23)
 # The discard pile is deliberately NOT exposed as a histogram (only the shown top card is);
 # the net gets a coarse card-count sense via the unseen +2/King/CHCOL features instead, rather
 # than a full memory of everything that has been played.
@@ -324,13 +335,19 @@ NUM_RANKS = len(RANK_OFFSETS)                            # 9
 # observation: hand, shown (the discard histogram is not part of the observation).
 _TAKI_COLOR_OFF = CARD_VECTOR_SIZE + len(State) + 1      # 72
 _CARD_BLOCK_OFFS = (0, _TAKI_COLOR_OFF + NUM_PLAY_COLORS)
+# Offset of the per-opponent color-void block (the last VOID_FEATURES floats of the
+# observation): OPP_HAND_SLOTS consecutive groups of NUM_PLAY_COLORS color beliefs. Each group
+# is a color one-hot-like sub-block, so a color relabeling must permute the four beliefs within
+# every group (a rank relabeling leaves them alone — they carry no rank).
+_VOID_OFF = OBSERVATION_SIZE - VOID_FEATURES             # 150
 
 
 def _tables_from_card_maps(card_f, color_f=None):
     """Turn forward permutation(s) of the 63 card slots into (obs gathers, act forwards).
 
     card_f is (n, CARD_VECTOR_SIZE); color_f, if given, is the matching (n, NUM_PLAY_COLORS)
-    forward map of the open-TAKI color one-hot (rank relabelings leave it alone).
+    forward map of the open-TAKI color one-hot AND of each opponent's color-void group (rank
+    relabelings leave both alone).
     """
     n = len(card_f)
     # Action slots 0-59 mirror the colored card slots; 60-64 (CHCOL / Super TAKI / King /
@@ -343,9 +360,13 @@ def _tables_from_card_maps(card_f, color_f=None):
         obs_f[:, off:off + CARD_VECTOR_SIZE] = off + card_f
     if color_f is not None:
         obs_f[:, _TAKI_COLOR_OFF:_TAKI_COLOR_OFF + NUM_PLAY_COLORS] = _TAKI_COLOR_OFF + color_f
-    # Everything else — the state one-hot, draw_num, and the extra features (turn direction,
-    # opponent hand sizes, deck size, unseen +2/King/CHCOL counts, player-count one-hot) — is
-    # invariant under both relabelings and stays at its own index.
+        # Same color permutation inside each opponent's void group (color-variant features).
+        for j in range(OPP_HAND_SLOTS):
+            base = _VOID_OFF + j * NUM_PLAY_COLORS
+            obs_f[:, base:base + NUM_PLAY_COLORS] = base + color_f
+    # Everything else — the state one-hot, draw_num, and the remaining extra features (turn
+    # direction, opponent hand sizes, deck size, unseen +2/King/CHCOL counts, player-count
+    # one-hot) — is invariant under both relabelings and stays at its own index.
     gather = np.empty((n, OBSERVATION_SIZE), dtype=np.intp)
     np.put_along_axis(gather, obs_f, np.tile(np.arange(OBSERVATION_SIZE), (n, 1)), axis=1)
     return gather, act_f
@@ -382,7 +403,7 @@ def rank_perm_tables(rank_perms):
     return _tables_from_card_maps(card_f)
 
 
-OBS_PERMS, ACT_PERMS = color_perm_tables(COLOR_PERMS)     # shapes (24, 147) and (24, 65)
+OBS_PERMS, ACT_PERMS = color_perm_tables(COLOR_PERMS)     # shapes (24, OBSERVATION_SIZE) and (24, 65)
 
 
 def sym_tables(n, color_sym=True, rank_sym=False):
@@ -409,6 +430,78 @@ def sym_tables(n, color_sym=True, rank_sym=False):
             obs_g = np.take_along_axis(obs_g, r_obs, axis=1)
             act_f = np.take_along_axis(r_act, act_f, axis=1)
     return obs_g, act_f
+
+
+# --- Per-seat color-void beliefs (R4/B8) -----------------------------------------------------
+# P(a random unseen card is a given color) = 28/120 in this deck (14 colored types x 2 copies
+# per color, 120 cards total): each card an opponent draws keeps a "lacks color c" belief alive
+# with probability ~1 - 28/120. Used both by Game.observation() (the R4 feature) and by the
+# heuristic's B8 color denial — one shared implementation, so the belief the net sees is exactly
+# the one the yardstick uses. The heuristic re-exports these names; agenttest imports them.
+LACK_DECAY = 1.0 - 28.0 / 120.0
+# Only a draw a player could have refused (NORMAL / PLUS) is color evidence. A forced +2 draw
+# (DRAW_TWO) means "no +2 / King to stack", not "lacks the active color", and no draws happen
+# mid-run (TAKI / SUPER_TAKI), so those states are excluded.
+_INFORMATIVE_DRAW_STATES = (State.NORMAL.value, State.PLUS.value)
+
+
+class _OpponentModel:
+    """Per-seat 'lacks color' beliefs, built from the public event log (B8/R4).
+
+    A draw while color c was active (and a play was freely refusable, i.e. not
+    under a pending +2) sets lacks[seat][c] = 1, then every card that seat
+    draws — including that one — decays all their beliefs by LACK_DECAY per
+    card. Playing a genuinely colored card (not a recolored wild) clears the
+    belief for that color. NB: DRAW is always legal in this engine even with
+    playable cards, so this is weak evidence — the belief is a probability in
+    [0, 1], not a certainty.
+    """
+
+    def __init__(self, num_players):
+        self.lacks = [{c.value: 0.0 for c in Color if c is not Color.NONE}
+                      for _ in range(num_players)]
+
+    def observe(self, event):
+        kind, seat = event[0], event[1]
+        if kind == 'draw':
+            _, _, n_drawn, prev_state, active_color = event
+            if prev_state in _INFORMATIVE_DRAW_STATES \
+                    and active_color != Color.NONE.value:
+                self.lacks[seat][active_color] = 1.0
+            self._decay(seat, n_drawn)
+        elif kind == 'penalty_draw':
+            self._decay(seat, event[2])
+        elif kind == 'play':
+            _, _, type_value, color_value, _, _ = event
+            # A colored card proves they held that color — unless the "color"
+            # was chosen (CHCOL) rather than held.
+            if color_value != Color.NONE.value and type_value != Type.CHCOL.value:
+                self.lacks[seat][color_value] = 0.0
+
+    def _decay(self, seat, n_drawn):
+        factor = LACK_DECAY ** n_drawn
+        for c in self.lacks[seat]:
+            self.lacks[seat][c] *= factor
+
+    def lacks_color(self, seat, color):
+        if color is Color.NONE:
+            return 0.0
+        return self.lacks[seat][color.value]
+
+
+def color_void_beliefs(history, num_players):
+    """Replay the public history into a fresh _OpponentModel and return it (R4).
+
+    A pure function of the public log — no hidden information — so Game.observation() can build
+    the per-opponent void features without any mutable belief state on the Game itself (the
+    model resets for free with history each round). Games are short, so recomputing per call is
+    cheap; if it ever shows up in a profile, cache it behind a per-round cursor as the heuristic
+    does.
+    """
+    model = _OpponentModel(num_players)
+    for event in history:
+        model.observe(event)
+    return model
 
 
 class Game:
@@ -451,7 +544,8 @@ class Game:
         #   ('close', seat, top_type_value, top_color_value)
         #   ('penalty_draw', seat, n_drawn)
         # where active_color_value is the color a play had to match when the action was taken.
-        # The DQN observation/training paths ignore this entirely.
+        # Since R4 the DQN observation ALSO consumes this: observation() replays it through
+        # _OpponentModel to build the per-opponent color-void beliefs (still only public info).
         self.history = []
         # Build each card as a DISTINCT object. `[Card(...)] * n` would alias one object
         # into n deck slots (in-place card mutation would then hit every alias); distinct
@@ -774,7 +868,8 @@ class Game:
         """
         # hand + state(one-hot) + draw_num + open-TAKI-color(one-hot) + card shown
         #      + [direction, OPP_HAND_SLOTS opponent hand sizes in turn order, deck size,
-        #         unseen +2 / King / Change-Color counts, player-count one-hot]
+        #         unseen +2 / King / Change-Color counts, player-count one-hot,
+        #         per-opponent color-void beliefs (LAST — see below)]
         # The discard pile is intentionally NOT exposed as a histogram; only the shown top
         # card is, plus the coarse unseen +2/King/CHCOL counts (see A7 scoping).
         # Count features are normalised (see the *_NORM / TOTAL_* constants) so every input
@@ -806,13 +901,28 @@ class Game:
         # opponent hand slots, which cannot show a 5th seat either.
         n_players_vec = np.zeros(NUM_PLAYER_SLOTS)
         n_players_vec[min(num_players, MIN_PLAYERS + NUM_PLAYER_SLOTS - 1) - MIN_PLAYERS] = 1
+        # Per-opponent color-void beliefs (R4/B8): for each opponent slot in the SAME dir-aware
+        # turn order as opp_sizes, a "lacks color c" belief in [0, 1] for c = RED..BLUE (color
+        # value order, matching color_to_vector). Zero-padded for absent opponents. Built from
+        # the public history — a pure function of the log, no hidden information. Appended LAST
+        # so obs[:pre-R4-size] stays bit-identical and old checkpoints still play (truncation).
+        void_model = color_void_beliefs(self.history, num_players)
+        void_feats = []
+        for k in range(1, OPP_HAND_SLOTS + 1):
+            if k < num_players:
+                seat = (agent + k * self.dir) % num_players
+                void_feats.extend(void_model.lacks[seat][c]
+                                  for c in range(1, NUM_PLAY_COLORS + 1))
+            else:
+                void_feats.extend([0.0] * NUM_PLAY_COLORS)
         extra = np.array([self.dir,
                           *opp_sizes,
                           len(self.deck) / TOTAL_DECK_CARDS,
                           _unseen(Type.PLUSTWO, TOTAL_PLUS_TWO),
                           _unseen(Type.KING, TOTAL_KING),
                           _unseen(Type.CHCOL, TOTAL_CHCOL),
-                          *n_players_vec])
+                          *n_players_vec,
+                          *void_feats])
         return np.concatenate(
             (hand_vec / CARD_COPIES_NORM,
              state_to_vector(self.state),

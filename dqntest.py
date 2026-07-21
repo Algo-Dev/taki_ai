@@ -32,8 +32,9 @@ class ObsTruncationTest(unittest.TestCase):
     Every observation change so far appended features, so today's vector is a strict superset
     of yesterday's and the leading prefix is exactly what the old net was trained on. Feeding
     it that prefix is faithful, not approximate -- which is what keeps an earlier champion
-    (R6, 147 floats) measurable against a current net (150) instead of permanently
-    uncomparable. Pinned because the day it silently breaks, cross-contract numbers keep
+    (R6, 147 floats; or a 150-float seat-count net) measurable against a current net (162
+    since the R4 color-void block) instead of permanently uncomparable. Pinned because the day
+    it silently breaks, cross-contract numbers keep
     printing and quietly mean nothing.
     """
 

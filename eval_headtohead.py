@@ -15,8 +15,8 @@ def load_greedy_agent(checkpoint_path):
     allow_obs_truncation lets a checkpoint from an older, shorter observation contract play
     on exactly the leading floats it was trained on (the observation has only ever grown by
     appending, so the prefix is bit-identical -- see AIAgent). This is what makes a
-    cross-contract head-to-head possible at all: R6 (147 floats) can share a table with a
-    seat-count-one-hot net (150).
+    cross-contract head-to-head possible at all: R6 (147 floats) or a seat-count-one-hot net
+    (150) can share a table with an R4 color-void net (162).
     """
     return AIAgent(epsilon=0.0, epsilon_min=0.0, load_model=checkpoint_path,
                    allow_obs_truncation=True)

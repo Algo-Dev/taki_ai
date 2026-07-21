@@ -91,8 +91,9 @@ class AIAgent:
         """Let a net from an older, SHORTER observation contract still play.
 
         Every observation change so far has APPENDED features, so today's vector is a strict
-        superset of yesterday's: obs[:147] is bit-identical to what a 147-float net was
-        trained on (pinned by gametest). Feeding such a net the leading prefix is therefore
+        superset of yesterday's: obs[:N] is bit-identical to what an N-float net was trained on
+        for every past contract (147 for R6, 150 for the seat-count-one-hot nets, 162 since the
+        R4 color-void block; pinned by gametest). Feeding such a net the leading prefix is
         exact, not an approximation -- it sees precisely its own observation, minus only the
         features it never had. That is what lets a pre-one-hot champion like R6 sit at the
         same table as a current net instead of being permanently uncomparable.
