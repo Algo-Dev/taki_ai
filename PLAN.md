@@ -255,6 +255,15 @@ late breakout unlikely.
   learned that behaviour; if it lowers it, A8 already knows better. This is a direct instrument for
   the behavioural questions in CLAUDE.md, and it can reuse the rule code as-is.
 
+**R4. Belief-state features — DONE (2026-07-21), on branch `r4-color-void`. The policy learned
+color denial; win rate did not move.** The on-goal half shipped: per-opponent color-void beliefs
+(obs 150 -> 162), retrained mixed-count from scratch x3 seeds. Behaviourally a clean win — the
+probe (`probes/r4_color_void.md`) shows every seed steers onto the color the next player lacks,
+with M1s3 as a perfect S=0 control. On win rate it is a **tie** with M1s3 (small edge only at two
+seats), so it fails the promotion standard and is NOT merged; the champion stays M1s3. This is the
+info-set-ceiling thesis again — a legitimate human-reachable feature adds behaviour, not win rate.
+The off-goal half stays rejected. See RESEARCH_LOG 2026-07-21. *(Original item below.)*
+
 **R4. Belief-state features — SPLIT by the target. One half is off-goal, one half is on-goal.**
 Written before the project target was recorded; the two bullets it proposed are now on opposite
 sides of the line.

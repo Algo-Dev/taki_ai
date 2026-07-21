@@ -14,6 +14,68 @@ Definitions used throughout:
 
 ---
 
+## 2026-07-21 — R4: per-opponent color-void features. The policy LEARNED color denial — and it did NOT move the win-rate ceiling. Both halves are the result
+
+**Branch `r4-color-void` (not merged to master).** Implemented the on-goal half of PLAN R4:
+per-opponent, per-color "lacks color c" beliefs appended to the observation (**150 -> 162
+floats**, the 12 = OPP_HAND_SLOTS x 4 colors in dir-aware turn order). The belief is the
+heuristic's own B8 model (`_OpponentModel`, moved to `game.py` and now shared by both the DQN
+observation and the heuristic — the frozen fingerprint is unchanged, so heuristic behaviour is
+identical). Rejected the off-goal half (the 63-slot unseen-count vector = perfect card counting).
+
+**Setup.** Retrained from scratch, mixed-count `--num-players 2,3,4 --trials 300000 --reward
+shaped --loss-penalty 60`, narrow net, color+rank sym — i.e. M1s3's exact recipe, three seeds
+(3/1/2). Prefix-integrity gate first: under the 162-float build R6 reproduces **0.297** vs
+`heuristic:h8` to the digit (obs[:147] bit-identical), so old checkpoints still play via
+truncation. Screened vs `heuristic:h9` (3000 games, Mode A): all three seeds land at
+parity-to-slightly-above M1s3 (4 seats 0.30/0.30/0.31, 2 seats 0.56/0.56/0.57, 3 seats ~0.38);
+seed 1 weakest, seed 2 marginally best. Candidate pre-committed = **seed 2 / snap300000**.
+
+**Win rate: a TIE with M1s3, and it does NOT meet the promotion standard.** Paired orbit margin
+(candidate minus M1s3, parity 0.0), both orbits, all counts, two deck blocks (seed 0 / 777777):
+
+| config | block 0 | block 777777 | reading |
+|---|---|---|---|
+| 2 seats (orbit) | +0.019 ± 0.011 | **+0.029 ± 0.011** | R4 ahead ~+2.4 pts (one block > 2 SE) |
+| 3 seats (orbit) | +0.006 ± 0.007 | +0.003 ± 0.007 | tie |
+| 4 seats 2v2 (balanced) | +0.014 ± 0.011 | −0.003 ± 0.011 | tie (blocks disagree in sign) |
+| 4 seats 1v3 (solo) | +0.001 ± 0.005 | **−0.011 ± 0.005** | M1s3 ahead (one block > 2 SE) |
+
+The promotion standard is "both orbits positive at every count." R4 fails it: at 4 seats the
+solo orbit is negative in one block and flat in the other. So **M1s3 stays champion.** The only
+place R4 shows a real (small) win-rate edge is **two seats** — exactly where a single opponent
+makes color-denial and STOP-tempo matter most. This is the thesis result, again: adding a
+legitimate, human-reachable feature does **not** raise the win-rate ceiling (R1/A10/A11/A12) —
+the agent was already at the ceiling of its information set.
+
+**Behaviour: the policy plainly USES the feature — this is the deliverable.** New probe
+(`probe_void.py`, scenarios `void_{blue,none,green}`): one fixed position where the learner can
+leave the next player BLUE or GREEN active (play blue-5 or green-5 on a red 5); three history
+variants that differ ONLY in which color seat 1 has revealed a void in. Read
+`D = Q(play blue-5) − Q(play green-5)` and the shift `S = D(void_blue) − D(void_green)`.
+
+| net | D(lacks blue) | D(none) | D(lacks green) | S |
+|---|---|---|---|---|
+| R4 seed 2 snap300000 | +0.86 | +0.30 | **−0.95** | **+1.81** |
+| R4 seed 3 | +0.92 | +0.21 | +0.07 | +0.85 |
+| R4 seed 1 | +2.46 | +1.56 | +0.20 | +2.27 |
+| **M1s3 (150 floats, control)** | −1.376 | −1.376 | −1.376 | **0.0000** |
+
+Every R4 seed gives `S > 0` and the sign of D flips with the void (seed 2: +0.86 -> −0.95): the
+policy **steers the game onto the color the next player cannot follow.** M1s3 is a built-in
+negative control — it literally cannot see the void block (played on obs[:150]), so its D is
+identical across all three variants and `S = 0` exactly. That is what makes the probe a
+measurement of *the feature* and not of position noise. *Statement about Taki: leave the next
+player a color they've shown they lack — the model learned this once it could remember it.*
+
+**Bottom line.** R4 closes a genuinely sub-human gap (memory-based void inference), the retrained
+policy demonstrably exploits it, and it costs ~nothing at 3/4 seats while buying a little at 2.
+It is **not a win-rate promotion** and is left on its branch; whether to merge (a 162-float
+contract break that re-bases all future training) is a deliberate call for later. Full tests
+green; heuristic fingerprint unchanged. Probe write-up in `probes/r4_color_void.md`.
+
+---
+
 ## 2026-07-21 — PROMOTION: REFERENCE h8 -> h9. A strict improvement, so only the two-seat column moves
 
 At the user's direction, the reference yardstick (`REFERENCE` in `agents/heuristic.py`, what a bare
