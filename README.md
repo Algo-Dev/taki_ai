@@ -57,6 +57,30 @@ by construction rather than by averaging), and both the balanced and solo arms m
 standard this model beats the previous champion at **every** seat count, four seats included,
 which was the previous champion's own specialty. See [RESEARCH_LOG.md](RESEARCH_LOG.md).
 
+## Trained models
+
+Checkpoints are **not in the repository** — `models/` is gitignored, because git stores every
+revision of a binary in full and cannot prune it later. The promoted champions are published as
+assets on the
+[`champion-M1s3` release](https://github.com/Algo-Dev/taki_ai/releases/tag/champion-M1s3) instead:
+
+| asset | what it is |
+|---|---|
+| `checkpoint_M1s3_mixed_snap300000.tar.gz` | the **current champion** — plays 2, 3 and 4 seats (150-float observation) |
+| `checkpoint_r6L60_snap100000.tar.gz` | previous champion, four-seat only; the reference the current one was promoted against (147-float) |
+| `checkpoint_a9rules_snap500000.tar.gz` | the champion before that; first model trained on the corrected finishing rule (147-float) |
+| `SHA256SUMS` | checksums for the three archives |
+
+```bash
+tar -xzf checkpoint_M1s3_mixed_snap300000.tar.gz -C models/
+python eval.py --model models/checkpoint_M1s3_mixed_snap300000 --opponent heuristic --games 3000
+```
+
+The two older nets predate the seat-count one-hot, so they cannot be warm-started for training,
+but `eval.py` and `eval_headtohead.py` play them on the leading 147 floats they were trained on,
+which is exact. Everything older than `a9rules` was lost on 2026-07-12 and was trained on a
+finishing-rule bug in any case; those results survive in the research log as history only.
+
 # Algorithm
 Uses DQN with experience replay, trained by self-play: 1 learner + (N−1) opponents whose weights
 are periodically synced to the learner's, so it keeps facing a stronger version of itself.
