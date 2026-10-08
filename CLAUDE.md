@@ -380,17 +380,19 @@ Three layers with a strict encoding contract between them:
 
 - **`RESEARCH_LOG.md`** is the experiment history (newest on top; setup, headline metrics, caveats). Record training/eval experiments there. **`RULES.md`** documents the rules-engine behaviour and deliberate house-rule interpretations in `game.py` — check it before "fixing" rules behavior (e.g. the King, Change Color inside an open TAKI, 2-player CHDIR). **`PLAN.md`** is a pool of ideas / open items only (deferred RL levers, TODOs) — not documentation; don't put reference material there.
 - **RUN RESULTS ARE NEVER COMMITTED (2026-07-19).** Harness stdout is not repo content. Tracked: the *code* that produces a number (`runs/`, `probe.py`, `r6_accept.py`) and the *write-up* that interprets it (`RESEARCH_LOG.md`, `probes/*.md`). Untracked: everything a run prints — `results/` (where the `runs/` scripts write), all `*.log`, all `*_results.txt`. **This reverses the older "`probes/*.log` are deliberate artefacts and stay tracked" rule**; those logs remain on disk locally but are out of the repo. So when RESEARCH_LOG or a probe write-up cites a log by filename, that names *the run that produced a number* — it is not a promise the file is in the tree, and a fresh clone will not have it. If a result matters, **transcribe it into RESEARCH_LOG**; that is the record, not the file.
-- **Live branches with unmerged work (check these before starting something).** `git worktree list`
-  and `git branch` first — the task may already have a branch. As of 2026-10-08:
-  - **`r4-color-void`** (worktree at `../taki-ai-r4-color-void`) — belief features for opponent colour
-    voids. "Didn't improve win rate but improved behaviour", so it was parked. **The 2026-07-23 review
-    argues that disposition is mis-ranked:** the *heuristic* yardstick already tracks colour voids
-    (`_OpponentModel`, consumed via `w_deny`) and the DQN cannot see them, so every "vs heuristic"
-    number is information-set-*mismatched*. By this project's own stated target, a behavioural
-    improvement at win-rate parity is a **successful fidelity fix**, and win-rate parity is the wrong
-    acceptance bar for one. Ranked 5th of 7 in that review.
-  - **`a11-dueling-head`**, **`double-dqn-huber`** — older negative/parked architecture arms (A11, and
-    the Double-DQN + Huber hygiene package). Kept for reproducibility; both measured inert.
+- **Parked branches — all three are on the remote, and they are NOT equally stale.** `git worktree
+  list` and `git branch` first; the task may already have a branch. **Full write-up in PLAN.md
+  ("Parked branches").** The one-line version:
+  - **`r4-color-void`** (worktree at `../taki-ai-r4-color-void`) — **current architecture, positive
+    behavioural result, graded against the wrong bar.** Adds per-opponent colour-void beliefs
+    (obs 150->162). It needs **re-grading as a fidelity fix**, not retesting: the heuristic has had
+    this inference since R3 (`w_deny`), so the yardstick could do something the agent could not.
+  - **`a11-dueling-head`** (tip 2026-07-11) and **`double-dqn-huber`** (tip 2026-07-05) — both
+    **predate the finishing-rule fix (2026-07-12)**, so their numbers describe a *different game*;
+    both also pre-R6, pre-mixed-count, four seats only, screened on the retired vs-random metric.
+    Treat "measured inert" as unsettled rather than closed, and port the idea onto current master
+    rather than re-running the branch (both diverged from the 2020 base). Double-DQN specifically
+    belongs **inside the R17 package**, since the target network is effectively absent today.
 - **NEVER symlink `models/` into a worktree, and never `git add -A` if you have.** `.gitignore` has `/models/*` (contents) but `models/.gitkeep` is *tracked*, so a **symlink at the path `models` is not ignored** — `git add -A` stages it as a tracked symlink, and the next checkout/merge of that commit **deletes the real `models/` directory**, ignored contents and all. This destroyed every checkpoint in `models/` once (2026-07-12), champion included. To use checkpoints from a worktree, pass an **absolute path** (`--model /home/orih/taki-ai/models/<ckpt>`) instead.
 - `models/` is gitignored (checkpoints are regenerable). Snapshots land in `models/run<timestamp>/snap<NNNN>/`; promoted best models are kept as `models/checkpoint_*` and named in RESEARCH_LOG.md. Old `checkpoint<float-timestamp>` dirs are from a previous architecture and will not load.
 - TF thread pools are deliberately shrunk (env vars in `eval.py` before the TF import; `tf.config.threading` in `agents/dqn.py`) — the tiny network thrashes on default pools. Keep any TF-touching entry point consistent with this.
