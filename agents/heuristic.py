@@ -1,6 +1,32 @@
-"""Hand-crafted heuristic Taki agent (PLAN.md R3).
+"""Hand-crafted heuristic Taki agent (PLAN.md R3) — and the project's VERSIONED, FROZEN yardstick.
 
 An independent, non-lineage yardstick: rule-based play with no trained network.
+
+THIS FILE IS A REGISTRY OF FROZEN VERSIONS, NOT ONE AGENT. Because it is the ranking metric,
+editing the live behaviour would silently rewrite every "vs heuristic" number the project has
+published. So named versions are pinned (`VERSIONS`, see the table in CLAUDE.md) and one spec
+grammar (`resolve_weights`) is shared by every harness — eval.py, eval_headtohead.py,
+holdback.py, tune_heuristic.py. `REFERENCE` names the current one (h9 since 2026-07-21,
+h8 before that, r3 before 2026-07-14); changing it is a deliberate act that requires re-running
+the champions and recording both numbers.
+
+A version pins BEHAVIOUR, not just numbers. Two fields carry that and neither is a weight:
+  `refusal_mode`  'legacy' lets `score_draw` compete in the same max() as the plays, so a
+                  hold-back weight >= 5.0 bought a REFUSAL (-13 pts) instead of a preference.
+                  That was an 18-point STRUCTURAL defect, not a tuning error; 'structural'
+                  makes refusing rules-only, so no weight assignment can produce a voluntary
+                  draw (pinned as a property test). H1 carries R3's exact weights and beats it
+                  by +0.183 on that change alone.
+  `structure`     which cards are recognised as returning the turn to us (tempo). See
+                  `Weights.structure`.
+
+The freeze needs BOTH guards in `agenttest.FrozenVersionTest`, because each is blind where the
+other sees: the WEIGHT PIN asserts every version's values (blind to a structural edit — H1 moved
++0.183 with zero weights touched), and the MOVE-SEQUENCE FINGERPRINT hashes every decision across
+60 seeded games (blind to a saturated hold — p_king 5.0->6.0 flips no argmax). If a fingerprint
+fails, do NOT paste in the new hash: a frozen version drifting means the published numbers no
+longer describe the agent in the tree. Real behaviour changes get a NEW version; old ones are
+never edited.
 
 INFORMATION CONTRACT — this agent deliberately restricts itself to the human
 information set (the project's design constraint, see CLAUDE.md). Although the

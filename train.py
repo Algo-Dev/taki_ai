@@ -96,9 +96,13 @@ def plot_rewards(values, wins, title='', save_path=None, show=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a DQN Taki agent via self-play.')
-    # The old ./models/checkpoint* dirs were produced by a previous architecture and
-    # will NOT load against the current network — leave --model unset to start fresh,
-    # or pass a checkpoint from a current-architecture run to continue training.
+    # The four ./models/checkpoint<float-timestamp> dirs were produced by a previous
+    # architecture and will NOT load against the current network — leave --model unset to start
+    # fresh, or pass a checkpoint from a current-architecture run to continue training.
+    # Note the naming collision: this script still SAVES to ./models/checkpoint<timestamp> (see
+    # the save at the end), so the warning's glob matches today's output too. The ones that fail
+    # to load are specifically the four pre-A7 dirs; promoted models get a descriptive
+    # checkpoint_<tag> name instead.
     parser.add_argument('--model', default=None,
                         help='checkpoint to warm-start the learner and opponents from')
     parser.add_argument('--opponent-model', default=None,
@@ -116,7 +120,7 @@ if __name__ == '__main__':
                              'uniformly per trial and so keeps every count in the gradient. '
                              'The counts are different games rather than different sizes — STOP '
                              'is a free extra turn at 2 seats, CHDIR is a no-op at 2 and '
-                             'identical to STOP at 3 — so the policy must condition on the '
+                             'reverses the cycle at 3 or more — so the policy must condition on the '
                              'count, which is what the observation\'s seat-count one-hot is for. '
                              'That one-hot is CONSTANT within a single-count run and therefore '
                              'inert there (a constant input folds into the next layer\'s bias); '
@@ -291,7 +295,7 @@ if __name__ == '__main__':
 
     # Which seats' transitions enter the learner's replay buffer. A8's all-seats collection
     # is only sound because every seat runs the learner's own (recently synced) policy. Under
-    # --freeze-opponents the other three seats run a fixed foreign policy, so their
+    # --freeze-opponents the other seats run a fixed foreign policy, so their
     # transitions are off-policy actions the learner would never take — collecting them would
     # train it to imitate A8 rather than to best-respond to it. Learner seat only.
 
@@ -359,7 +363,7 @@ if __name__ == '__main__':
         episode_reward = 0
         # All-seats collection (A8): one open transition per seat, closed when that seat is
         # about to act again (below) or when the game ends (terminal loop after the round).
-        # This reproduces the old seat-0 transitions exactly and adds the other three seats.
+        # This reproduces the old seat-0 transitions exactly and adds every other seat.
         pending = [None] * n_seats                   # pending[i] = (state, action)
         learner_steps = 0                            # counts seat-0 decisions (replay cadence)
         done = False
@@ -384,8 +388,18 @@ if __name__ == '__main__':
                 pending[seat] = (ag.last_state, ag.last_action)
             if seat == 0:
                 # replay()/target_train() cadence kept as-is (keyed to learner decisions): the
-                # slow predict/fit makes more frequent replay costly, and with ~4x the data per
-                # trial the replay ratio already drops from ~20 to ~5 (near the Atari ~8).
+                # slow predict/fit makes more frequent replay costly, and with ~n x the data per
+                # trial (all seats, so 2-4x depending on the count) the replay ratio already drops
+                # from ~20 to ~5-10, near the Atari ~8.
+                #
+                # NOTE: --target-sync-every is very nearly a DEAD KNOB and this is where it dies.
+                # learner_steps resets to 0 each trial, so `% update_target_network == 0` is true
+                # at the START of every episode regardless of N; and target_train() is called
+                # unconditionally at the episode end below. With ~12-25 learner decisions per
+                # episode, the default N=100 therefore never fires mid-episode: the real cadence
+                # is ~2 syncs per episode, i.e. every ~4-8 gradient steps. PLAN.md R13/R15 and the
+                # 2026-07-23 review both flag that color-sym is compensating for this; a reward or
+                # distribution change (PBRS, an opponent pool) is exactly what could re-expose it.
                 if learner_steps % 4 == 0:
                     dqn_agent.replay()
                 if learner_steps % update_target_network == 0:
@@ -410,6 +424,10 @@ if __name__ == '__main__':
                 # trial_len cutoff (very rare at 300 learner steps): close non-terminally so no
                 # acted transition is dropped. new_state at the current position is a slightly
                 # approximate next-state, acceptable on this rare path.
+                # Second approximation on the same path: valid_moves(agent=i) reads the GLOBAL
+                # self.state / self.taki_color, so if some other seat has an open TAKI, seat i's
+                # legal set comes back filtered by that seat's run. next_valid is therefore
+                # mildly wrong here too. Same justification -- rare path, no action taken.
                 nxt = [action_to_scalar(*m) for m in game.valid_moves(agent=i)]
                 r = seat_reward(i, won=False)
                 dqn_agent.remember(s, a, r, game.observation(agent=i), False, nxt)

@@ -60,7 +60,7 @@ else and is coherent as a final play: a last STOP skips the next player, a last 
 draw, a last CHDIR reverses, a last Change Color / King / TAKI / Super TAKI simply wins (a TAKI
 run you never get to use is still a legal last card).
 
-Enforcement is a single check in `next_turn` ([game.py:694](game.py#L694)) against
+Enforcement is a single check in `Game.next_turn` ([game.py](game.py)) against
 `FINISHING_TYPE_VALUES`. Playing a PLUS as your last card is **legal** — it just doesn't win: the
 card's own effect still applies, you draw one penalty card, and play continues (you keep the turn,
 since PLUS grants you another). You only truly finish that way if the deck is exhausted and no
@@ -81,7 +81,11 @@ was fixed on 2026-07-12 and it invalidated the sequencing half of the B1 probe. 
   carries the new color).
 - 2-player CHDIR is a pure no-op (`(curr+1) % 2 == (curr-1) % 2`) — and this **matches official
   Taki**: the "gives an extra turn with two players" reading is a common misconception (called
-  out as wrong in the Wikipedia article). Irrelevant to the 4-player experiments either way.
+  out as wrong in the Wikipedia article). **This is load-bearing, not a footnote.** It (with STOP
+  being a free extra turn at two seats) is why the seat counts are *different games* rather than
+  different table sizes — hence the observation's seat-count one-hot, the mixed-count champion,
+  and the H9 two-seat yardstick. An earlier version of this line called it "irrelevant to the
+  4-player experiments"; two-seat play has been central since 2026-07-16 (P1/P2, H9/H10, M1s3).
 - **Announcement rules are omitted** (human-attention mechanics with no analog for an agent):
   - **"Last card!"** — officially a player down to one card must announce it or draw 4 as a
     penalty. Not implemented; there is no announcement concept in the engine.

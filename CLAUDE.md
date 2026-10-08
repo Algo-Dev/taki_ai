@@ -91,7 +91,7 @@ standard, replicated on three disjoint deck blocks (~8 SE), in **100k trials, no
 > **AND IT IS A FOUR-SEAT NUMBER. Every "beats the heuristic" claim in this project was, up to the
 > 2026-07-19 promotion** (the current champion is reported per-count above; everything older is
 > four-seat unless it says otherwise). The
-> engine and the observation support 2..10 seats (`OPP_HAND_SLOTS` zero-pads, so the 147-float
+> engine and the observation support 2..10 seats (`OPP_HAND_SLOTS` zero-pads, so the 150-float
 > contract holds at every count and checkpoints load), and `eval.py --num-players N` has always
 > run. Measured there (P1, RESEARCH_LOG 2026-07-17), R6 vs `h8` is **0.413 at two seats (parity
 > 0.500 — it LOSES, 9.7 SE below)**, **0.342 at three (a tie)**, 0.297 at four. `h8` is not
@@ -130,8 +130,14 @@ standard, replicated on three disjoint deck blocks (~8 SE), in **100k trials, no
 
 Previous champion: `models/checkpoint_a9rules_snap500000` (A9-rules — the first model trained on the
 **corrected finishing rule**; 500k trials, shaped, no loss penalty). 0.348 vs `heuristic:r3` (0.271
-vs the current `h8` reference), 0.906 vs random. Kept as the promotion baseline. These two are the **only** checkpoints that exist — see the
-warnings below.
+vs the current `h8` reference), 0.906 vs random. Kept as the promotion baseline.
+
+> **Which checkpoints exist: everything from A9-rules (2026-07-13) onward, and nothing before it.**
+> `models/` currently holds M1s3 / M1s2 / M1 (mixed), three M2 wide-mixed seeds × 2 snapshots, C /
+> C4 (sequential curriculum), P1 (two-seat), armA / armB (the P2 transfer arms), r6L60 and a9rules
+> — plus four `checkpoint<float-timestamp>` dirs from a previous architecture that will not load.
+> An earlier version of this line said "these two are the **only** checkpoints that exist"; that
+> was true on 2026-07-13 and is not true now. What *is* still true is the pre-A9 destruction below.
 
 > **ALL PRE-2026-07-13 CHECKPOINTS ARE GONE FROM DISK.** `checkpoint_a8_snap455000` and
 > `checkpoint_a4a7_snap550000` were destroyed in the models-symlink incident (commits `0f96882` /
@@ -246,7 +252,7 @@ the tree. Real behaviour changes get a **new version**; the old one is never edi
    that has to live with the consequences.
 
 A8's architecture is still what trains: self-play collects transitions from all four seats via
-`train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k), on the 147-float A4+A7
+`train.py`'s turn-by-turn loop (~4x data/trial; replay buffer 20k->80k), on the 150-float A4+A7+one-hot
 observation (opener randomized per trial; opponent hand sizes/deck size/unseen counts; no discard
 histogram). Color-sym and rank-sym replay augmentation are both on by default (opt out with
 `--no-color-sym` / `--no-rank-sym`). **Rank-sym is on by principle, not evidence:** the nine number
@@ -258,10 +264,17 @@ at exact *parity* (R1, RESEARCH_LOG.md), so the default is not a claim that it h
 Python runs from the conda env `tensorflow_env` (Python 3.9 — TF is pinned `>=2.4,<2.11` and numpy `<1.24`, so Python must be ≤ 3.10). CPU-only is fine.
 
 ```bash
-python -m unittest gametest                                  # all rules-engine tests
+python -m unittest gametest                                  # rules engine + both symmetry tables
 python -m unittest gametest.GameFlowTest.test_stop_skips_next_player   # single test
 python -m unittest dqntest                                   # DQN load path / obs-contract adapter
 python -m unittest traintest                                 # seat-count sampling; single-count runs unperturbed
+python -m unittest agenttest                                 # HEURISTIC FREEZE GUARDS (weight pins +
+                                                             # move-sequence fingerprints) -- the tests that
+                                                             # protect every published "vs heuristic" number
+python -m unittest h2htest                                   # pins the rotation orbit, incl. that the 4-seat
+                                                             # orbit is bit-identical to the old two-run swap
+python -m unittest probetest holdbacktest                    # probe + census harness consistency
+python -m unittest gametest dqntest traintest agenttest h2htest probetest holdbacktest   # all (~160)
 
 python train.py --trials 3000 --reward shaped                # train (self-play)
 python train.py --model <ckpt> --epsilon-start 0.1           # warm-start, near-greedy continue
@@ -274,9 +287,9 @@ python eval.py --model <ckpt> --games 1000                   # Mode A: win rate 
 python eval.py --run-dir models/run<ts> --baseline <ckpt> \
     --snap-stride 100 --games-b 3000                         # Mode B: snapshot progression
 python eval.py --model <ckpt> --opponent heuristic \
-    --games 3000                                             # vs the REFERENCE heuristic (r3) — the discriminating opponent
+    --games 3000                                             # vs the REFERENCE heuristic (h9) — the discriminating opponent
 python eval.py --model <ckpt> --opponent heuristic:h1b2 \
-    --games 3000                                             # vs a specific frozen version (r3/b2/h1/h1b2/greedy)
+    --games 3000                                             # vs a frozen version (r3/b2/h1/h1b2/h7/h8/h9/h10/h11/greedy)
 python eval.py --model heuristic --games 3000                # the heuristic itself, vs random
 python eval.py --model <ckpt> --opponent <ckpt2> \
     --num-players 2 --games 3000                             # 1-vs-N against a MODEL (shuffled seating, one
@@ -330,7 +343,7 @@ Three layers with a strict encoding contract between them:
 - **Training win rate is meaningless** (self-play is symmetric → sits near 1/N regardless of skill); always measure with `eval.py`.
 - **vs-random is retired as a *ranking* metric (R3, 2026-07-12).** The hand-crafted `HeuristicAgent` scores 0.849 vs 3 random against A8's 0.912 — a few hundred lines of rules recover most of the headline number, so it has almost no resolution at the top. Keep it only as a smoke test that a run hasn't collapsed. **For discriminating power use `eval.py --opponent heuristic`** (A8 scores 0.343 there, parity 0.25), or `eval_headtohead.py` for model-vs-model.
 - `eval.py` implements common random numbers: per-game deck seed (`seed+g`), deterministic seating, and per-game opponent reseed (`RandomAgent.reseed(f'{seed}:{g}:opp')`). Any (model, seed, games) result is bit-reproducible and independent of sweep composition. Preserve this invariant when touching eval code.
-- **`eval.py`'s Mode A/B seating is SHUFFLED, not fixed — its numbers are fair, not inflated.** "Deterministic seating" above means a *seeded shuffle*, not seat 0: `play_match` calls `seat_rng.shuffle(order)` ([eval.py:81](eval.py#L81)) and has since the original eval-harness commit, so the test agent occupies the advantaged opening seat in ~25% of games — exactly its parity share. **Mode-B `--baseline` win rates are therefore fair in expectation; a value above `1/N` is a real (if small) edge, NOT a seat artifact.** Do not "correct" for a seat-0 bias here — there isn't one. (The 2026-07-06 RESEARCH_LOG entry claims otherwise and is wrong; it carries a correction. Believing it led to a real misdiagnosis in A11 — see RESEARCH_LOG 2026-07-11 and PLAN.md R7.) Mode B's real limits are ordinary ones: noise at low `--games-b`, and winner's curse when you take the max over many screened snapshots.
+- **`eval.py`'s Mode A/B seating is SHUFFLED, not fixed — its numbers are fair, not inflated.** "Deterministic seating" above means a *seeded shuffle*, not seat 0: `play_match` calls `seat_rng.shuffle(order)` (in [eval.py](eval.py), `play_match`) and has since the original eval-harness commit, so the test agent occupies the advantaged opening seat in ~25% of games — exactly its parity share. **Mode-B `--baseline` win rates are therefore fair in expectation; a value above `1/N` is a real (if small) edge, NOT a seat artifact.** Do not "correct" for a seat-0 bias here — there isn't one. (The 2026-07-06 RESEARCH_LOG entry claims otherwise and is wrong; it carries a correction. Believing it led to a real misdiagnosis in A11 — see RESEARCH_LOG 2026-07-11 and PLAN.md R7.) Mode B's real limits are ordinary ones: noise at low `--games-b`, and winner's curse when you take the max over many screened snapshots.
 - Ranking near-equal snapshots requires **≥3000 games** (SE ≈ ±0.008); 1200 games is too noisy for the typical 2–3 pt gaps.
 - **Mode B and `eval_headtohead.py` measure different quantities — don't compare their numbers directly.** Mode B `--baseline` is a **1-vs-N** win rate (one test model against N−1 copies of the baseline; parity `1/N`). `eval_headtohead.py` reports a **per-seat** rate for an arbitrary team split (e.g. 2v2). A modest edge does not map between them one-for-one; a gap between the two is expected, not evidence of a bug or a confound.
 - **Head-to-head evals need seat-swap controls** — this applies to `eval_headtohead.py`, which takes **explicit fixed seats**, and *not* to `eval.py`'s shuffled Mode A/B (see the bullet above). `Game.reset()` defaults `start_seat=0`, and seat 0 (the first to act) wins measurably more regardless of which model occupies it — confirmed across 14 seat configurations (every seat-position, every 2v2 partition) comparing `checkpoint_a4a7_snap550000` vs an A8-trained checkpoint: seat 0 was the top-scoring seat in nearly every run *independent of occupant*. A raw "model A at seat 0 vs model B at seats 1-3" result is therefore confounded and not a valid skill comparison.
@@ -367,6 +380,17 @@ Three layers with a strict encoding contract between them:
 
 - **`RESEARCH_LOG.md`** is the experiment history (newest on top; setup, headline metrics, caveats). Record training/eval experiments there. **`RULES.md`** documents the rules-engine behaviour and deliberate house-rule interpretations in `game.py` — check it before "fixing" rules behavior (e.g. the King, Change Color inside an open TAKI, 2-player CHDIR). **`PLAN.md`** is a pool of ideas / open items only (deferred RL levers, TODOs) — not documentation; don't put reference material there.
 - **RUN RESULTS ARE NEVER COMMITTED (2026-07-19).** Harness stdout is not repo content. Tracked: the *code* that produces a number (`runs/`, `probe.py`, `r6_accept.py`) and the *write-up* that interprets it (`RESEARCH_LOG.md`, `probes/*.md`). Untracked: everything a run prints — `results/` (where the `runs/` scripts write), all `*.log`, all `*_results.txt`. **This reverses the older "`probes/*.log` are deliberate artefacts and stay tracked" rule**; those logs remain on disk locally but are out of the repo. So when RESEARCH_LOG or a probe write-up cites a log by filename, that names *the run that produced a number* — it is not a promise the file is in the tree, and a fresh clone will not have it. If a result matters, **transcribe it into RESEARCH_LOG**; that is the record, not the file.
+- **Live branches with unmerged work (check these before starting something).** `git worktree list`
+  and `git branch` first — the task may already have a branch. As of 2026-10-08:
+  - **`r4-color-void`** (worktree at `../taki-ai-r4-color-void`) — belief features for opponent colour
+    voids. "Didn't improve win rate but improved behaviour", so it was parked. **The 2026-07-23 review
+    argues that disposition is mis-ranked:** the *heuristic* yardstick already tracks colour voids
+    (`_OpponentModel`, consumed via `w_deny`) and the DQN cannot see them, so every "vs heuristic"
+    number is information-set-*mismatched*. By this project's own stated target, a behavioural
+    improvement at win-rate parity is a **successful fidelity fix**, and win-rate parity is the wrong
+    acceptance bar for one. Ranked 5th of 7 in that review.
+  - **`a11-dueling-head`**, **`double-dqn-huber`** — older negative/parked architecture arms (A11, and
+    the Double-DQN + Huber hygiene package). Kept for reproducibility; both measured inert.
 - **NEVER symlink `models/` into a worktree, and never `git add -A` if you have.** `.gitignore` has `/models/*` (contents) but `models/.gitkeep` is *tracked*, so a **symlink at the path `models` is not ignored** — `git add -A` stages it as a tracked symlink, and the next checkout/merge of that commit **deletes the real `models/` directory**, ignored contents and all. This destroyed every checkpoint in `models/` once (2026-07-12), champion included. To use checkpoints from a worktree, pass an **absolute path** (`--model /home/orih/taki-ai/models/<ckpt>`) instead.
 - `models/` is gitignored (checkpoints are regenerable). Snapshots land in `models/run<timestamp>/snap<NNNN>/`; promoted best models are kept as `models/checkpoint_*` and named in RESEARCH_LOG.md. Old `checkpoint<float-timestamp>` dirs are from a previous architecture and will not load.
 - TF thread pools are deliberately shrunk (env vars in `eval.py` before the TF import; `tf.config.threading` in `agents/dqn.py`) — the tiny network thrashes on default pools. Keep any TF-touching entry point consistent with this.

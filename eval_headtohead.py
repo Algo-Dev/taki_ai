@@ -1,5 +1,32 @@
 #!/usr/bin/env python3
-"""Quick head-to-head eval of two checkpoints."""
+"""Head-to-head eval of two agents — THE PROMOTION STANDARD (see CLAUDE.md).
+
+Not a quick sanity check: a promotion requires BOTH orbits of this harness to pass, at the seat
+count being claimed. `eval.py` Mode A/B answers "how does one agent do in a homogeneous field";
+this answers "is A better than B", paired on shared decks with seat effects cancelled by
+construction rather than averaged away.
+
+  --seat-swap     Runs the ROTATION ORBIT of --team1-seats: rotate the partition around the
+                  table, pair each rotation with its complement, dedupe unordered pairs. One rule
+                  covers every count -- 2 runs at two seats, 6 at three, 2 at four (an alternating
+                  base is rotationally symmetric with period 2, so even counts collapse). Each
+                  model occupies each seat equally often, so the seat-0 first-mover edge cancels.
+
+  Headline number: the PAIRED same-seat margin, parity 0.0, with a paired SE over common decks.
+  Useful identity when comparing arms: paired margin == n * (seat-balanced rate) - 1.
+
+The standard is both arms, and both must pass (changed 2026-07-19):
+  balanced arm  --team1-seats 0,2 (four seats; none exists at odd counts)
+  solo arm      --team1-seats 0   (1-vs-rest, the same shape as Mode B)
+They are different FIELD COMPOSITIONS, not different sample sizes, and they disagree by 0.3-0.5
+pts reproducibly. Fixing the solo seat at 0 overstated the champion's 1v3 margin by ~1.7 pts
+(+0.0500 -> +0.0333 once rotated), which is why the orbit is mandatory and the arm is not optional.
+
+Before 2026-07-19 this file was hardcoded to four seats, so every 2- and 3-seat claim in the
+project's history rests on `eval.py` Mode A instead — a weaker grade of evidence. `h2htest.py`
+pins the orbit construction, including that the 4-seat orbit is bit-identical to the pre-
+generalization two-run swap, so every published 4-seat margin still describes this code.
+"""
 import sys
 import argparse
 import math
@@ -26,8 +53,11 @@ def make_agent(spec):
     """Resolve an agent spec (PLAN.md B2 needs non-checkpoint opponents here).
 
       random                -> RandomAgent
-      heuristic             -> the reference heuristic (agents.heuristic.REFERENCE)
-      heuristic:<version>   -> a named, frozen version: r3, b2, greedy
+      heuristic             -> the reference heuristic (agents.heuristic.REFERENCE, now h9)
+      heuristic:<version>   -> a named, frozen version: r3, b2, h1, h1b2, h7, h8, h9, h10,
+                               h11, greedy. `h8` is the pre-2026-07-21 reference and is what
+                               every pre-promotion number was measured against; h7 and h11 are
+                               REFUTED and pinned only so their numbers stay reproducible
       heuristic:-<name>     -> the reference with ONE hold-back behaviour off,
                                for name in ABLATIONS (hoard, wilds, blocker,
                                finisher, king_follow, king_cancel)
@@ -49,7 +79,7 @@ def make_agent(spec):
     return load_greedy_agent(spec)
 
 def play_match(seat_agents, games, seed=0, verbose=False):
-    """Play with a fixed list of 4 agents (one per seat).
+    """Play with a fixed list of agents, one per seat (any count >= MIN_PLAYERS).
 
     Returns (seat_wins, total_decided, winners), where winners[g] is the seat that won
     game g (or None if undecided).
@@ -249,6 +279,12 @@ def seat_swap(agent1, agent2, name1, name2, seats1, num_players, games, seed):
         # gated to a seat count this run is not at — h9 vs h8 above two seats, for instance.
         verdict = ('IDENTICAL (every paired difference was exactly 0 '
                    '— same moves on the same decks)')
+    # The 2-SE test below reads as unconditional, but it is almost always applied POST-SELECTION:
+    # the candidate is typically the argmax over a screened snapshot sweep and/or several seeds, so
+    # its margin carries a winner's curse and this SE does not price it (R8; within-run snapshot SD
+    # is 1.25 pts vs 0.51 seed-to-seed). The mitigations are procedural, not statistical: pre-commit
+    # the snapshot before the confirming run, and replicate on a disjoint deck block. Treat a
+    # just-over-2-SE verdict on a selected snapshot as weaker than it prints.
     elif abs(mean_d) < 2 * se:
         verdict = f'Tie (margin within 2 paired SE)'
     elif mean_d > 0:

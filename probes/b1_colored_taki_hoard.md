@@ -25,9 +25,15 @@
 > thinner than this report assumed: a run needs planning only when it contains a PLUS. That absence
 > is itself a finding, and it is what a redone B1 should test.
 
-**Policy probed:** `models/checkpoint_a8_snap455000` (the champion; 0.912 vs 3 random opponents).
+**Policy probed:** `models/checkpoint_a8_snap455000` — the champion *at the time*, 0.912 vs 3
+random opponents. **That checkpoint no longer exists:** it was destroyed in the models-symlink
+incident (2026-07-12, commits `0f96882`/`62a7433`) and `models/` is gitignored, so nothing was
+recoverable. Nothing below can ever be *re-run* — only **redone** against a current champion,
+which is what the retraction above asks for. It was also trained on the buggy finishing rule.
 **Harness:** `probe.py`. **Consistency tests:** `probetest.py` (14 tests, all green).
-**Raw output:** `b1_qarm.log` (Q arm), `b1_mc.log` (rollout arm).
+**Raw output:** `b1_qarm.log` (Q arm), `b1_mc.log` (rollout arm) — run results are no longer
+tracked (2026-07-19), so these name the runs that produced the numbers; a fresh clone will not
+have the files.
 
 The question, from PLAN.md: *with a colored TAKI plus several cards of that color, does the policy
 **keep** them — the whole group discharges in a single turn — or **dump** the TAKI the moment it is
@@ -64,10 +70,10 @@ below is a within-position comparison and never a cross-position one.
 ## Two engine facts the probes rest on (pinned by tests, not by assertion)
 
 1. **A TAKI run is a *sequence* of decisions.** Playing a colored TAKI keeps the turn
-   ([game.py:708-712](../game.py#L708-L712) only advances on `NORMAL`/`DRAW_TWO`/`STOP`), so the
+   (`Game.next_turn` in [game.py](../game.py) only advances on `NORMAL`/`DRAW_TWO`/`STOP`), so the
    policy's *ordering* of the run is directly observable — one `play()` call per card.
 2. **The penalty draw does not end the turn.** Emptying your hand on a non-finisher
-   ([game.py:692-702](../game.py#L692-L702)) costs one card and you **keep playing, still inside the
+   (the `FINISHING_TYPE_VALUES` branch of `Game.next_turn`) costs one card and you **keep playing, still inside the
    open TAKI**. So mis-sequencing forfeits a *guaranteed* win, not the win outright — the card you
    draw may itself be a red number and win anyway. Claims are phrased accordingly.
    (`probetest.EngineFactsTest` pins both, so this report cannot quietly drift from the engine.)
