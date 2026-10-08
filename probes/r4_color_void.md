@@ -4,6 +4,15 @@ Harness: `probe_void.py` (Q arm), scenarios `void_{blue,none,green}` in `probe.p
 Nets: R4 candidate `seed2 snap300000` (162 floats); control `checkpoint_M1s3_mixed_snap300000`
 (150 floats — cannot see the void block).
 
+**Where the nets are.** `models/` is gitignored, so the three R4 seeds are published as assets on
+the [`r4-color-void-models` release](https://github.com/Algo-Dev/taki_ai/releases/tag/r4-color-void-models):
+`checkpoint_r4_seed{1,2,3}_snap300000.tar.gz` (the nets this probe measured; seed 2 is the
+promotion candidate `runs/run_r4_promote.sh` evaluates) and `r4_full_runs_all_snapshots.tar.gz`
+(all three runs, every 10k-trial snapshot). They load only on this branch: the observation here
+is 162 floats. Training runs were `runs/run_r4_train.sh`; in the original worktree seed 1 was
+`models/run1784638148.283497`, seed 2 `models/run1784651224.783525`, seed 3
+`models/run1784625099.535345`.
+
 ## The feature
 
 Since R4 the observation carries, for each of the 3 opponents in turn order, a "lacks color c"
