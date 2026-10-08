@@ -776,4 +776,77 @@ selection set as the edge.
    and train + test vs. random.
 
 -- create a new github repo which is mine with all the commits and same dates. the project has strayed significantly from the original.
+   **DONE 2026-10-08** — `git@github.com:Algo-Dev/taki_ai.git` (private), full history and original
+   dates preserved, all four branches pushed. The original repo is kept as the `upstream-readonly`
+   remote so nothing can push to it by accident; it is NOT a GitHub fork, so there is no
+   "forked from" link. The 12 commits by the original author (2020) remain in history, and
+   `LICENSE` carries both copyrights — MIT requires the notice to travel with derivative work.
+
+## Parked branches — what is on them and whether the verdict still stands
+
+All three are pushed to the new remote. They are NOT equally stale, and the difference matters:
+**two were measured on a game with a rules bug in it, and the third was measured correctly and
+then graded against the wrong bar.**
+
+**`double-dqn-huber` — RETEST WARRANTED, and it is a component of R17 rather than its own idea.**
+Double DQN + Huber loss + a real target-sync cadence (the "hygiene package"). Verdict at the time:
+**inert**. But that verdict was established **2026-07-05**, which predates the finishing-rule fix
+(2026-07-12), the R6 loss penalty, the h-series yardstick, mixed-count training and the 150-float
+observation — and it was judged at 10k/100k trials largely **on vs-random**, the metric retired a
+week later for having no resolution at the top. So it is three kinds of stale at once, and the
+weakest claim in the log to cite as settled.
+The live reason to care is not "maybe it works after all": it is that **the target network is
+effectively absent** (~2 syncs/episode; `--target-sync-every` is nearly a dead knob) and
+**color-sym is currently compensating for a broken update rule** — stable only while the data
+distribution holds still. PBRS, an opponent pool or any reward-scale change is exactly the
+perturbation that could re-expose the 2026-07-05 vanilla divergence. So Double DQN + a genuinely
+slow target sync goes in **as part of the R17 package**, declared up front, not as a solo knob.
+
+**`a11-dueling-head` — RETEST IS LOW PRIORITY, but the branch is worth keeping for its lesson.**
+`Q = V + (A - mean_legal(A))`: the trunk feeds a scalar state-value V(s) and a per-action advantage
+A(s,a), recombined so the net learns "this position is bad" **once** in V instead of 65 times over.
+Centring on **legal** actions only (via a legality-mask input) is a genuine Taki-specific
+correctness point — most of the 65 actions are illegal in any state and their advantages are never
+trained, so a full-vector mean would fold junk into every legal Q.
+Verdict: **genuine negative.** Screening looked like replication — post-floor mean 0.273 vs 0.250
+parity, and `snap375000` was the top post-floor snapshot in all three seeds independently
+(0.288/0.286/0.282) — then the seat-swap gate gave **+0.15 / -0.35 / +0.95, mean +0.25 pts/seat**,
+best candidate +1.00 against a +2.0 bar.
+Why retesting ranks low: parameterisation and capacity levers have now failed **four** times
+(A10 width, A11 dueling, M2 width × 3 seeds *post*-mixed-count). The fitting story is that the
+bottleneck is the objective and the information set, not the function class. Why it is not zero:
+its tip is **2026-07-11**, pre-finishing-rule-fix and **four seats only** — and P1/P2 showed the
+ceiling is **per-count**, with 17 points sitting in two-seat play. A dueling head has never been
+tried where there was known headroom. If retested, port the idea onto current master; do not
+re-run the branch (it diverged from the 2020 base and carries its own parallel history).
+**Keep the branch regardless as the clearest "3-seed screening replication meant nothing" case in
+the log** — it is also where the seat-0 misdiagnosis bit, which is why R7 and the eval-discipline
+section exist.
+
+**`r4-color-void` — NOT STALE, and "retest" is the wrong frame. It needs RE-GRADING.**
+Diverged from `b3fc8af` (the current master tip) on 2026-07-21 and probed with M1s3 itself as the
+control, so it is on today's architecture. Adds **12 observation features** (obs 150 -> 162): for
+each of 3 opponents, a "lacks colour c" belief in [0,1] per colour, inferred from `game.history`
+alone — a free refusable draw while colour c was active sets the belief, each card that seat draws
+decays it by `LACK_DECAY` (~0.767, i.e. 28/120), and a genuinely-coloured play of c clears it
+(a recoloured CHCOL does not, since that colour was chosen rather than held).
+Result: **it learned the behaviour.** S = D(lacks blue) - D(lacks green) is positive in all three
+seeds (+1.81 / +0.85 / +2.27), seed 2's preference *flips sign* with the void, and the 150-float
+control is flat at **exactly 0.0000** — a built-in null, since it structurally cannot see the
+block. Win rate: a wash except at two seats.
+**Why parking it on win-rate parity is the wrong call.** This is a **fidelity** lever, not a
+strength lever. Colour denial — "Dana hasn't played green all game and drew when green was up" —
+is *the* core human inference in UNO-family games, and before R4 the net could not make it at all,
+because the observation is a snapshot with no memory of who drew when. Worse, `agents/heuristic.py`
+has had this exact model since R3 (B8, consumed via `w_deny`), so **the yardstick could do
+something the agent could not** and every "DQN vs heuristic" number is information-set-mismatched.
+It biases *against* the DQN, so no published margin is overstated — but it undercuts "this is the
+ceiling of the human information set", which is the project's central claim.
+A feature that adds *human-available* information and moves behaviour but not win rate is evidence
+**for** the ceiling thesis, not a failure. Win-rate parity is the acceptance bar for a strength
+lever; the bar for a fidelity fix is "does it close a gap where the agent was sub-human, and does
+the policy use it" — and both answers are yes. Ranked 5th of 7 by the 2026-07-23 review, which
+also suggests batching it with dropping the spurious `self.dir` feature and anything from the
+memory-model question, since all three are contract breaks (162 floats invalidates every
+checkpoint; it cannot be warm-started from M1s3).
 
