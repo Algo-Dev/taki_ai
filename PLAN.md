@@ -688,9 +688,57 @@ answered: pre-commit the snapshot before the confirming head-to-head, and never 
 selection set as the edge.
 
 
--- I am training a model for 2p game against the heuristic agent. Then refine the heu. agent if possible also separately for 2p and 3p game. rerunning the trainings with one hot encoding of the number of players. Only then consider next step.
+-- Do R4 - remembering opponent drawing on colors (color void), didn't improve win rate but improved behaviour. staying on branch.
 
--- possibly remove all the co-authored by: claude
+-- code review at max opus, especially algo
+   **DONE 2026-07-23 — output in `code_review3.txt` (untracked; a fresh clone will not have it).
+   Addressing its findings is the NEXT STEP.** Full-repo ML review, no code changed. Headline: DQN
+   is the right family and the measurement machinery is sound, but the *objective* is misaligned
+   with the *metric* — the dense `-len(hand)` step term is ~70-85% of the episode return, so
+   blocking a one-card opponent (worth ~+3.9 shaped units) is outpriced ~3x by the ~-12 length tax
+   it costs. That arithmetic explains R6's unfixed `delta(k=1)` intercept directly. Its ranked
+   recommendations, transcribed so they survive the file:
+   1. **Win-probability head** fitted post hoc on rollouts of the frozen champion (supervised,
+      gamma=1, no retraining, no contract break) — turns every B-series probe from "higher shaped
+      return" into a calibrated win probability. Argued as the highest value per hour *and* the
+      actual deliverable, since reading Q as a preference is a measurement bug in the probes.
+   2. **`--loss-penalty 100`, one run** — R17's premise ("a terminal penalty cannot cross zero") is
+      contradicted by its own two points: delta(k=1) went -4.01 -> -3.23 -> -0.87 for L=0/20/60,
+      a slope of ~0.059/unit that crosses zero at L~75, and L was never pushed past 60 though both
+      delta and win rate are monotone in it. Test the premise before paying for PBRS.
+   3. **R5 determinized rollout, as measurement** (1-2 ply, hidden hands sampled consistent with
+      the info set) — the only instrument that can actually test the "ceiling of the information
+      set" thesis, as opposed to inferring it from repeated failures to improve.
+   4. **PBRS as a declared package** (potential shaping + Double DQN + a genuinely slow target sync
+      + terminal +-1 / per-count-normalised outcome), never as a single knob — because the target
+      network is effectively absent (synced every ~4-8 gradient steps; `--target-sync-every` is
+      very nearly dead) and color-sym is currently *compensating* for that broken update rule. A
+      reward-shape change is exactly the perturbation that re-exposes it. Guard with `r6_accept.py`
+      and the refusal census, per the win-only-collapse post-mortem.
+   5. **Merge R4 (colour voids), judged on behaviour not win rate** — `agents/heuristic.py` already
+      tracks per-seat colour voids (`_OpponentModel`, consumed via `w_deny`) and the DQN cannot see
+      them, so every "vs heuristic" number is information-set-*mismatched*. Win-rate parity is the
+      acceptance bar for a strength lever, not for a fidelity fix.
+   6. **Colour-equivariant head** — shared weights across the four colour blocks (stride
+      `TYPES_PER_COLOR`), making colour symmetry exact by construction instead of sampled 1-of-24
+      per replay; and/or a factored head scoring card c as <state embedding, card embedding(c)>.
+      The strongest untried representation lever, and hard-coding is a *different* lever from
+      augmenting, so R1's null does not speak to it.
+   7. **Re-run A12 with a win-rate objective and all-seats-equivalent data** before it keeps
+      carrying the "near-unexploitable" conclusion — it trained a best response on `--reward shaped`
+      and scored it on win rate, with ~9x less data than its target (one-seat collection).
+   Also raised: mixed-count training has three different reward scales (`sum(opp cards)` grows with
+   seat count while `--loss-penalty` is constant, so win:loss is ~1:10 at 2 seats and ~1:3 at 4) and
+   is uniform in *trials*, not in transitions (~22/33/44% buffer share) or gradient weight; the
+   observation's exact unseen +2/King/CHCOL counters are the one thing humans are *worst* at while
+   nothing remembers colours/numbers, so the info set should be declared as a falsifiable *memory
+   model*; `epsilon_min` is hardcoded at 0.1 with no CLI flag, gating R11; `r6_accept.py:66` has
+   silently printed `?` for its strength check since commit `440bf60` renamed the `eval.py` print it
+   greps for; undecided games are dropped rather than reported; and the champion's vs-`h8` row is a
+   max-of-3-seeds (optimistic by ~a seed-SD) while the paired vs-R6 margin is clean.
+   **Explicitly NOT recommended: rewriting in a different RL family** (see the pytorch item below) —
+   nothing in the record suggests the algorithm is what holds the win rate at 0.30.
+
 -- possibly try a rewrite in pytorch. First as if there is advantage
    and train + test vs. random.
 
