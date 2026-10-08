@@ -29,3 +29,4 @@ __pycache__/
 # names the run that produced a number, it is not a promise the file is in the tree.
 /results/
 *_results.txt
+code_review*.txt
