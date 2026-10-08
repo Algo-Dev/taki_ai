@@ -172,8 +172,11 @@ OPP_HAND_SLOTS = 3
 # above already (a zero-padded opponent slot means "no such seat"), but not cleanly: a real
 # opponent holding 0 cards has just won and reads as the same zero. More to the point, the count
 # changes the GAME and not just the table size — STOP is a free extra turn at 2 seats, and CHDIR
-# is a no-op at 2 / identical to STOP at 3 — so the policy has to condition on it rather than
-# infer it. Slots cover 2, 3 and 4-or-more seats; the last saturates, matching how the opponent
+# is a no-op at 2 but reverses the cycle at 3 or more — so the policy has to condition on it
+# rather than infer it. (This comment used to claim CHDIR is "identical to STOP at 3". It is
+# not: a STOP skips the next seat, a CHDIR sends the turn to the seat behind you, and at n=3
+# those are different seats. H11 tested the strategic version of that claim and refuted it —
+# RESEARCH_LOG 2026-07-20.) Slots cover 2, 3 and 4-or-more seats; the last saturates, matching how the opponent
 # hand slots already truncate above 4. A 1-player game does not exist, so 2 is the low end.
 NUM_PLAYER_SLOTS = 3
 MIN_PLAYERS = 2
@@ -303,9 +306,13 @@ def color_to_vector(color):
 #   RANK:  the nine number cards ONE..NINE are interchangeable (9! = 362,880 permutations).
 #          Matching is "same color or same type", the deck holds 2 copies of every rank in
 #          every color, and the two rules that mention ranks at all are set-membership tests
-#          (the round must OPEN on a number, NUMBER_TYPE_VALUES; it may END on a number or
-#          the King, FINISHING_TYPE_VALUES). No rule branches on a *specific* rank, so any
-#          global relabeling of the nine ranks preserves the dynamics exactly.
+#          (the round must OPEN on a number, NUMBER_TYPE_VALUES; it may END on anything
+#          except a PLUS, FINISHING_TYPE_VALUES). Both sets either contain all nine ranks
+#          or none, so both are closed under a rank relabeling. No rule branches on a
+#          *specific* rank, so any global relabeling of the nine ranks preserves the
+#          dynamics exactly. (This said "it may END on a number or the King" until
+#          2026-10-08 — that was the pre-2026-07-12 finishing BUG, not the rule; see
+#          FINISHING_TYPE_VALUES above and RULES.md. The conclusion was unaffected.)
 # The two commute — a color perm moves whole colored blocks; a rank perm permutes the same
 # nine slots inside every block — so they compose into ~8.7M relabelings (see sym_tables).
 #
@@ -382,7 +389,7 @@ def rank_perm_tables(rank_perms):
     return _tables_from_card_maps(card_f)
 
 
-OBS_PERMS, ACT_PERMS = color_perm_tables(COLOR_PERMS)     # shapes (24, 147) and (24, 65)
+OBS_PERMS, ACT_PERMS = color_perm_tables(COLOR_PERMS)     # shapes (24, 150) and (24, 65)
 
 
 def sym_tables(n, color_sym=True, rank_sym=False):

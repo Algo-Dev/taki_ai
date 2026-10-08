@@ -5,12 +5,123 @@ Each entry records the setup, the headline metrics, and caveats so runs stay com
 
 Definitions used throughout:
 - **Win rate (vs random):** fraction of *decided* games a greedy trained DQN wins as 1 of
-  N seats, the rest `RandomAgent`. Chance baseline is `1/N`.
+  N seats, the rest `RandomAgent`. Chance baseline is `1/N`. **Retired as a RANKING metric**
+  (R3, 2026-07-12) — saturated, no resolution at the top; kept as a collapse smoke test.
+- **Win rate (vs heuristic):** the same 1-vs-(N-1) shape against `agents.heuristic`, which is the
+  discriminating opponent and the ranking metric. **Always name the version** (`heuristic:h8`,
+  `heuristic:r3`, …): a bare "vs heuristic" means whatever `REFERENCE` was on the day, and that
+  has moved `r3` -> `h8` (2026-07-14) -> `h9` (2026-07-21). Pre-2026-07-14 numbers refer to `r3`,
+  which had a 13-point structural bug in it. h9 IS h8 above two seats, so only 2-seat numbers
+  changed at the second promotion.
+- **Per-seat rate (`eval_headtohead.py`):** for an arbitrary team split, the win rate per seat the
+  team occupies; parity `1/N`. **Not comparable one-for-one with a 1-vs-N rate** — different
+  quantities, see CLAUDE.md's eval-discipline section.
+- **Paired orbit margin:** the headline promotion number. Both occupancies of a seat partition are
+  run over the *same decks* and differenced per deck, so the seat-0 first-mover edge cancels by
+  construction. **Parity is 0.0**, and the SE is paired over common decks. Useful identity:
+  `paired margin == N * (seat-balanced rate) - 1`.
+- **Composition matters, so say which arm.** A "1v3" (solo) number and a "2v2" (balanced) number are
+  different field compositions, reproducibly 0.3-0.5 pts apart, and since 2026-07-19 a promotion
+  requires both.
 - **Undecided rate:** Taki has no real draw; a game only ends when a hand empties. `eval.py`
-  cuts a game off at `TURN_CAP` turns and counts it **undecided**. For *trained* agents this
-  is almost entirely a too-low cap on naturally long games (they finish given more turns);
-  only *untrained* (random-weight) nets genuinely never terminate. See the draw-stall
-  investigation below.
+  cuts a game off at `TURN_CAP` turns and counts it **undecided**. Undecided games are
+  **excluded from the denominator**, not scored as losses. For *trained* agents this is almost
+  entirely a too-low cap on naturally long games (they finish given more turns); only *untrained*
+  (random-weight) nets genuinely never terminate. See the draw-stall investigation below.
+
+> **Line numbers in these entries are as-of-writing and have since drifted** (typically by 30-60
+> lines). Code citations are reliable at the level of the *symbol* named — `Game.reset`,
+> `seat_reward`, `seat_rng.shuffle` — not the line number beside it. Entries are historical records
+> and are not rewritten when code moves; the live reference docs (CLAUDE.md, RULES.md) cite symbols
+> instead. Likewise, a cited `*.log` names **the run that produced a number**, not a file in the
+> tree: run results stopped being tracked on 2026-07-19, so a fresh clone will not have them.
+
+---
+
+## 2026-10-08 — Housekeeping: the champion's vs-random numbers finally measured (and they restate why vs-random was retired), R4 parked, and a max-opus review of the ML design
+
+Not an experiment — a records pass. Three things that had happened but were never written down.
+
+**1. M1s3 had never been measured vs random.** It was promoted (2026-07-19) after vs-random was
+retired (R3, 2026-07-12), so the current champion had no vs-random number at all. Measured now,
+`eval.py` Mode A, 3000 games, seed 0, alongside the reference heuristic on identical settings:
+
+| Mode A, 1-vs-(N-1), 3000 games, seed 0 | 2 seats | 3 seats | 4 seats |
+|---|---|---|---|
+| parity (`1/N`) | 0.500 | 0.333 | 0.250 |
+| **M1s3 vs random** | **0.968** | **0.952** | **0.912** |
+| `heuristic:h9` vs random | 0.966 | 0.925 | 0.906 |
+| **M1s3 vs `heuristic:h9`** | **0.566** | **0.373** | **0.307** |
+
+**The first two rows are the clearest statement yet of why vs-random is retired.** At four seats a
+few hundred lines of hand-written rules score **0.906** and a 300k-trial network scores **0.912** —
+a 0.6-point gap, inside noise of each other. On the discriminating metric the same two agents are
+**0.307 vs 0.250 parity**, i.e. +5.7 points. One metric says they are the same agent; the other
+says one beats the other decisively. Do not rank on the first.
+
+Consistency checks, both pass: `h9` vs random at four seats reproduces the recorded `h8` value
+(0.906) **exactly**, as it must — h9 is bit-identical to h8 above two seats. And M1s3 vs `h9` at
+two seats gives 0.566 against the 0.567 recorded from the rotation orbit, two different harnesses
+agreeing to a point.
+
+Caveat, unchanged: these are **Mode A** numbers (1-vs-N, homogeneous field, one composition). They
+are not the promotion standard and the 3-seat cell is ~1 pt optimistic for the usual
+composition-balance reason. The 4-seat 0.307 vs the recorded 0.303 is sampling noise (3000 games,
+SE ~0.008, and the recorded value is 6000 games over two deck blocks).
+
+**2. R4 (colour-void belief features) is parked on `r4-color-void`** — "no win-rate gain, better
+behaviour". **The review below argues that disposition is mis-ranked**, and it is worth restating
+because it is a target question, not a tuning question: `agents/heuristic.py` already tracks
+per-seat colour voids from the public history and consumes them via `w_deny`, while the DQN
+observation has no such feature. So every "DQN vs heuristic" number in this project is
+**information-set-mismatched** — the ranking metric for a project *about* a fixed human information
+set is played by an opponent with a strictly richer one. It biases *against* the DQN, so no
+published margin is overstated; but it does undercut "this is the ceiling of the human information
+set". Win-rate parity is the acceptance bar for a **strength** lever, not for a **fidelity** one.
+
+**3. Full ML-design review at max effort (2026-07-23), no code changed.** Output in
+`code_review3.txt` (untracked). Verdict: DQN is the right family and the measurement machinery is
+sound; the problem is upstream of both — **the objective is misaligned with the metric.** Per
+episode at four seats the dense `-len(hand)` term is ~-100 to -130 against a ~+18 win bonus and a
+-60 loss penalty, i.e. the shaping term is **~70-85% of the return, not a nudge**. The marginal
+arithmetic explains R6's failure exactly: blocking a one-card opponent is worth +0.05 win
+probability ≈ **+3.9 shaped units**, and it prolongs the game by ~2 own turns ≈ **-12 shaped
+units**. The tax outprices the true value of the block by ~3x.
+
+Its ranked recommendations are transcribed in PLAN.md (the "code review at max opus" item), so only
+the ones that *contradict something already written here* are repeated:
+- **R17's premise is contradicted by its own data.** PLAN.md asserted a terminal penalty "cannot
+  cross zero" from delta(k=1) = -4.01 / -3.23 / -0.87 at L = 0 / 20 / 60 — but that is +2.36 over
+  40 units, a slope crossing zero at **L ~ 75**, and L was never pushed past 60 although both delta
+  and win rate are monotone in it. P2 independently flipped delta to **+2.24** with no PBRS at all.
+  `--loss-penalty 100` is one flag and one run; it is now the cheap pre-test for R17.
+- **A12 was measured in the wrong currency.** The best-response run used `--reward shaped` and was
+  scored on win rate — and B1 established those two disagree exactly where it matters. Compounding
+  it, `--freeze-opponents` collects from one seat, so it saw ~9x less data than its target, not the
+  "200k vs 450k trials" the caveat records. That result is the single load-bearing citation for
+  demoting the whole training-scheme family.
+- **The target network is effectively absent** (~2 syncs/episode, so `--target-sync-every` is
+  nearly a dead knob) and **color-sym is compensating for it** — which is stable only while the
+  data distribution holds still. PBRS, an opponent pool or a reward-scale change is precisely the
+  perturbation that could re-expose the 2026-07-05 vanilla divergence. Run PBRS as a declared
+  package, not a single knob.
+- **Mixed-count training has three different reward scales** — `sum(opp cards)` grows with seat
+  count (~+6/+12/+18) while `--loss-penalty` is constant, so the win:loss ratio is ~1:10 at two
+  seats and ~1:3 at four. One Q-head, three tasks, materially different scales; a plausible
+  contributor to M1 sitting ~1 SE below the per-count best everywhere. Never recorded until now.
+- **It is also uniform in trials, not in data:** transitions scale with *n* (~22/33/44% buffer
+  share) while gradient steps are keyed to seat-0 decisions and are roughly count-independent. The
+  per-count histogram the log prints measures the one quantity that *is* balanced.
+- **Highest-value item, and it is the deliverable:** a **win-probability head** fitted post hoc on
+  rollouts of the frozen champion (supervised, gamma=1, no retraining, no contract break). The
+  B-series currently reads Q — a shaped return — as if it were a strategic preference. That is a
+  measurement bug in the probes themselves, and this fixes it without touching the policy.
+
+**Two defects it found were real and are now fixed** (see the commit for 2026-10-08): `r6_accept.py`
+section 3 had printed `?` instead of a win rate since `440bf60` renamed the `eval.py` line it
+greps for — a silent hole in a *pre-registered acceptance test* — and the two symmetry tests
+hardcoded the extras tail as `139..146`, so the seat-count one-hot was never pinned invariant for
+the entire mixed-count line. Both ranges now derive from `OBSERVATION_SIZE - EXTRA_FEATURES`.
 
 ---
 

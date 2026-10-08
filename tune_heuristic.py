@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Coordinate-descent tuner for the heuristic, scored directly against the DQN champion.
 
-PLAN.md H8. The heuristic's ~17-point defect turned out to be STRUCTURAL, not a tuning
+PLAN.md H8. The heuristic's 18-point defect turned out to be STRUCTURAL, not a tuning
 error (H1): while `score_draw` competed in the same max() as the plays, any hold above 5.0
 bought a refusal. That is why this tuner waited for H1 -- searching a space where a
 candidate can fall off a 13-point cliff makes a bad IDEA indistinguishable from a good idea

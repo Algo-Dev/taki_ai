@@ -4,8 +4,17 @@ Two questions this answers (training itself can't, because train.py syncs the
 opponents to the learner -> symmetric self-play -> win rate sits near 1/num_players
 regardless of skill):
 
-  Mode A (--model):   does the trained agent beat *random* opponents, i.e. win above
-                      the 1/num_players chance line?  1 trained DQN + (N-1) RandomAgent.
+  Mode A (--model):   how does one agent do in a homogeneous field of N-1 opponents?
+                      1 test agent + (N-1) x --opponent, win rate against the 1/num_players
+                      chance line.
+
+                      --opponent DEFAULTS TO RANDOM, BUT VS-RANDOM IS RETIRED AS A RANKING
+                      METRIC (R3, 2026-07-12): it is saturated and cannot separate the top --
+                      the hand-written heuristic scores ~0.91-0.97 there, matching a 500k-trial
+                      network. Keep it as a smoke test that a run has not collapsed. For a
+                      discriminating number use `--opponent heuristic` (the frozen, versioned
+                      yardstick; bare `heuristic` means agents.heuristic.REFERENCE), and for
+                      model-vs-model use eval_headtohead.py, which is the promotion standard.
 
   Mode B (--run-dir): how does skill progress over training?  For a sampled subset of
                       snapshots (--snap-stride), measure each one two ways: 1x S_t vs random,
@@ -13,6 +22,11 @@ regardless of skill):
                       shows convergence speed; vs-baseline above 1/num_players means S_t has
                       genuinely surpassed that reference (e.g. our current-best model).  A
                       snapshot equal to the baseline lands at ~1/num_players (parity).
+
+Undecided games are EXCLUDED, not scored: the reported rate is wins/decided, and capped games
+are counted and printed separately. A policy that stalls therefore has its stalls dropped rather
+than charged as losses -- negligible for strong nets, but read the undecided count, not just the
+rate, whenever it is non-zero.
 
 All agents play fully greedily (epsilon=0) so the comparison reflects learned policy,
 not exploration.  Every game is seeded individually — deck, seating AND the random

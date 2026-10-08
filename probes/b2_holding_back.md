@@ -1,7 +1,33 @@
 # B2 — Holding cards back: the shaped reward is the champion's best habit *and* its worst blind spot
 
+> ## ⚠️ PARTIAL RETRACTION (added 2026-10-08) — the ABLATION ARM was confounded
+>
+> **Every hold-back ablation below was measured against a yardstick with a structural bug in it,
+> and under the fix the conclusions INVERT.** H1 (2026-07-14) found that `score_draw = -5.0`
+> competed in the same `max()` as the plays, so any hold-back weight at or above 5.0 bought a
+> **refusal to play** (−13 pts) rather than a *preference*. Every weight this probe priced at or
+> above that cliff was priced against the cliff, not against the behaviour it names.
+>
+> **What inverts.** Under `refusal_mode='structural'` the hold-backs **earn** points instead of
+> buying nothing: `w_nofin` **+1.1**, the B6 hoard **+2.9**, spending the blocker **+2.2**. And
+> big holds are not "catastrophic" — they merely **saturate**. So the numbers in "The central
+> distinction" below (REFUSAL −13 / PREFERENCE +2…+7) and in the ablation table describe the
+> cliff, not the hold-backs. **Do not cite them without re-measuring under `structural`.**
+>
+> **What survives, and it is most of the probe.** The *census* (refusal 1.8% vs preference 20.4%),
+> the *weapon-timing* arm (the champion declines to block a one-card opponent; blocking is worth
+> +0.050 ± 0.017 by rollout), and the *mechanism* (−6.56 with the next player on 1 card vs −9.93
+> on 7 — a loss pays nothing, so an imminent defeat reads as relief) are all independent of the
+> yardstick's weights. Those are what motivated R6 and R17, and they stand. See
+> RESEARCH_LOG 2026-07-14 and CLAUDE.md's H-series section.
+>
+> **Also note:** the "R3's heuristic is badly tuned" bonus finding below *understates* itself —
+> the defect was **structural, not a tuning error**, and H1 recovered **+0.183** with R3's exact
+> weights and nothing retuned.
+
 **Policy probed:** `models/checkpoint_a9rules_snap500000` (the champion on the corrected
-finishing rule; 0.906 vs 3 random, 0.348 vs 3 heuristic).
+finishing rule; 0.906 vs 3 random, 0.348 vs 3 `heuristic:r3` — the **retired** yardstick, the one
+this retraction is about; against today's `h9` reference that same net scores 0.271).
 **Harness:** `holdback.py` (census), `scenarios_b2.py` (weapon timing), `agents/heuristic.py`
 (`Weights`/`GREEDY`/`ABLATIONS`), `eval_headtohead.py --seat-swap`, `probe.mc_line` (rollouts).
 **Tests:** `holdbacktest.py` (17) + `agenttest.py` (+5). Full suite 100 green.

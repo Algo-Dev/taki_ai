@@ -1,3 +1,18 @@
+"""Seeded demo game — watch agents play a hand of Taki, or play along yourself.
+
+Not a measurement tool: one seeded game says nothing about skill (use eval.py for a win rate and
+eval_headtohead.py to compare two agents). This is for eyeballing behaviour and for debugging the
+rules engine against a concrete line.
+
+  python main.py                      uniform-random agents (epsilon=1)
+  python main.py --model <ckpt>       copies of a trained net, fully greedy (epsilon=0)
+
+`--model` is the only flag. The seeds are fixed in the source (42), so a given model always plays
+the same demo game. Without a model the agents stay uniform-random on purpose: greedy play on
+random weights degenerates into a draw loop that never terminates.
+
+Add a HumanAgent() to the agents list below to take a seat yourself.
+"""
 import argparse
 import random
 import time

@@ -51,11 +51,18 @@ class AIAgent:
         # and they compose; see sym_tables in game.py.
         self.color_sym = color_sym
         self.rank_sym = rank_sym
+        # No CLI flag exposes this -- train.py sets only epsilon_start, so every published run
+        # floored at 0.1. PLAN.md R11 has recommended lowering it three times ("the most consistent
+        # training-dynamics signal in the whole log") and it has never been run, because the
+        # experiment needs a code change rather than a flag. Add --epsilon-min before ranking it.
         self.epsilon_min = epsilon_min
-        # Buffer sized for the all-seats training loop (A8): it collects ~4x more
-        # transitions per trial (all four seats, not just the learner), so 80k keeps the
-        # ~800-trial horizon that 20k gave under seat-0-only collection.
+        # Buffer sized for the all-seats training loop (A8): it collects ~n x more
+        # transitions per trial (every seat, not just the learner -- so 2-4x depending on the
+        # seat count), so 80k keeps the ~800-trial horizon that 20k gave under seat-0-only
+        # collection.
         self.memory = deque(maxlen=80000)
+        # DEAD DEFAULT: train.py always overwrites this with a run-length-scaled value, so the
+        # 0.995 above only ever applies to a caller that constructs an AIAgent directly.
         self.epsilon_decay = epsilon_decay
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -125,12 +132,14 @@ class AIAgent:
     def create_model(self):
         model = keras.Sequential()
         if self.wide:
-            # Capacity-test arch (the MIXED-COUNT question, M2): the net must represent three
-            # different games (2/3/4 seats), not one, and M1 sat ~1 SE below the per-count best
-            # at every count -- the signature of multi-task interference. This is A10's exact
-            # widening (124->64 -> 256->128->64, +one layer, 2.72x params) so the result is
-            # comparable; A10 found it inert at four seats SINGLE-COUNT, but that says nothing
-            # about the multi-task union. Input/output sizes are unchanged, so a checkpoint of
+            # Capacity-test arch (M2). The QUESTION was: the net must represent three different
+            # games (2/3/4 seats), not one, and M1 sat ~1 SE below the per-count best at every
+            # count -- the signature of multi-task interference. This is A10's exact widening
+            # (124->64 -> 256->128->64, +one layer, 2.72x params) so the two are comparable.
+            # The ANSWER (M2, RESEARCH_LOG 2026-07-18, three seeds) was NEGATIVE: wide buys ~no
+            # win rate at 300k, matching A10's single-count null, and its one apparent win
+            # (blocking, seed 1) did not replicate. Kept for reproducibility of that result;
+            # see the self.wide comment in __init__. Do not read this block as an open question. Input/output sizes are unchanged, so a checkpoint of
             # either width still plays via the cross-architecture eval fallback.
             model.add(layers.Dense(256, input_dim=OBSERVATION_SIZE, activation="relu"))
             model.add(layers.Dense(128, activation="relu"))

@@ -148,7 +148,7 @@ target sync.
 | Knob | Current | Sweep | What to watch |
 |---|---|---|---|
 | Replay frequency | every 4 learner steps + episode end (train.py) | every 1 / 2 / 4 / 8 steps | Q divergence & loss spikes at high ratio; slow learning at low |
-| Buffer size | 80k (dqn.py:39, A8) | 80k / 200k / 500k | oscillation/forgetting vs earlier snapshots if too small; sluggish early adaptation if too large |
+| Buffer size | 80k (`AIAgent.memory`, A8) | 80k / 200k / 500k | oscillation/forgetting vs earlier snapshots if too small; sluggish early adaptation if too large |
 | Target sync | ~2x/episode (effective) | hard: 500 / 2000 / 10000 learner steps; or Polyak tau 0.01 / 0.001 | loss sawtooth at each hard sync; head-to-head vs current best |
 | Learning rate | 1e-3 | 1e-3 / 3e-4 / 1e-4, +/- decay schedule | late-run creep vs plateau; gradient norms |
 | Batch size | 64 | 64 / 256 (scale lr with it) | wall-clock per trial; interacts with replay ratio |
@@ -477,6 +477,12 @@ it's large, the long-term path is expert iteration (distill the search-improved 
 net, AlphaZero-style with determinization); if it's small, the value function is already consistent
 with its own improvement operator and the bottleneck is elsewhere. Nothing in this file previously
 touched this direction.
+**Two notes (2026-10-08).** (a) "play it against raw A8" is no longer runnable as written —
+`checkpoint_a8_snap455000` was destroyed on 2026-07-12; use the current champion. (b) **Half the
+harness already exists:** `probe.py --mc` already does determinized rollouts (`probe.mc_line`), so
+R5 is closer to a wiring job than a build. The 2026-07-23 review ranked this 3rd of 7 and argued it
+is the *only* instrument that can actually test this project's "ceiling of the information set"
+thesis, as opposed to inferring the ceiling from repeated failures to improve.
 
 **R17 (new, 2026-07-13, spun out of R6's failure). Potential-based shaping — the step term is a
 LENGTH TAX, and that is what actually blocks defence.**
@@ -507,7 +513,7 @@ potential-based term `F(s,s') = gamma*PHI(s') - PHI(s)`, `PHI(s) = -c*len(hand(s
    check the sign, or the fix reintroduces the very pathology it is meant to remove.
 2. `train.py` currently stores `pending[seat] = (state, action)` and computes the reward at *close*
    time from `len(hand)` then. PBRS needs `len(hand)` at **both** ends, so `pending` must also carry
-   the hand size at action time (a one-line change at train.py:336).
+   the hand size at action time (a one-line change where `train.py` sets `pending[seat]`).
 
 **The evidence for R17 is now much stronger than when it was written.** R6 was run to completion at
 two magnitudes and the pattern is unambiguous: **L=20 -> delta(k=1) = -3.23; L=60 -> -0.87.** The
@@ -516,6 +522,26 @@ cross zero, because it is fighting a **per-turn** tax with a **one-off** payment
 *slope* is already correct at L=60, i.e. **the agent knows the threat is there and still will not
 spend a card on it.** That is exactly a length-tax signature. Removing the tax (shape on the CHANGE
 in hand size) is the only lever left that addresses the mechanism rather than shouting over it.
+
+> **⚠️ "cannot cross zero" is an EXTRAPOLATION STATED AS A PROOF, and two things now contradict it.
+> Test the premise before spending a retrain on PBRS.**
+> 1. **Its own slope points the other way.** The three points are L=0 -> -4.01, L=20 -> -3.23,
+>    L=60 -> -0.87: **+2.36 over a 40-unit rise in L, i.e. a slope of ~0.059/unit that crosses zero
+>    at L ~ 75.** Strength is monotone in L too (0.348 / 0.366 / 0.378). **L was never pushed past
+>    60.** `--loss-penalty 100` is one flag and one run. (Control for the scale artifact: raising L
+>    inflates the whole Q scale, so `delta` moving is not by itself proof of a policy change — pair
+>    it with `r6_accept.py`'s refusal guard-rail and a win-rate check.)
+> 2. **Blocking is demonstrably learnable WITHOUT PBRS.** P2 (RESEARCH_LOG 2026-07-17) warm-started
+>    R6 at two seats and `delta(k=1)` flipped to **+2.24**, passing this very acceptance test — in
+>    the existing architecture, observation and reward. A terminal-penalty regime *did* cross zero.
+> 3. **And blocking may not be what you want at four seats anyway.** Three nets score 0.308
+>    (blocks), 0.302 (does not), 0.311 (does not) — the blocker is in the middle. R17 may fix the
+>    behaviour and buy no win rate. CLAUDE.md records the unresolved counter-argument (`h8` blocks
+>    and beats its own `greedy` control at four seats, so blocking pays in the heuristic's economy).
+>
+> None of this touches the length-tax *mechanism*, which remains well evidenced. It refutes the
+> claim that a terminal penalty **cannot** do the job — the premise used to rank PBRS above the
+> cheaper experiment. Raised by the 2026-07-23 code review (`code_review3.txt`).
 
 **Acceptance test: `r6_accept.py` already exists and is pre-registered.** `delta(k=1)` must flip sign
 AND the refusal rate must not rise. **R6 passed the second and failed the first at BOTH L=20 and
@@ -566,7 +592,7 @@ far are all about the win-side/step-side terms.
 The 2026-07-06 RESEARCH_LOG entry states `play_match` "always seats the test agent at seat 0", and
 the "Infrastructure / evaluation optimizations" section above used to carry a "fix seat-0 bias in
 eval.py" item. But `play_match` has had per-game seeded seat shuffling since the *original* eval
-harness commit (`e5feaa8`) — [eval.py:81](eval.py#L81) `seat_rng.shuffle(order)` — so the test agent
+harness commit (`e5feaa8`) — `seat_rng.shuffle(order)` in [eval.py](eval.py)'s `play_match` — so the test agent
 occupies the advantaged opening seat in ~25% of games, exactly its parity share. **Verified directly
 in the source. R7 is correct:** (a) Mode-B `--baseline` numbers are *fair in expectation*, not
 inflated as the log caveats claim; (b) the "fix seat-0 bias" item targeted a non-bug and **has now
@@ -621,6 +647,13 @@ That's the most consistent training-dynamics signal in the whole log, and it sug
 matters more than the schedule shape. A lower floor (0.02-0.05) and/or reaching the floor at 50% of
 trials is a one-flag experiment; run it *before* n-step or LR decay, and arguably before finishing
 A11 — cheaper and better-evidenced.
+**CORRECTION (2026-10-08): it is NOT a one-flag experiment, because there is no flag.**
+`epsilon_min` is hardcoded to 0.1 in `AIAgent.__init__` and `train.py` never overrides it (only
+`--epsilon-start` is exposed). The cheapest, best-evidenced training-dynamics experiment in the
+whole log has been gated behind a missing CLI argument — plausibly why it has been recommended
+three times and run zero times. Adding `--epsilon-min` is one line in `train.py`'s parser plus one
+at the `AIAgent` construction; do that first. (Separately, `epsilon_decay`'s constructor default is
+dead — the loop always overwrites it with a run-length-scaled value.)
 
 **R12. A11 completion at 450k trials — fine, but rank it honestly.**
 It's cheap and settles an open verdict, but both architecture experiments to date came back empty,

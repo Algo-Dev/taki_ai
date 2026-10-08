@@ -7,7 +7,10 @@ decision, asks whether the agent chose a move that sheds FEWER cards this turn t
 some legal alternative — which is exactly what `train.py`'s shaped reward (-len(hand)
 per step) pays against.
 
-The central distinction, and the one the Arm-1 ablation says is worth ~12 points:
+The central distinction. Arm 1 priced it at ~12 points, but that number is CONFOUNDED --
+it was measured before H1, while `score_draw` competed in the same max() as the plays, so it
+is the price of the refusal CLIFF rather than of the hold-back (see probes/b2_holding_back.md's
+retraction). The distinction itself is unaffected and is what this census measures:
 
   REFUSAL hold-back   — decline to act at all: DRAW, or CLOSE a TAKI/King continuation,
                         while a legal play exists. You keep the card AND lose the tempo.
