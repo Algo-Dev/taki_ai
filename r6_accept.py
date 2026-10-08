@@ -64,8 +64,14 @@ def main():
         out = subprocess.run([sys.executable, 'eval.py', '--model', m, '--opponent', 'heuristic',
                               '--games', '3000', '--seed', '0'],
                              capture_output=True, text=True).stdout
-        line = [l for l in out.splitlines() if 'DQN vs' in l]
-        print(f'  {m.rstrip("/").split("/")[-1]:<34} {line[0].split(":")[-1].strip() if line else "?"}')
+        # Match eval.py's fmt() signature ('... = rate  vs 1/N ...'), not the label before it:
+        # this grepped for 'DQN vs' until 2026-10-08, but 440bf60 renamed that print to
+        # '{model} vs {opponent}:', so section 3 silently printed '?' for months. Only the Mode A
+        # result line carries 'vs 1/N' (the '=== Mode A ===' header does not), and --run-dir is
+        # never passed here, so there is exactly one match.
+        line = [l for l in out.splitlines() if 'vs 1/N' in l]
+        result = line[0].partition(':')[2].strip() if line else 'NO RESULT LINE PARSED'
+        print(f'  {m.rstrip("/").split("/")[-1]:<34} {result}')
 
     print('\n' + '=' * 78)
     print(f'PREDICTION 1 (blocks a near-winner): {"PASS" if d_ok else "FAIL"}')

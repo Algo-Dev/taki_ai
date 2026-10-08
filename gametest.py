@@ -412,8 +412,12 @@ class ColorSymmetryTest(unittest.TestCase):
             self.assertEqual(list(ACT_PERMS[k][60:]), [60, 61, 62, 63, 64])
             # State one-hot, draw_num and the extra features never move.
             # Layout: hand(63) -> state one-hot+draw_num at 63..71, then open-TAKI color(4)
-            # + shown card(63), then extra features at 139..146.
-            fixed = list(range(63, 72)) + list(range(139, 147))
+            # + shown card(63), then the EXTRA_FEATURES tail. Derive that tail from the
+            # constants: it was hardcoded 139..146 and silently stopped covering the seat-count
+            # one-hot when the observation grew 147->150, so the feature this test claims to
+            # pin was unpinned for the whole mixed-count line.
+            fixed = list(range(63, 72)) + list(range(OBSERVATION_SIZE - EXTRA_FEATURES,
+                                                     OBSERVATION_SIZE))
             self.assertEqual(list(OBS_PERMS[k][fixed]), fixed)
 
     def test_identity_perm_is_noop(self):
@@ -517,8 +521,11 @@ class RankSymmetryTest(unittest.TestCase):
         fixed_card = [c * TYPES_PER_COLOR + t
                       for c in range(NUM_PLAY_COLORS) for t in (0, 10, 11, 12, 13, 14)]
         fixed_card += [60, 61, 62]
+        # The extras tail is derived from the constants, not hardcoded -- see the colored
+        # counterpart above for why (the seat-count one-hot fell outside the old 139..146).
         fixed_obs = sorted([off + s for off in (0, 76) for s in fixed_card]
-                           + list(range(63, 76)) + list(range(139, 147)))
+                           + list(range(63, 76))
+                           + list(range(OBSERVATION_SIZE - EXTRA_FEATURES, OBSERVATION_SIZE)))
         for k in range(len(rhos)):
             self.assertEqual(sorted(obs_perms[k]), list(range(OBSERVATION_SIZE)))
             self.assertEqual(sorted(act_perms[k]), list(range(ACTION_SIZE)))
