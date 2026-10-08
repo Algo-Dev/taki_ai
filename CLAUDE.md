@@ -383,7 +383,8 @@ Three layers with a strict encoding contract between them:
 - **Parked branches — all three are on the remote, and they are NOT equally stale.** `git worktree
   list` and `git branch` first; the task may already have a branch. **Full write-up in PLAN.md
   ("Parked branches").** The one-line version:
-  - **`r4-color-void`** (worktree at `../taki-ai-r4-color-void`) — **current architecture, positive
+  - **`r4-color-void`** (no worktree since 2026-10-08; its nets are on the `r4-color-void-models`
+    release) — **current architecture, positive
     behavioural result, graded against the wrong bar.** Adds per-opponent colour-void beliefs
     (obs 150->162). It needs **re-grading as a fidelity fix**, not retesting: the heuristic has had
     this inference since R3 (`w_deny`), so the yardstick could do something the agent could not.
