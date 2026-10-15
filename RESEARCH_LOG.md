@@ -118,7 +118,7 @@ the ones that *contradict something already written here* are repeated:
   measurement bug in the probes themselves, and this fixes it without touching the policy.
 
 **Two defects it found were real and are now fixed** (see the commit for 2026-10-08): `r6_accept.py`
-section 3 had printed `?` instead of a win rate since `440bf60` renamed the `eval.py` line it
+section 3 had printed `?` instead of a win rate since the R3 heuristic commit (2026-07-12) renamed the `eval.py` line it
 greps for — a silent hole in a *pre-registered acceptance test* — and the two symmetry tests
 hardcoded the extras tail as `139..146`, so the seat-count one-hot was never pinned invariant for
 the entire mixed-count line. Both ranges now derive from `OBSERVATION_SIZE - EXTRA_FEATURES`.
@@ -926,7 +926,7 @@ zero-pads below 4 seats, so the **147-float contract is unchanged**: every check
 loadable at every count, which is what made a warm-start from R6 possible. The count is encoded
 only *implicitly*, by which slots are zero (a live opponent never holds 0 cards — only a winner
 does, and then the game is over). `num_of_players` was a single local every downstream use
-derived from, so `--num-players` is a one-line change (`c353565`).
+derived from, so `--num-players` is a one-line change (made 2026-07-16).
 
 ### The survey: R6's edge exists only at four seats
 
@@ -1715,7 +1715,7 @@ next run needs nowhere near 500k trials, which makes B-series iteration much fas
   shows it is not even a *progress* metric past the first 5% of training. Rank on the heuristic.
 - **The champion checkpoints are GONE.** `models/` held nothing when the retrain finished —
   `checkpoint_a8_snap455000` and `checkpoint_a4a7_snap550000` no longer exist anywhere on disk,
-  lost in the models-symlink incident that commits `0f96882`/`62a7433` repaired. So the planned
+  lost in the 2026-07-12 models-symlink incident. So the planned
   "new champion vs old champion" seat-swap head-to-head is **impossible** and no cross-rule
   head-to-head will ever be run. The A8 numbers above survive only as recorded history. Every
   comparison from here is against the heuristic or within-lineage.
@@ -2103,7 +2103,7 @@ corrected here.** `eval.py`'s `play_match` **shuffles seating per game**
 opening seat in only ~25% of games — its parity share. **Mode B `--baseline` numbers are fair in
 expectation, not inflated.** This confirms review item **R7** in PLAN.md. (The false claim
 originated in the 2026-07-06 entry below and had spread to CLAUDE.md; `git log -S` shows the shuffle
-landed in `e5feaa8`, the *original* eval-harness commit, a week **before** that entry — so it was
+landed in the *original* eval-harness commit (2026-06-29), a week **before** that entry — so it was
 wrong when written. **Both have since been corrected and R7 is closed.** The seat-0 *discovery* is
 real, but it applies to `eval_headtohead.py`, which genuinely takes fixed seats.)
 
@@ -2182,7 +2182,7 @@ cheap follow-up is `--trials 450000` (moving the epsilon floor to 360k) so a run
 signature, which crashed with `Layer sequential expects 1 input(s), but it received 2` whenever a
 dueling agent played a legacy single-input checkpoint adopted via the shape-mismatch load fallback
 — i.e. *every* head-to-head against `checkpoint_a8_snap455000`. Fixed by tracking `self.dueling`
-from the resolved model's input count and branching the forward call (commit `8a49d04`).
+from the resolved model's input count and branching the forward call (2026-07-09, on the `a11-dueling-head` branch).
 
 ## 2026-07-08 — RESULT: bigger network (A10) does not beat `checkpoint_a8_snap455000`
 
@@ -2290,7 +2290,7 @@ table (1 model vs 3 copies of the other, in both directions) — it does not tes
 > This entry asserts that `eval.py`'s Mode A/B `play_match` "always seats the test agent at seat 0".
 > **It does not, and never did.** `play_match` has shuffled seating per game
 > (`seat_rng.shuffle(order)`, [eval.py:81](eval.py#L81)) since the *original* eval-harness commit
-> `e5feaa8` (2026-06-29) — a week **before** this entry was written. The test agent occupies the
+> (2026-06-29) — a week **before** this entry was written. The test agent occupies the
 > advantaged opening seat in ~25% of games, exactly its parity share, so **Mode A/B numbers —
 > including Mode-B `--baseline` head-to-heads — are fair in expectation, NOT inflated.**
 > The "Not yet fixed" paragraph at the end of this entry is therefore void, and the PLAN.md
@@ -2375,7 +2375,7 @@ TAKI is closed ON a King does the follow-up fire. See PLAN.md for the full inter
 
 **Encoding change → all pre-King checkpoints are unloadable** (obs 201→205, actions 64→65,
 card vector 62→63, `len(State)` 7→8). Last old-contract commit that still loads the pre-King
-models (incl. `checkpoint_colorsym_snap180000`) is **`344535a`** on `master`.
+models (incl. `checkpoint_colorsym_snap180000`) is the 2026-07-05 "PLAN.md: prune completed items" commit on `master`.
 
 Verification (correctness, not a quality bar):
 - `python -m unittest gametest` → **26/26 pass**, incl. 7 new King tests (cancels +2, legal
@@ -2967,8 +2967,8 @@ matters only when evaluating near-random nets.
 
 ## 2026-06-29 — Post-tuning baseline + CPU speedup
 
-**Code:** `b736083` (RL tuning) as the trained config; eval/snapshot tooling `e5feaa8`;
-DQN speedups `265cd86`. Hardware: WSL2, RTX 4070 present but **TF 2.4.1 is CPU-only**
+**Code:** the 2026-06-29 commits — RL tuning as the trained config, the eval/snapshot tooling,
+and the DQN speedups. Hardware: WSL2, RTX 4070 present but **TF 2.4.1 is CPU-only**
 (`is_built_with_cuda() == False`) — all runs are CPU.
 
 **Train config:** 4 players (1 learner + 3 synced opponents), `--trials 300`,

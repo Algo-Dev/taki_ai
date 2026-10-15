@@ -1,6 +1,7 @@
 # Taki AI
-A reinforcement-learning agent that plays [Taki](https://www.takigame.com/) — a card game I own
-no rights to — using Keras/TensorFlow, trained entirely by self-play.
+A reinforcement-learning agent that plays [Taki](https://www.takigame.com/) using Keras/TensorFlow,
+trained entirely by self-play. *An unofficial, independent project — "Taki" is a trademark of its
+respective owner, and this project is not affiliated with or endorsed by the makers of Taki.*
 
 The goal is **not** the strongest possible player. It is to find the best moves available under a
 **human information set** — the agent sees only what an attentive human could see and remember, so
@@ -62,7 +63,8 @@ which was the previous champion's own specialty. See [RESEARCH_LOG.md](RESEARCH_
 Checkpoints are **not in the repository** — `models/` is gitignored, because git stores every
 revision of a binary in full and cannot prune it later. The promoted champions are published as
 assets on the
-[`champion-M1s3` release](https://github.com/Algo-Dev/taki_ai/releases/tag/champion-M1s3) instead:
+[`champion-M1s3` release](https://github.com/Algo-Dev/taki_ai/releases/tag/champion-M1s3) instead.
+Like the code, the weights are **non-commercial** — see [License](#license).
 
 | asset | what it is |
 |---|---|

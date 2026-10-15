@@ -65,7 +65,7 @@ def main():
                               '--games', '3000', '--seed', '0'],
                              capture_output=True, text=True).stdout
         # Match eval.py's fmt() signature ('... = rate  vs 1/N ...'), not the label before it:
-        # this grepped for 'DQN vs' until 2026-10-08, but 440bf60 renamed that print to
+        # this grepped for 'DQN vs' until 2026-10-08, but the R3 heuristic commit renamed that print to
         # '{model} vs {opponent}:', so section 3 silently printed '?' for months. Only the Mode A
         # result line carries 'vs 1/N' (the '=== Mode A ===' header does not), and --run-dir is
         # never passed here, so there is exactly one match.

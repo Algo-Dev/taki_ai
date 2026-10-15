@@ -27,7 +27,7 @@
 
 **Policy probed:** `models/checkpoint_a8_snap455000` — the champion *at the time*, 0.912 vs 3
 random opponents. **That checkpoint no longer exists:** it was destroyed in the models-symlink
-incident (2026-07-12, commits `0f96882`/`62a7433`) and `models/` is gitignored, so nothing was
+incident (2026-07-12) and `models/` is gitignored, so nothing was
 recoverable. Nothing below can ever be *re-run* — only **redone** against a current champion,
 which is what the retraction above asks for. It was also trained on the buggy finishing rule.
 **Harness:** `probe.py`. **Consistency tests:** `probetest.py` (14 tests, all green).

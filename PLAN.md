@@ -592,7 +592,7 @@ far are all about the win-side/step-side terms.
 The 2026-07-06 RESEARCH_LOG entry states `play_match` "always seats the test agent at seat 0", and
 the "Infrastructure / evaluation optimizations" section above used to carry a "fix seat-0 bias in
 eval.py" item. But `play_match` has had per-game seeded seat shuffling since the *original* eval
-harness commit (`e5feaa8`) — `seat_rng.shuffle(order)` in [eval.py](eval.py)'s `play_match` — so the test agent
+harness commit (2026-06-29) — `seat_rng.shuffle(order)` in [eval.py](eval.py)'s `play_match` — so the test agent
 occupies the advantaged opening seat in ~25% of games, exactly its parity share. **Verified directly
 in the source. R7 is correct:** (a) Mode-B `--baseline` numbers are *fair in expectation*, not
 inflated as the log caveats claim; (b) the "fix seat-0 bias" item targeted a non-bug and **has now
@@ -605,7 +605,7 @@ corrected in the log. The true reason is mundane — **Mode B is a 1v3 win rate,
 per-seat rate**; different quantities, no confound needed.
 
 **R7 is now fully CLOSED (2026-07-11).** Established via `git log -S`: the shuffle landed in
-`e5feaa8` (2026-06-29), the *original* eval-harness commit — a week **before** the 2026-07-06 entry
+the *original* eval-harness commit (2026-06-29) — a week **before** the 2026-07-06 entry
 that denies it. So the claim was **wrong when written**, not merely stale. All three carriers are
 fixed: the non-bug item is deleted from the section above; the 2026-07-06 RESEARCH_LOG entry now
 carries a prominent correction (original text preserved); and CLAUDE.md now states positively that
@@ -766,7 +766,7 @@ selection set as the edge.
    observation's exact unseen +2/King/CHCOL counters are the one thing humans are *worst* at while
    nothing remembers colours/numbers, so the info set should be declared as a falsifiable *memory
    model*; `epsilon_min` is hardcoded at 0.1 with no CLI flag, gating R11; `r6_accept.py:66` has
-   silently printed `?` for its strength check since commit `440bf60` renamed the `eval.py` print it
+   silently printed `?` for its strength check since the R3 heuristic commit (2026-07-12) renamed the `eval.py` print it
    greps for; undecided games are dropped rather than reported; and the champion's vs-`h8` row is a
    max-of-3-seeds (optimistic by ~a seed-SD) while the paired vs-R6 margin is clean.
    **Explicitly NOT recommended: rewriting in a different RL family** (see the pytorch item below) —
@@ -780,7 +780,7 @@ selection set as the edge.
    dates preserved, all four branches pushed. The original repo is kept as the `upstream-readonly`
    remote so nothing can push to it by accident; it is NOT a GitHub fork, so there is no
    "forked from" link. The 12 commits by the original author (2020) remain in history, and
-   `LICENSE` carries both copyrights — MIT requires the notice to travel with derivative work.
+   `LICENSE-MIT` carries his MIT notice, which must travel with derivative work.
 
 ## Parked branches — what is on them and whether the verdict still stands
 
@@ -818,13 +818,13 @@ bottleneck is the objective and the information set, not the function class. Why
 its tip is **2026-07-11**, pre-finishing-rule-fix and **four seats only** — and P1/P2 showed the
 ceiling is **per-count**, with 17 points sitting in two-seat play. A dueling head has never been
 tried where there was known headroom. If retested, port the idea onto current master; do not
-re-run the branch (it diverged from the 2020 base and carries its own parallel history).
+re-run the branch (it left master on 2026-07-08, before the finishing-rule fix).
 **Keep the branch regardless as the clearest "3-seed screening replication meant nothing" case in
 the log** — it is also where the seat-0 misdiagnosis bit, which is why R7 and the eval-discipline
 section exist.
 
 **`r4-color-void` — NOT STALE, and "retest" is the wrong frame. It needs RE-GRADING.**
-Diverged from `b3fc8af` (the current master tip) on 2026-07-21 and probed with M1s3 itself as the
+Diverged from master at the h8 -> h9 promotion commit on 2026-07-21 and probed with M1s3 itself as the
 control, so it is on today's architecture. Adds **12 observation features** (obs 150 -> 162): for
 each of 3 opponents, a "lacks colour c" belief in [0,1] per colour, inferred from `game.history`
 alone — a free refusable draw while colour c was active sets the belief, each card that seat draws
